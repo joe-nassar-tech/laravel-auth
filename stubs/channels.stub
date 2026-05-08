@@ -1,0 +1,33 @@
+/*
+|--------------------------------------------------------------------------
+| joe-404/laravel-auth — Reverb Channel Authorization
+|--------------------------------------------------------------------------
+|
+| This stub was published by `php artisan auth:install`.
+|
+| The private channel `auth.verification.{tempToken}` is used to notify
+| the frontend in real-time when a user completes email verification.
+|
+| Because the user does not yet exist at this point, channel auth is based
+| solely on the existence of a valid, unused temp_token in auth_otp_codes.
+|
+| IMPORTANT: The broadcast auth route must allow unauthenticated access.
+| Add this to your BroadcastServiceProvider::boot() or AppServiceProvider:
+|
+|   Broadcast::routes(['middleware' => ['web']]);
+|
+| For API/SPA apps using Sanctum, ensure the /broadcasting/auth endpoint
+| is included in Sanctum's stateful domains or is accessible without auth.
+|
+*/
+
+use Joe404\LaravelAuth\Models\AuthOtpCode;
+
+Broadcast::channel('auth.verification.{tempToken}', function (?Illuminate\Foundation\Auth\User $user, string $tempToken): bool {
+    // Allow subscription to anyone who holds a valid temp_token
+    // The UUID is hard to guess; it expires with the OTP record
+    return AuthOtpCode::where('temp_token', $tempToken)
+        ->whereNull('used_at')
+        ->where('expires_at', '>', now())
+        ->exists();
+});

@@ -1,0 +1,70 @@
+{
+  "name": "joe-404/laravel-auth",
+  "description": "Drop-in, config-driven authentication library for Laravel 13. Registration, OTP + magic-link verification, login, password reset, sessions, API tokens, Google OAuth, and real-time Reverb verification — all through a single JSON API.",
+  "keywords": [
+    "laravel",
+    "laravel-auth",
+    "authentication",
+    "auth",
+    "otp",
+    "magic-link",
+    "sanctum",
+    "oauth",
+    "google-oauth",
+    "socialite",
+    "api-token",
+    "session-management",
+    "rate-limiting",
+    "account-lockout",
+    "reverb",
+    "laravel-package",
+    "php"
+  ],
+  "type": "library",
+  "license": "MIT",
+  "homepage": "https://github.com/joe-nassar-tech/laravel-auth",
+  "authors": [
+    {
+      "name": "Joe Nassar",
+      "email": "joe.nassar.tech@gmail.com",
+      "homepage": "https://github.com/joe-nassar-tech",
+      "role": "Developer"
+    }
+  ],
+  "support": {
+    "issues": "https://github.com/joe-nassar-tech/laravel-auth/issues",
+    "source": "https://github.com/joe-nassar-tech/laravel-auth"
+  },
+  "require": {
+    "php": "^8.2",
+    "laravel/framework": "^13.0",
+    "laravel/sanctum": "^4.0",
+    "laravel/socialite": "^5.0",
+    "spatie/laravel-permission": "^6.0",
+    "jenssegers/agent": "^2.6"
+  },
+  "require-dev": {
+    "orchestra/testbench": "^9.0",
+    "pestphp/pest": "^3.0",
+    "pestphp/pest-plugin-laravel": "^3.0"
+  },
+  "autoload": {
+    "psr-4": {
+      "Joe404\\LaravelAuth\\": "src/"
+    }
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "Joe404\\LaravelAuth\\Tests\\": "tests/"
+    }
+  },
+  "extra": {
+    "laravel": {
+      "providers": [
+        "Joe404\\LaravelAuth\\AuthServiceProvider"
+      ]
+    }
+  },
+  "minimum-stability": "stable",
+  "prefer-stable": true
+}

@@ -1,0 +1,21 @@
+# Internal / build files
+/laravel-auth-library-plan.md
+/.claude
+/CLAUDE.md
+
+# Composer
+/vendor/
+composer.lock
+
+# PHP
+*.cache
+
+# IDE & OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Test output
+.phpunit.result.cache
+coverage/
