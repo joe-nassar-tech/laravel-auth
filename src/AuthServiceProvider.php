@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 namespace Joe404\LaravelAuth;
 
+use Illuminate\Auth\AuthenticationException;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Routing\Router;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
+use Illuminate\Validation\ValidationException;
 use Joe404\LaravelAuth\Channels\EmailOtpChannel;
 use Joe404\LaravelAuth\Commands\InstallCommand;
 use Joe404\LaravelAuth\Contracts\OtpChannelContract;
@@ -68,6 +70,7 @@ class AuthServiceProvider extends ServiceProvider
         $this->registerCommands();
         $this->registerSchedule();
         $this->registerEvents();
+        $this->registerExceptionHandlers();
     }
 
     private function publishAssets(): void
@@ -82,7 +85,7 @@ class AuthServiceProvider extends ServiceProvider
             ], 'auth-migrations');
 
             $this->publishes([
-                __DIR__ . '/../database/seeders' => database_path('seeders'),
+                __DIR__ . '/Database/Seeders/AuthRolesSeeder.php' => database_path('seeders/AuthRolesSeeder.php'),
             ], 'auth-seeders');
 
             $this->publishes([
@@ -140,6 +143,52 @@ class AuthServiceProvider extends ServiceProvider
     {
         Event::listen(UserRegistered::class, SendVerificationNotification::class);
         Event::listen(SuspiciousLoginDetected::class, NotifySuspiciousLogin::class);
+    }
+
+    private function registerExceptionHandlers(): void
+    {
+        $this->app->singleton('auth.exception_handlers_registered', fn () => true);
+
+        $handler = $this->app->make(\Illuminate\Contracts\Debug\ExceptionHandler::class);
+
+        if (! method_exists($handler, 'renderable')) {
+            return;
+        }
+
+        // Wrap ValidationException in the standard envelope for auth routes
+        $handler->renderable(function (ValidationException $e, $request) {
+            if (! $this->isAuthRoute($request)) {
+                return null;
+            }
+
+            /** @var ResponseFormatterContract $formatter */
+            $formatter = $this->app->make(ResponseFormatterContract::class);
+
+            return response()->json(
+                $formatter->format(false, $e->getMessage(), [], $e->errors()),
+                422,
+            );
+        });
+
+        // Wrap AuthenticationException in the standard envelope for auth routes
+        $handler->renderable(function (AuthenticationException $e, $request) {
+            if (! $this->isAuthRoute($request)) {
+                return null;
+            }
+
+            /** @var ResponseFormatterContract $formatter */
+            $formatter = $this->app->make(ResponseFormatterContract::class);
+
+            return response()->json(
+                $formatter->format(false, 'Unauthenticated.', [], []),
+                401,
+            );
+        });
+    }
+
+    private function isAuthRoute(\Illuminate\Http\Request $request): bool
+    {
+        return str_starts_with($request->path(), 'auth/') || $request->path() === 'auth';
     }
 
     private function configureSocialite(): void

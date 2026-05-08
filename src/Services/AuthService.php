@@ -42,7 +42,7 @@ class AuthService
 
         Cache::put(
             "auth:pending:{$email}",
-            Hash::make($password),
+            $password,
             now()->addMinutes((int) config('auth_system.password.pending_ttl_minutes', 60)),
         );
 
@@ -80,9 +80,9 @@ class AuthService
 
     private function finalizeRegistration(string $email, string $tempToken): array
     {
-        $hashedPassword = Cache::pull("auth:pending:{$email}");
+        $plainPassword = Cache::pull("auth:pending:{$email}");
 
-        if ($hashedPassword === null) {
+        if ($plainPassword === null) {
             throw new \RuntimeException('Registration session expired. Please start again.');
         }
 
@@ -91,13 +91,23 @@ class AuthService
 
         $name = (string) Str::before($email, '@');
 
+        // Detect whether the host model has the 'hashed' cast on password.
+        // If it does, pass the plain value so the cast hashes it once.
+        // If it doesn't, hash it ourselves so it is never stored as plain text.
+        $userInstance  = new $userModel;
+        $castType      = method_exists($userInstance, 'getCasts') ? ($userInstance->getCasts()['password'] ?? null) : null;
+        $passwordValue = ($castType === 'hashed') ? $plainPassword : Hash::make($plainPassword);
+
         /** @var User $user */
         $user = $userModel::create([
-            'name'              => $name,
-            'email'             => $email,
-            'password'          => $hashedPassword,
-            'email_verified_at' => now(),
+            'name'     => $name,
+            'email'    => $email,
+            'password' => $passwordValue,
         ]);
+
+        // email_verified_at may not be in the model's fillable list, so set it directly.
+        $user->email_verified_at = now();
+        $user->save();
 
         $defaultRole = (string) config('auth_system.roles.default_role', 'user');
 

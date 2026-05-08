@@ -9,10 +9,11 @@ use Illuminate\Broadcasting\InteractsWithSockets;
 use Illuminate\Broadcasting\PrivateChannel;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
 use Illuminate\Foundation\Auth\User;
+use Illuminate\Foundation\Events\Dispatchable;
 
 class EmailVerified implements ShouldBroadcastNow
 {
-    use InteractsWithSockets;
+    use Dispatchable, InteractsWithSockets;
 
     public function __construct(
         public readonly User $user,

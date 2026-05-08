@@ -21,7 +21,9 @@ class InstallCommand extends Command
         $this->callSilent('vendor:publish', ['--tag' => 'auth-config']);
         $this->info('[✓] Config published.');
 
-        // 2. Run migrations
+        // 2. Publish dependency migrations (Sanctum + Spatie Permission) then run all
+        $this->callSilent('vendor:publish', ['--provider' => 'Laravel\Sanctum\SanctumServiceProvider']);
+        $this->callSilent('vendor:publish', ['--provider' => 'Spatie\Permission\PermissionServiceProvider', '--tag' => 'permission-migrations']);
         $this->call('migrate');
         $this->info('[✓] Migrations complete.');
 
