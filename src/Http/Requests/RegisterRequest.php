@@ -18,10 +18,13 @@ class RegisterRequest extends FormRequest
      */
     public function rules(): array
     {
-        return [
-            'email'                 => ['required', 'email', 'max:255'],
-            'password'              => ['required', 'string', 'min:8', 'confirmed'],
-            'password_confirmation' => ['required', 'string'],
+        $base = [
+            'email' => ['required', 'email', 'max:255'],
         ];
+
+        /** @var array<string, mixed> $extra */
+        $extra = config('auth_system.registration.extra_fields_rules', []);
+
+        return array_merge($base, $extra);
     }
 }

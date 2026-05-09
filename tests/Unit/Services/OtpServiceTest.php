@@ -12,7 +12,7 @@ beforeEach(function (): void {
     Notification::fake();
 });
 
-it('generates an OTP of the correct configured length', function (): void {
+it('stores only a hash of the generated OTP, never the raw code', function (): void {
     config(['auth_system.verification.otp_length' => 6]);
 
     /** @var OtpService $otpService */
@@ -24,8 +24,8 @@ it('generates an OTP of the correct configured length', function (): void {
     $record = AuthOtpCode::where('email', $email)->where('type', 'email_verify')->latest()->first();
 
     expect($record)->not->toBeNull();
-    expect(strlen($record->token))->toBe(6);
-    expect(ctype_digit($record->token))->toBeTrue();
+    // Hash::sha256 hex = 64 hex chars. Never the raw OTP digits.
+    expect(strlen((string) $record->token))->toBe(64);
 });
 
 it('throws OtpInvalidException for a wrong OTP code', function (): void {
@@ -37,7 +37,7 @@ it('throws OtpInvalidException for a wrong OTP code', function (): void {
     AuthOtpCode::create([
         'email'      => $email,
         'type'       => 'email_verify',
-        'token'      => '111111',
+        'token'      => hash('sha256', '111111'),
         'temp_token' => \Illuminate\Support\Str::uuid()->toString(),
         'expires_at' => now()->addMinutes(10),
     ]);
@@ -55,7 +55,7 @@ it('throws OtpExpiredException for an expired OTP', function (): void {
     AuthOtpCode::create([
         'email'      => $email,
         'type'       => 'email_verify',
-        'token'      => '222222',
+        'token'      => hash('sha256', '222222'),
         'temp_token' => \Illuminate\Support\Str::uuid()->toString(),
         'expires_at' => now()->subMinutes(1), // expired
     ]);

@@ -84,6 +84,9 @@ it('clears lockout counter on successful login', function (): void {
 
 it('lockout respects disabled config', function (): void {
     config(['auth_system.security.lockout.enabled' => false]);
+    // Decouple from the IP-based rate limiter for this test — we are exercising
+    // lockout behavior, not throttling.
+    config(['auth_system.rate_limits.login' => '100:1']);
     test()->createUser(['email' => 'nolockout@example.com', 'password' => bcrypt('correct')]);
 
     for ($i = 0; $i < 10; $i++) {

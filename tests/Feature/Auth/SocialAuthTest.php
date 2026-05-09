@@ -108,7 +108,7 @@ it('callback logs in existing user matched by provider_id', function (): void {
     expect($response->json('data.token'))->not->toBeNull();
 });
 
-it('callback links google to existing account matched by email', function (): void {
+it('callback does NOT auto-link when email matches an existing local account (takeover defense)', function (): void {
     $user = test()->createUser(['email' => 'linked@gmail.com']);
 
     expect(AuthSocialAccount::where('user_id', $user->id)->exists())->toBeFalse();
@@ -117,9 +117,14 @@ it('callback links google to existing account matched by email', function (): vo
 
     $response = $this->getJson('/auth/social/google/callback');
 
-    $response->assertStatus(200)->assertJson(['success' => true]);
+    // v2: returns 202 + requires_link_confirmation. NOT auto-linked.
+    $response->assertStatus(202)
+        ->assertJson(['success' => true])
+        ->assertJsonFragment(['email' => 'linked@gmail.com']);
 
-    expect(AuthSocialAccount::where('user_id', $user->id)->where('provider', 'google')->exists())->toBeTrue();
+    // Crucially: no link row was created. The user must click the confirmation
+    // email before the social account is linked.
+    expect(AuthSocialAccount::where('user_id', $user->id)->exists())->toBeFalse();
 });
 
 it('new google user gets default role assigned', function (): void {

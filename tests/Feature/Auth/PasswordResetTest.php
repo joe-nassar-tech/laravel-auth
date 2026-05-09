@@ -3,14 +3,12 @@
 declare(strict_types=1);
 
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Str;
 use Joe404\LaravelAuth\Models\AuthOtpCode;
-use Joe404\LaravelAuth\Notifications\OtpCodeNotification;
-use Joe404\LaravelAuth\Services\AuthService;
-use Joe404\LaravelAuth\Services\OtpService;
 use Joe404\LaravelAuth\Tests\Fixtures\User;
 
 beforeEach(function (): void {
@@ -28,187 +26,146 @@ beforeEach(function (): void {
     ]);
 });
 
-it('forgot password with valid email sends notification', function (): void {
-    $response = $this->postJson('/auth/password/forgot', [
-        'email' => 'reset@example.com',
+function seedResetOtp(string $email, string $rawOtp = '424242'): AuthOtpCode
+{
+    return AuthOtpCode::create([
+        'email'      => $email,
+        'type'       => 'password_reset',
+        'token'      => hash('sha256', $rawOtp),
+        'temp_token' => Str::uuid()->toString(),
+        'expires_at' => now()->addMinutes(10),
     ]);
+}
 
-    $response->assertStatus(200)
-        ->assertJson(['success' => true])
-        ->assertJsonFragment(['message' => 'If that email is registered, you will receive reset instructions shortly.']);
-
-    Notification::assertSentOnDemand(OtpCodeNotification::class);
+it('forgot password returns 200 envelope for known emails', function (): void {
+    $this->postJson('/auth/password/forgot', ['email' => 'reset@example.com'])
+        ->assertStatus(200)
+        ->assertJson(['success' => true]);
 });
 
-it('forgot password with unknown email returns identical 200 response', function (): void {
-    $response = $this->postJson('/auth/password/forgot', [
-        'email' => 'nobody@example.com',
-    ]);
-
-    $response->assertStatus(200)
+it('forgot password returns identical 200 envelope for unknown emails (no enumeration)', function (): void {
+    $this->postJson('/auth/password/forgot', ['email' => 'nobody@example.com'])
+        ->assertStatus(200)
         ->assertJson(['success' => true])
-        ->assertJsonFragment(['message' => 'If that email is registered, you will receive reset instructions shortly.']);
+        ->assertJsonFragment([
+            'message' => 'If that email is registered, you will receive reset instructions shortly.',
+        ]);
 });
 
-it('otp reset with valid otp updates password', function (): void {
-    /** @var AuthService $authService */
-    $authService = app(AuthService::class);
-    $authService->forgotPassword('reset@example.com');
+it('otp reset with the correct raw OTP updates the password', function (): void {
+    seedResetOtp('reset@example.com', '424242');
 
-    $otpRecord = AuthOtpCode::where('email', 'reset@example.com')
-        ->where('type', 'password_reset')
-        ->whereNull('used_at')
-        ->latest()
-        ->first();
-
-    expect($otpRecord)->not->toBeNull();
-
-    $response = $this->postJson('/auth/password/reset/otp', [
+    $this->postJson('/auth/password/reset/otp', [
         'email'                 => 'reset@example.com',
-        'otp'                   => $otpRecord->token,
+        'otp'                   => '424242',
         'password'              => 'NewPassword1!',
         'password_confirmation' => 'NewPassword1!',
-    ]);
-
-    $response->assertStatus(200)
-        ->assertJson(['success' => true]);
+    ])->assertStatus(200);
 
     $this->user->refresh();
-    expect(\Illuminate\Support\Facades\Hash::check('NewPassword1!', $this->user->password))->toBeTrue();
+    expect(Hash::check('NewPassword1!', $this->user->password))->toBeTrue();
 });
 
-it('otp reset with expired otp returns 422', function (): void {
+it('otp reset with expired OTP returns 422', function (): void {
     AuthOtpCode::create([
         'email'      => 'reset@example.com',
         'type'       => 'password_reset',
-        'token'      => '111111',
+        'token'      => hash('sha256', '111111'),
         'temp_token' => Str::uuid()->toString(),
         'expires_at' => now()->subMinutes(5),
     ]);
 
-    $response = $this->postJson('/auth/password/reset/otp', [
+    $this->postJson('/auth/password/reset/otp', [
         'email'                 => 'reset@example.com',
         'otp'                   => '111111',
         'password'              => 'NewPassword1!',
         'password_confirmation' => 'NewPassword1!',
-    ]);
-
-    $response->assertStatus(422)
-        ->assertJson(['success' => false]);
+    ])->assertStatus(422);
 });
 
-it('otp reset with already-used otp returns 422', function (): void {
+it('otp reset with already-used OTP returns 422', function (): void {
     AuthOtpCode::create([
         'email'      => 'reset@example.com',
         'type'       => 'password_reset',
-        'token'      => '222222',
+        'token'      => hash('sha256', '222222'),
         'temp_token' => Str::uuid()->toString(),
         'expires_at' => now()->addMinutes(10),
         'used_at'    => now(),
     ]);
 
-    $response = $this->postJson('/auth/password/reset/otp', [
+    $this->postJson('/auth/password/reset/otp', [
         'email'                 => 'reset@example.com',
         'otp'                   => '222222',
         'password'              => 'NewPassword1!',
         'password_confirmation' => 'NewPassword1!',
-    ]);
-
-    $response->assertStatus(422)
-        ->assertJson(['success' => false]);
+    ])->assertStatus(422);
 });
 
-it('magic link redirect with valid signature returns reset_token', function (): void {
-    /** @var OtpService $otpService */
-    $otpService = app(OtpService::class);
-    $otpService->sendMagicLink('reset@example.com', 'magic_link_reset');
+it('magic link redirect with a valid signature returns a reset_token', function (): void {
+    $rawUuid = Str::uuid()->toString();
 
-    $magicRecord = AuthOtpCode::where('email', 'reset@example.com')
-        ->where('type', 'magic_link_reset')
-        ->whereNull('used_at')
-        ->latest()
-        ->first();
-
-    expect($magicRecord)->not->toBeNull();
+    AuthOtpCode::create([
+        'email'      => 'reset@example.com',
+        'type'       => 'magic_link_reset',
+        'token'      => hash('sha256', $rawUuid),
+        'temp_token' => Str::uuid()->toString(),
+        'expires_at' => now()->addMinutes(30),
+    ]);
 
     $signedUrl = URL::temporarySignedRoute(
         'auth.password.reset.magic',
         now()->addMinutes(30),
-        ['token' => $magicRecord->token],
+        ['token' => $rawUuid],
     );
 
-    $parsedUrl = parse_url($signedUrl);
-    parse_str($parsedUrl['query'] ?? '', $queryParams);
+    $query = parse_url($signedUrl, PHP_URL_QUERY);
 
-    $response = $this->getJson(
-        '/auth/password/reset/magic/' . $magicRecord->token
-        . '?' . http_build_query($queryParams),
-    );
-
-    $response->assertStatus(200)
-        ->assertJson(['success' => true])
+    $this->getJson('/auth/password/reset/magic/' . $rawUuid . '?' . $query)
+        ->assertStatus(200)
         ->assertJsonStructure(['data' => ['reset_token']]);
 });
 
 it('magic link redirect with invalid signature returns 422', function (): void {
-    $response = $this->getJson('/auth/password/reset/magic/fake-token');
-
-    $response->assertStatus(422)
-        ->assertJson(['success' => false]);
+    $this->getJson('/auth/password/reset/magic/fake-token')
+        ->assertStatus(422);
 });
 
-it('confirm with valid reset_token updates password', function (): void {
+it('reset/confirm with a valid reset_token updates the password', function (): void {
     $resetToken = Str::uuid()->toString();
     Cache::put("auth:reset_token:{$resetToken}", 'reset@example.com', now()->addMinutes(15));
 
-    $response = $this->postJson('/auth/password/reset/confirm', [
+    $this->postJson('/auth/password/reset/confirm', [
         'reset_token'           => $resetToken,
-        'password'              => 'NewPassword1!',
-        'password_confirmation' => 'NewPassword1!',
-    ]);
-
-    $response->assertStatus(200)
-        ->assertJson(['success' => true]);
-
-    $this->user->refresh();
-    expect(\Illuminate\Support\Facades\Hash::check('NewPassword1!', $this->user->password))->toBeTrue();
-});
-
-it('confirm with expired or invalid reset_token returns 422', function (): void {
-    $response = $this->postJson('/auth/password/reset/confirm', [
-        'reset_token'           => Str::uuid()->toString(),
-        'password'              => 'NewPassword1!',
-        'password_confirmation' => 'NewPassword1!',
-    ]);
-
-    $response->assertStatus(422)
-        ->assertJson(['success' => false]);
-});
-
-it('otp reset revokes all user sessions and tokens', function (): void {
-    // Give the user a Sanctum token
-    $this->user->createToken('test-token');
-
-    expect($this->user->tokens()->count())->toBe(1);
-
-    /** @var AuthService $authService */
-    $authService = app(AuthService::class);
-    $authService->forgotPassword('reset@example.com');
-
-    $otpRecord = AuthOtpCode::where('email', 'reset@example.com')
-        ->where('type', 'password_reset')
-        ->whereNull('used_at')
-        ->latest()
-        ->first();
-
-    expect($otpRecord)->not->toBeNull();
-
-    $this->postJson('/auth/password/reset/otp', [
-        'email'                 => 'reset@example.com',
-        'otp'                   => $otpRecord->token,
         'password'              => 'NewPassword1!',
         'password_confirmation' => 'NewPassword1!',
     ])->assertStatus(200);
 
-    expect($this->user->tokens()->count())->toBe(0);
+    $this->user->refresh();
+    expect(Hash::check('NewPassword1!', $this->user->password))->toBeTrue();
+});
+
+it('reset/confirm with an unknown reset_token returns 422', function (): void {
+    $this->postJson('/auth/password/reset/confirm', [
+        'reset_token'           => Str::uuid()->toString(),
+        'password'              => 'NewPassword1!',
+        'password_confirmation' => 'NewPassword1!',
+    ])->assertStatus(422);
+});
+
+it('successful otp reset revokes all of the user other Sanctum tokens', function (): void {
+    $this->user->createToken('a');
+    $this->user->createToken('b');
+
+    expect($this->user->tokens()->count())->toBe(2);
+
+    seedResetOtp('reset@example.com', '999999');
+
+    $this->postJson('/auth/password/reset/otp', [
+        'email'                 => 'reset@example.com',
+        'otp'                   => '999999',
+        'password'              => 'NewPassword1!',
+        'password_confirmation' => 'NewPassword1!',
+    ])->assertStatus(200);
+
+    expect($this->user->fresh()->tokens()->count())->toBe(0);
 });

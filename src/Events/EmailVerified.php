@@ -18,7 +18,6 @@ class EmailVerified implements ShouldBroadcastNow
     public function __construct(
         public readonly User $user,
         public readonly string $tempToken,
-        public readonly ?string $sanctumToken = null,
     ) {}
 
     /**
@@ -42,7 +41,6 @@ class EmailVerified implements ShouldBroadcastNow
     {
         return [
             'verified' => true,
-            'token'    => $this->sanctumToken,
             'redirect' => '/dashboard',
         ];
     }

@@ -25,7 +25,7 @@ class ApiTokenService
         $token = AuthApiToken::create([
             'name'       => $name,
             'token_hash' => $hash,
-            'abilities'  => $abilities ?: config('auth_system.api_token.abilities_default', ['read']),
+            'abilities'  => $abilities ?: config('auth_system.api_tokens.abilities_default', ['read']),
             'owner_type' => $owner !== null ? get_class($owner) : null,
             'owner_id'   => $owner !== null && method_exists($owner, 'getKey') ? $owner->getKey() : null,
             'expires_at' => $expiresInDays !== null ? now()->addDays($expiresInDays) : null,

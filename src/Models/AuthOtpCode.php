@@ -20,11 +20,13 @@ class AuthOtpCode extends Model
         'temp_token',
         'expires_at',
         'used_at',
+        'failed_attempts',
     ];
 
     protected $casts = [
-        'expires_at' => 'datetime',
-        'used_at'    => 'datetime',
+        'expires_at'      => 'datetime',
+        'used_at'         => 'datetime',
+        'failed_attempts' => 'integer',
     ];
 
     public function isExpired(): bool

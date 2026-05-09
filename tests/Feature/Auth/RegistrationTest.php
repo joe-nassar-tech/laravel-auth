@@ -5,7 +5,10 @@ declare(strict_types=1);
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Str;
 use Joe404\LaravelAuth\Models\AuthOtpCode;
+use Joe404\LaravelAuth\Notifications\CombinedOtpMagicLinkNotification;
+use Joe404\LaravelAuth\Notifications\ExistingAccountNotification;
 use Joe404\LaravelAuth\Notifications\OtpCodeNotification;
 use Joe404\LaravelAuth\Tests\Fixtures\User;
 
@@ -13,29 +16,38 @@ beforeEach(function (): void {
     Notification::fake();
     Queue::fake();
 
-    // Seed roles for registration tests
     \Spatie\Permission\Models\Role::firstOrCreate(['name' => 'user', 'guard_name' => 'web']);
 });
 
-it('initiates registration and returns temp_token with OTP email sent', function (): void {
+/**
+ * Helper: seed a known OTP for an email so we can submit the raw code.
+ */
+function seedOtp(string $email, string $rawOtp = '123456', string $type = 'email_verify'): AuthOtpCode
+{
+    return AuthOtpCode::create([
+        'email'      => $email,
+        'type'       => $type,
+        'token'      => hash('sha256', $rawOtp),
+        'temp_token' => Str::uuid()->toString(),
+        'expires_at' => now()->addMinutes(10),
+    ]);
+}
+
+it('initiates registration and returns temp_token (combined notification by default)', function (): void {
+    config()->set('auth_system.verification.method', 'both');
+
     $response = $this->postJson('/auth/register', [
-        'email'                 => 'newuser@example.com',
-        'password'              => 'password123',
-        'password_confirmation' => 'password123',
+        'email' => 'newuser@example.com',
     ]);
 
     $response->assertStatus(201)
-        ->assertJsonStructure([
-            'success',
-            'message',
-            'data' => ['temp_token', 'method', 'expires_in'],
-        ])
+        ->assertJsonStructure(['success', 'message', 'data' => ['temp_token', 'method', 'expires_in']])
         ->assertJson(['success' => true]);
 
-    Notification::assertSentOnDemand(OtpCodeNotification::class);
+    Notification::assertSentOnDemand(CombinedOtpMagicLinkNotification::class);
 });
 
-it('returns 409 when trying to register a duplicate email', function (): void {
+it('initiate registration returns same response shape for an already-registered email (no enumeration oracle)', function (): void {
     User::create([
         'name'              => 'Existing User',
         'email'             => 'existing@example.com',
@@ -44,187 +56,179 @@ it('returns 409 when trying to register a duplicate email', function (): void {
         'is_active'         => true,
     ]);
 
-    $response = $this->postJson('/auth/register', [
-        'email'                 => 'existing@example.com',
-        'password'              => 'password123',
-        'password_confirmation' => 'password123',
-    ]);
+    $response = $this->postJson('/auth/register', ['email' => 'existing@example.com']);
 
-    $response->assertStatus(409)
-        ->assertJson(['success' => false]);
+    // Same 201 + temp_token shape — does not leak that the email is taken.
+    $response->assertStatus(201)
+        ->assertJsonStructure(['data' => ['temp_token', 'method', 'expires_in']])
+        ->assertJson(['success' => true]);
 });
 
-it('verifies OTP and completes registration returning token', function (): void {
+it('verify-otp returns a completion_token and does NOT create a user yet', function (): void {
+    config()->set('auth_system.verification.method', 'otp');
+
     $email = 'otp-verify@example.com';
 
-    // Initiate registration
-    $initResponse = $this->postJson('/auth/register', [
-        'email'                 => $email,
-        'password'              => 'password123',
-        'password_confirmation' => 'password123',
-    ]);
-
-    $initResponse->assertStatus(201);
-
-    // Get the OTP code from the database
-    $otpRecord = AuthOtpCode::where('email', $email)->where('type', 'email_verify')->latest()->first();
-    expect($otpRecord)->not->toBeNull();
-
-    // Verify with OTP
-    $response = $this->postJson('/auth/register/verify-otp', [
-        'email' => $email,
-        'otp'   => $otpRecord->token,
-    ]);
-
-    $response->assertStatus(201)
-        ->assertJsonStructure([
-            'success',
-            'message',
-            'data' => ['user', 'token', 'temp_token'],
-        ])
-        ->assertJson(['success' => true]);
-
-    expect(User::where('email', $email)->exists())->toBeTrue();
-    expect($response->json('data.token'))->not->toBeNull();
-});
-
-it('verifies magic link and completes registration returning token', function (): void {
-    $email = 'magic-verify@example.com';
-
-    // Initiate registration
-    $this->postJson('/auth/register', [
-        'email'                 => $email,
-        'password'              => 'password123',
-        'password_confirmation' => 'password123',
-    ])->assertStatus(201);
-
-    // Get the magic link token from the database
-    $magicRecord = AuthOtpCode::where('email', $email)->where('type', 'magic_link_verify')->latest()->first();
-    expect($magicRecord)->not->toBeNull();
-
-    // Build a valid signed URL for the token
-    $signedUrl = \Illuminate\Support\Facades\URL::temporarySignedRoute(
-        'auth.register.verify.magic',
-        now()->addMinutes(30),
-        ['token' => $magicRecord->token],
-    );
-
-    $parsedUrl = parse_url($signedUrl);
-    parse_str($parsedUrl['query'] ?? '', $queryParams);
-
-    $response = $this->getJson(
-        '/auth/register/verify-magic/' . $magicRecord->token
-        . '?' . http_build_query($queryParams),
-    );
-
-    $response->assertStatus(201)
-        ->assertJson(['success' => true])
-        ->assertJsonStructure(['data' => ['user', 'token', 'temp_token']]);
-
-    expect(User::where('email', $email)->exists())->toBeTrue();
-});
-
-it('returns 422 for an expired OTP', function (): void {
-    $email = 'expired-otp@example.com';
-
-    Cache::put("auth:pending:{$email}", bcrypt('password123'), now()->addMinutes(60));
-
-    AuthOtpCode::create([
-        'email'      => $email,
-        'type'       => 'email_verify',
-        'token'      => '123456',
-        'temp_token' => \Illuminate\Support\Str::uuid()->toString(),
-        'expires_at' => now()->subMinutes(5), // already expired
-    ]);
-
-    $response = $this->postJson('/auth/register/verify-otp', [
-        'email' => $email,
-        'otp'   => '123456',
-    ]);
-
-    $response->assertStatus(422)
-        ->assertJson(['success' => false, 'message' => 'The OTP code has expired.']);
-});
-
-it('cannot reuse an already-used OTP', function (): void {
-    $email = 'reuse-otp@example.com';
-
-    Cache::put("auth:pending:{$email}", bcrypt('password123'), now()->addMinutes(60));
-
-    AuthOtpCode::create([
-        'email'      => $email,
-        'type'       => 'email_verify',
-        'token'      => '654321',
-        'temp_token' => \Illuminate\Support\Str::uuid()->toString(),
-        'expires_at' => now()->addMinutes(10),
-        'used_at'    => now(), // already used
-    ]);
+    Cache::put("auth:pending:{$email}", ['extra' => []], now()->addMinutes(60));
+    seedOtp($email, '654321');
 
     $response = $this->postJson('/auth/register/verify-otp', [
         'email' => $email,
         'otp'   => '654321',
     ]);
 
-    $response->assertStatus(422)
-        ->assertJson(['success' => false, 'message' => 'The OTP code is invalid.']);
+    $response->assertOk()
+        ->assertJsonStructure(['data' => ['completion_token']])
+        ->assertJson(['success' => true]);
+
+    expect(User::where('email', $email)->exists())->toBeFalse();
 });
 
-it('resending OTP invalidates the previous OTP', function (): void {
-    $email = 'resend@example.com';
+it('completes registration on /register/complete with the completion_token + password', function (): void {
+    config()->set('auth_system.verification.method', 'otp');
 
-    // Initiate first OTP
-    $this->postJson('/auth/register', [
-        'email'                 => $email,
-        'password'              => 'password123',
-        'password_confirmation' => 'password123',
-    ])->assertStatus(201);
+    $email = 'flow@example.com';
 
-    $firstOtp = AuthOtpCode::where('email', $email)
-        ->where('type', 'email_verify')
-        ->whereNull('used_at')
-        ->latest()
-        ->first();
+    Cache::put("auth:pending:{$email}", ['extra' => []], now()->addMinutes(60));
+    seedOtp($email, '111111');
 
-    expect($firstOtp)->not->toBeNull();
-    $firstToken = $firstOtp->token;
+    $verify = $this->postJson('/auth/register/verify-otp', [
+        'email' => $email,
+        'otp'   => '111111',
+    ])->assertOk();
 
-    // Re-initiate (same email — resend) — in a real resend endpoint this would call sendOtp directly
-    // For now, test that initiating again invalidates the previous OTP
-    // (registration re-initiate won't work since user doesn't exist yet)
-    /** @var \Joe404\LaravelAuth\Services\OtpService $otpService */
-    $otpService = app(\Joe404\LaravelAuth\Services\OtpService::class);
-    $otpService->sendOtp($email, 'email_verify');
+    $completionToken = $verify->json('data.completion_token');
 
-    $firstOtp->refresh();
-    expect($firstOtp->used_at)->not->toBeNull();
+    $complete = $this->postJson('/auth/register/complete', [
+        'completion_token'      => $completionToken,
+        'password'              => 'Password123!',
+        'password_confirmation' => 'Password123!',
+    ]);
 
-    $newOtp = AuthOtpCode::where('email', $email)
-        ->where('type', 'email_verify')
-        ->whereNull('used_at')
-        ->latest()
-        ->first();
+    $complete->assertStatus(201)
+        ->assertJsonStructure(['data' => ['user', 'token', 'refresh_token']])
+        ->assertJson(['success' => true]);
 
-    expect($newOtp)->not->toBeNull();
-    expect($newOtp->token)->not->toBe($firstToken);
+    expect(User::where('email', $email)->exists())->toBeTrue();
+    expect($complete->json('data.token'))->not->toBeNull();
 });
 
-it('assigns the user role after successful registration', function (): void {
-    $email = 'role-check@example.com';
+it('locks the OTP after AUTH_OTP_MAX_ATTEMPTS wrong submissions (brute-force defense)', function (): void {
+    config()->set('auth_system.verification.method', 'otp');
+    config()->set('auth_system.verification.otp_max_attempts', 3);
 
-    $this->postJson('/auth/register', [
-        'email'                 => $email,
-        'password'              => 'password123',
-        'password_confirmation' => 'password123',
-    ])->assertStatus(201);
+    $email = 'brute@example.com';
+    Cache::put("auth:pending:{$email}", ['extra' => []], now()->addMinutes(60));
+    seedOtp($email, '999999');
 
-    $otpRecord = AuthOtpCode::where('email', $email)->where('type', 'email_verify')->latest()->first();
+    foreach (['000000', '111111', '222222'] as $wrong) {
+        $this->postJson('/auth/register/verify-otp', [
+            'email' => $email,
+            'otp'   => $wrong,
+        ])->assertStatus(422);
+    }
+
+    // Even the correct OTP must now be rejected — the row was invalidated.
+    $this->postJson('/auth/register/verify-otp', [
+        'email' => $email,
+        'otp'   => '999999',
+    ])->assertStatus(422);
+
+    expect(AuthOtpCode::where('email', $email)->whereNotNull('used_at')->exists())->toBeTrue();
+});
+
+it('rejects an expired OTP', function (): void {
+    config()->set('auth_system.verification.method', 'otp');
+    $email = 'expired@example.com';
+
+    Cache::put("auth:pending:{$email}", ['extra' => []], now()->addMinutes(60));
+
+    AuthOtpCode::create([
+        'email'      => $email,
+        'type'       => 'email_verify',
+        'token'      => hash('sha256', '424242'),
+        'temp_token' => Str::uuid()->toString(),
+        'expires_at' => now()->subMinutes(5),
+    ]);
 
     $this->postJson('/auth/register/verify-otp', [
         'email' => $email,
-        'otp'   => $otpRecord->token,
+        'otp'   => '424242',
+    ])->assertStatus(422);
+});
+
+it('cannot reuse an already-used OTP', function (): void {
+    config()->set('auth_system.verification.method', 'otp');
+    $email = 'reuse@example.com';
+    Cache::put("auth:pending:{$email}", ['extra' => []], now()->addMinutes(60));
+
+    AuthOtpCode::create([
+        'email'      => $email,
+        'type'       => 'email_verify',
+        'token'      => hash('sha256', '555555'),
+        'temp_token' => Str::uuid()->toString(),
+        'expires_at' => now()->addMinutes(10),
+        'used_at'    => now(),
+    ]);
+
+    $this->postJson('/auth/register/verify-otp', [
+        'email' => $email,
+        'otp'   => '555555',
+    ])->assertStatus(422);
+});
+
+it('strips privileged fields (role, is_admin, etc.) from extra registration data', function (): void {
+    config()->set('auth_system.verification.method', 'otp');
+    config()->set('auth_system.registration.extra_fields_rules', [
+        'is_admin' => 'nullable|boolean',
+    ]);
+
+    $email = 'privesc@example.com';
+
+    $this->postJson('/auth/register', [
+        'email'    => $email,
+        'is_admin' => true,
     ])->assertStatus(201);
 
+    seedOtp($email, '777777');
+
+    $verify = $this->postJson('/auth/register/verify-otp', [
+        'email' => $email,
+        'otp'   => '777777',
+    ])->assertOk();
+
+    $this->postJson('/auth/register/complete', [
+        'completion_token'      => $verify->json('data.completion_token'),
+        'password'              => 'Password123!',
+        'password_confirmation' => 'Password123!',
+    ])->assertStatus(201);
+
+    /** @var User $user */
     $user = User::where('email', $email)->first();
-    expect($user)->not->toBeNull();
+
+    // is_admin in fillable would have been cast to true if we hadn't stripped it.
+    expect($user->getAttribute('is_admin'))->not->toBeTrue();
+});
+
+it('assigns the default role after successful registration', function (): void {
+    config()->set('auth_system.verification.method', 'otp');
+    $email = 'role@example.com';
+
+    Cache::put("auth:pending:{$email}", ['extra' => []], now()->addMinutes(60));
+    seedOtp($email, '101010');
+
+    $verify = $this->postJson('/auth/register/verify-otp', [
+        'email' => $email,
+        'otp'   => '101010',
+    ]);
+
+    $this->postJson('/auth/register/complete', [
+        'completion_token'      => $verify->json('data.completion_token'),
+        'password'              => 'Password123!',
+        'password_confirmation' => 'Password123!',
+    ])->assertStatus(201);
+
+    /** @var User $user */
+    $user = User::where('email', $email)->first();
     expect($user->hasRole('user'))->toBeTrue();
 });

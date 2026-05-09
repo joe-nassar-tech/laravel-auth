@@ -18,23 +18,24 @@ it('returns 429 after exceeding the login rate limit', function (): void {
     User::create([
         'name'              => 'Rate Limit User',
         'email'             => 'ratelimit@example.com',
-        'password'          => bcrypt('wrong'),
+        'password'          => bcrypt('correct-password'),
         'email_verified_at' => now(),
         'is_active'         => true,
     ]);
 
-    // Hit the endpoint 3 times (max attempts)
+    // Hit the endpoint 3 times with a WRONG password — rate-limit counter ticks
+    // because the controller returns 401 (no success-clear).
     for ($i = 0; $i < 3; $i++) {
         $this->postJson('/auth/login', [
             'email'    => 'ratelimit@example.com',
-            'password' => 'wrong',
+            'password' => 'definitely-wrong',
         ]);
     }
 
-    // 4th attempt should be rate limited
+    // 4th attempt should be rate limited — even with the right credentials.
     $response = $this->postJson('/auth/login', [
         'email'    => 'ratelimit@example.com',
-        'password' => 'wrong',
+        'password' => 'correct-password',
     ]);
 
     $response->assertStatus(429)

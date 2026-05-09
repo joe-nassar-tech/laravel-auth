@@ -25,7 +25,6 @@ class EmailVerificationController extends Controller
         $email = strtolower(trim($request->validated('email')));
 
         // Only resend if there is a pending pre-registration in cache
-        // (the hashed password stored during initiateRegistration)
         if (Cache::has("auth:pending:{$email}")) {
             $method    = (string) config('auth_system.verification.method', 'both');
             $tempToken = Str::uuid()->toString();
@@ -38,10 +37,9 @@ class EmailVerificationController extends Controller
             }
         }
 
-        // Always same response — prevents enumeration of pending registrations
+        // Always same response — prevents enumeration of pending registrations.
         return $this->success(
             'If your email is pending verification, new instructions have been sent.',
-            ['temp_token_hint' => 'Subscribe to the new temp_token returned if you re-initiated registration.'],
         );
     }
 }

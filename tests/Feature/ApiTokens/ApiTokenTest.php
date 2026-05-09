@@ -16,6 +16,9 @@ function makeAdminToken(): string
 }
 
 beforeEach(function (): void {
+    // Enable the api_tokens feature for this test file (gated by FeatureFlag middleware).
+    config()->set('auth_system.api_tokens.enabled', true);
+
     // Seed roles
     foreach (['super-admin', 'admin', 'user'] as $role) {
         \Spatie\Permission\Models\Role::firstOrCreate(['name' => $role, 'guard_name' => 'web']);

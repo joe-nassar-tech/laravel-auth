@@ -1,116 +1,41 @@
 {
   "info": {
     "name": "joe-404/laravel-auth",
-    "description": "Complete API collection for the joe-404/laravel-auth Laravel library.\n\n**Setup:**\n1. Set the `base_url` collection variable to your app URL (e.g. `http://localhost:8000`)\n2. Register a user and run `POST /auth/login` — the collection auto-saves the token to `auth_token`\n3. Use the saved `auth_token` variable in all authenticated requests\n\n**Variables used:**\n- `base_url` — your Laravel app URL\n- `auth_token` — auto-set after login\n- `temp_token` — auto-set after register\n- `reset_token` — auto-set after magic link password reset\n- `api_token_id` — auto-set after creating an API token\n- `api_token_raw` — auto-set after creating an API token\n- `session_id` — auto-set after listing sessions",
+    "description": "Complete API collection for the joe-404/laravel-auth Laravel library.\n\n**Two ready-to-use folders:**\n- **SPA — Session & Cookie** — for browser/SPA clients. Uses Laravel session cookies + CSRF token. No Authorization header needed on authenticated requests. A folder-level pre-request script automatically fetches `/sanctum/csrf-cookie` before every request in this folder.\n- **API — Bearer Token** — for mobile apps and API clients. Uses `Authorization: Bearer {{auth_token}}` on every authenticated request. Sends `X-Client-Type: mobile` on login to get a token.\n\n**Quick start (SPA mode):**\n1. Set `base_url` variable to your app URL\n2. Run **Setup → Get CSRF Cookie** once\n3. Call **SPA / Registration / 1. Initiate Registration**, verify email, then **Login**\n4. Session cookie is stored automatically by Postman's cookie jar\n\n**Quick start (API/mobile mode):**\n1. Set `base_url` variable\n2. Call **API / Registration / 1. Initiate Registration**, verify email, then **Login**\n3. `auth_token` and `refresh_token` are saved automatically\n4. Use `POST /auth/token/refresh` before token expires\n\n**Variables:**\n- `base_url` — your Laravel app URL (e.g. `http://localhost:8000`)\n- `auth_token` — auto-saved on API login / verify / Google OAuth\n- `refresh_token` — auto-saved on API login / verify / token refresh\n- `xsrf_token` — auto-saved by SPA folder pre-request script\n- `temp_token` — auto-saved after registration initiation\n- `reset_token` — auto-saved after magic link password reset step\n- `api_token_id` — auto-saved after creating an API token\n- `api_token_raw` — auto-saved after creating an API token\n- `session_id` — auto-saved after listing sessions",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
-    { "key": "base_url", "value": "http://localhost:8000", "type": "string" },
-    { "key": "auth_token", "value": "", "type": "string" },
-    { "key": "temp_token", "value": "", "type": "string" },
-    { "key": "reset_token", "value": "", "type": "string" },
+    { "key": "base_url",      "value": "http://localhost:8000", "type": "string" },
+    { "key": "auth_token",    "value": "", "type": "string" },
+    { "key": "refresh_token", "value": "", "type": "string" },
+    { "key": "xsrf_token",   "value": "", "type": "string" },
+    { "key": "temp_token",   "value": "", "type": "string" },
+    { "key": "reset_token",  "value": "", "type": "string" },
     { "key": "api_token_id", "value": "", "type": "string" },
-    { "key": "api_token_raw", "value": "", "type": "string" },
-    { "key": "session_id", "value": "", "type": "string" }
+    { "key": "api_token_raw","value": "", "type": "string" },
+    { "key": "session_id",   "value": "", "type": "string" }
   ],
   "item": [
+
     {
-      "name": "Registration",
+      "name": "Setup",
+      "description": "Run these once before using the SPA folder.",
       "item": [
         {
-          "name": "1. Initiate Registration",
+          "name": "Get CSRF Cookie & Session",
           "event": [
             {
               "listen": "test",
               "script": {
+                "type": "text/javascript",
                 "exec": [
-                  "if (pm.response.code === 201) {",
-                  "    const body = pm.response.json();",
-                  "    if (body.data && body.data.temp_token) {",
-                  "        pm.collectionVariables.set('temp_token', body.data.temp_token);",
-                  "        console.log('temp_token saved:', body.data.temp_token);",
-                  "    }",
+                  "const xsrf = pm.cookies.get('XSRF-TOKEN');",
+                  "if (xsrf) {",
+                  "    pm.collectionVariables.set('xsrf_token', decodeURIComponent(xsrf));",
+                  "    console.log('xsrf_token saved:', decodeURIComponent(xsrf));",
                   "}",
-                  "pm.test('Status is 201', () => pm.response.to.have.status(201));",
-                  "pm.test('success is true', () => pm.expect(pm.response.json().success).to.be.true);"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "POST",
-            "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Accept", "value": "application/json" }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"email\": \"joe@example.com\",\n  \"password\": \"Password123!\",\n  \"password_confirmation\": \"Password123!\"\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/auth/register",
-              "host": ["{{base_url}}"],
-              "path": ["auth", "register"]
-            },
-            "description": "Initiates registration. Sends OTP + magic link to the email.\n\nOn success, saves `temp_token` to collection variables (used for Reverb channel subscription).\n\n**Errors:**\n- 409 — email already registered\n- 422 — validation failed\n- 429 — rate limit exceeded"
-          }
-        },
-        {
-          "name": "2a. Verify OTP",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "if (pm.response.code === 201) {",
-                  "    const body = pm.response.json();",
-                  "    if (body.data && body.data.token) {",
-                  "        pm.collectionVariables.set('auth_token', body.data.token);",
-                  "        console.log('auth_token saved from verify-otp:', body.data.token);",
-                  "    }",
-                  "}",
-                  "pm.test('Status is 201', () => pm.response.to.have.status(201));"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "POST",
-            "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Accept", "value": "application/json" }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"email\": \"joe@example.com\",\n  \"otp\": \"123456\"\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/auth/register/verify-otp",
-              "host": ["{{base_url}}"],
-              "path": ["auth", "register", "verify-otp"]
-            },
-            "description": "Completes registration via OTP code. Replace `123456` with the code from the email.\n\n**Errors:**\n- 422 — OTP invalid or expired"
-          }
-        },
-        {
-          "name": "2b. Verify Magic Link (GET from email)",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "if (pm.response.code === 201) {",
-                  "    const body = pm.response.json();",
-                  "    if (body.data && body.data.token) {",
-                  "        pm.collectionVariables.set('auth_token', body.data.token);",
-                  "        console.log('auth_token saved from verify-magic:', body.data.token);",
-                  "    }",
-                  "}",
-                  "pm.test('Status is 201', () => pm.response.to.have.status(201));"
-                ],
-                "type": "text/javascript"
+                  "pm.test('Status is 204', () => pm.response.to.have.status(204));"
+                ]
               }
             }
           ],
@@ -120,507 +45,1278 @@
               { "key": "Accept", "value": "application/json" }
             ],
             "url": {
-              "raw": "{{base_url}}/auth/register/verify-magic/PASTE_TOKEN_FROM_EMAIL?expires=EXPIRES&signature=SIGNATURE",
+              "raw": "{{base_url}}/sanctum/csrf-cookie",
               "host": ["{{base_url}}"],
-              "path": ["auth", "register", "verify-magic", "PASTE_TOKEN_FROM_EMAIL"],
-              "query": [
-                { "key": "expires", "value": "EXPIRES" },
-                { "key": "signature", "value": "SIGNATURE" }
-              ]
+              "path": ["sanctum", "csrf-cookie"]
             },
-            "description": "Copy the full magic link URL from the verification email and paste it here. The library validates the Laravel signed URL signature.\n\n**Errors:**\n- 422 — invalid or expired signature, or token already used"
-          }
-        },
-        {
-          "name": "Resend Verification Email",
-          "request": {
-            "method": "POST",
-            "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Accept", "value": "application/json" }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"email\": \"joe@example.com\"\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/auth/email/resend-verification",
-              "host": ["{{base_url}}"],
-              "path": ["auth", "email", "resend-verification"]
-            },
-            "description": "Resends OTP and/or magic link for a pending (unverified) registration. Generates a new `temp_token`, invalidating the previous Reverb subscription.\n\nAlways returns 200 regardless of whether the email exists — prevents enumeration."
+            "description": "**Run this before making any SPA/web mode requests.**\n\nSanctum sets two cookies:\n- `laravel_session` — your session identifier\n- `XSRF-TOKEN` — the CSRF token\n\nThe test script saves the token to `xsrf_token`. The SPA folder's pre-request script also does this automatically before every request.\n\n**Not required for the API / Bearer Token folder.**"
           }
         }
       ]
     },
+
     {
-      "name": "Login & Logout",
-      "item": [
+      "name": "SPA — Session & Cookie",
+      "description": "All requests configured for browser/SPA clients.\n\n**How it works:**\n- A folder-level pre-request script fetches `/sanctum/csrf-cookie` automatically before every request and saves the token to `xsrf_token`.\n- All mutating requests (POST/DELETE/PATCH) include `X-XSRF-TOKEN: {{xsrf_token}}`.\n- Authenticated requests use the session cookie set by Postman's cookie jar — no Authorization header needed.\n- Login returns `token: null`; Sanctum sets the session cookie on the response.\n\n**Required:** `AUTH_MODE=web` or `AUTH_MODE=both` (without `AUTH_SPA_TOKEN=true`).",
+      "event": [
         {
-          "name": "Login",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "if (pm.response.code === 200) {",
-                  "    const body = pm.response.json();",
-                  "    if (body.data && body.data.token) {",
-                  "        pm.collectionVariables.set('auth_token', body.data.token);",
-                  "        console.log('auth_token saved:', body.data.token);",
-                  "    }",
-                  "}",
-                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
-                  "pm.test('success is true', () => pm.expect(pm.response.json().success).to.be.true);"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "POST",
-            "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Accept", "value": "application/json" },
-              {
-                "key": "X-Client-Type",
-                "value": "mobile",
-                "description": "Include this header to force Bearer token response in AUTH_MODE=both",
-                "disabled": true
-              },
-              {
-                "key": "X-Device-Info",
-                "value": "{\"model\":\"SM-G991B\",\"platform\":\"android\",\"os_version\":\"14\"}",
-                "description": "Include for mobile device session tracking",
-                "disabled": true
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"email\": \"joe@example.com\",\n  \"password\": \"Password123!\"\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/auth/login",
-              "host": ["{{base_url}}"],
-              "path": ["auth", "login"]
-            },
-            "description": "Authenticates the user. Auto-saves the Bearer token to `auth_token`.\n\n**Optional headers:**\n- `X-Client-Type: mobile` — forces Bearer token even in `AUTH_MODE=both`\n- `X-Device-Info` — JSON string for mobile device tracking\n\n**Errors:**\n- 401 — wrong credentials, or account locked out\n- 403 — account inactive or email not verified\n- 422 — validation failed\n- 429 — rate limit exceeded"
-          }
-        },
-        {
-          "name": "Get Current User (me)",
-          "request": {
-            "method": "GET",
-            "header": [
-              { "key": "Accept", "value": "application/json" },
-              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
-            ],
-            "url": {
-              "raw": "{{base_url}}/auth/me",
-              "host": ["{{base_url}}"],
-              "path": ["auth", "me"]
-            },
-            "description": "Returns user profile, assigned roles, permissions, and active session count."
-          }
-        },
-        {
-          "name": "Logout (current session)",
-          "request": {
-            "method": "POST",
-            "header": [
-              { "key": "Accept", "value": "application/json" },
-              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
-            ],
-            "url": {
-              "raw": "{{base_url}}/auth/logout",
-              "host": ["{{base_url}}"],
-              "path": ["auth", "logout"]
-            },
-            "description": "Revokes the current session / Bearer token only."
-          }
-        },
-        {
-          "name": "Logout All Devices",
-          "request": {
-            "method": "POST",
-            "header": [
-              { "key": "Accept", "value": "application/json" },
-              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
-            ],
-            "url": {
-              "raw": "{{base_url}}/auth/logout/all",
-              "host": ["{{base_url}}"],
-              "path": ["auth", "logout", "all"]
-            },
-            "description": "Revokes ALL sessions and tokens for this user across every device."
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const baseUrl = pm.collectionVariables.get('base_url');",
+              "pm.sendRequest({ url: baseUrl + '/sanctum/csrf-cookie', method: 'GET' }, function(err, res) {",
+              "    if (!err && res) {",
+              "        const xsrf = res.cookies.get('XSRF-TOKEN');",
+              "        if (xsrf) {",
+              "            pm.collectionVariables.set('xsrf_token', decodeURIComponent(xsrf));",
+              "        }",
+              "    }",
+              "});"
+            ]
           }
         }
-      ]
-    },
-    {
-      "name": "Password Reset",
+      ],
       "item": [
+
         {
-          "name": "1. Forgot Password (request reset)",
-          "request": {
-            "method": "POST",
-            "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Accept", "value": "application/json" }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"email\": \"joe@example.com\"\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/auth/password/forgot",
-              "host": ["{{base_url}}"],
-              "path": ["auth", "password", "forgot"]
-            },
-            "description": "Sends OTP and/or magic link for password reset. Always returns 200 to prevent email enumeration."
-          }
-        },
-        {
-          "name": "2a. Reset via OTP (one step)",
-          "request": {
-            "method": "POST",
-            "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Accept", "value": "application/json" }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"email\": \"joe@example.com\",\n  \"otp\": \"654321\",\n  \"password\": \"NewPassword123!\",\n  \"password_confirmation\": \"NewPassword123!\"\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/auth/password/reset/otp",
-              "host": ["{{base_url}}"],
-              "path": ["auth", "password", "reset", "otp"]
-            },
-            "description": "Resets password in one step using the OTP from the email. All existing sessions are revoked on success.\n\n**Errors:**\n- 422 — OTP invalid, expired, or user not found"
-          }
-        },
-        {
-          "name": "2b. Validate Magic Link (get reset_token)",
-          "event": [
+          "name": "Registration",
+          "item": [
             {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "if (pm.response.code === 200) {",
-                  "    const body = pm.response.json();",
-                  "    if (body.data && body.data.reset_token) {",
-                  "        pm.collectionVariables.set('reset_token', body.data.reset_token);",
-                  "        console.log('reset_token saved:', body.data.reset_token);",
-                  "    }",
-                  "}",
-                  "pm.test('Status is 200', () => pm.response.to.have.status(200));"
+              "name": "1. Initiate Registration",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 201) {",
+                      "    const body = pm.response.json();",
+                      "    if (body.data && body.data.temp_token) {",
+                      "        pm.collectionVariables.set('temp_token', body.data.temp_token);",
+                      "        console.log('temp_token saved:', body.data.temp_token);",
+                      "    }",
+                      "}",
+                      "pm.test('Status is 201', () => pm.response.to.have.status(201));",
+                      "pm.test('success is true', () => pm.expect(pm.response.json().success).to.be.true);"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "Accept", "value": "application/json" },
+                  { "key": "X-XSRF-TOKEN", "value": "{{xsrf_token}}" }
                 ],
-                "type": "text/javascript"
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"joe@example.com\",\n  \"password\": \"Password123!\",\n  \"password_confirmation\": \"Password123!\"\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/auth/register",
+                  "host": ["{{base_url}}"],
+                  "path": ["auth", "register"]
+                },
+                "description": "Initiates registration. Sends OTP + magic link to the email (one combined email when `AUTH_VERIFICATION_METHOD=both`).\n\nDoes **not** create the user yet — that happens on verification.\n\nAuto-saves `temp_token` for Reverb channel subscription.\n\n**Extra fields example** — if your app requires more data, add them here:\n```json\n{\n  \"email\": \"joe@example.com\",\n  \"password\": \"Password123!\",\n  \"password_confirmation\": \"Password123!\",\n  \"phone\": \"+96170000000\",\n  \"birthday\": \"1990-01-01\"\n}\n```\n\n**Errors:** 409 already registered · 422 validation · 429 rate limit"
+              }
+            },
+            {
+              "name": "2a. Verify OTP",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('Status is 201', () => pm.response.to.have.status(201));",
+                      "pm.test('success is true', () => pm.expect(pm.response.json().success).to.be.true);",
+                      "if (pm.response.code === 201) {",
+                      "    console.log('SPA mode — session cookie set, no token returned.');",
+                      "}"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "Accept", "value": "application/json" },
+                  { "key": "X-XSRF-TOKEN", "value": "{{xsrf_token}}" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"joe@example.com\",\n  \"otp\": \"123456\"\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/auth/register/verify-otp",
+                  "host": ["{{base_url}}"],
+                  "path": ["auth", "register", "verify-otp"]
+                },
+                "description": "Completes registration using the OTP from the email. Replace `123456` with the actual code.\n\nIn SPA mode the response `token` is `null` — Sanctum sets the session cookie.\n\n**Errors:** 422 OTP invalid or expired"
+              }
+            },
+            {
+              "name": "2b. Verify Magic Link (click from email)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('Status is 201', () => pm.response.to.have.status(201));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [
+                  { "key": "Accept", "value": "application/json" }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/auth/register/verify-magic/PASTE_TOKEN_HERE?expires=EXPIRES&signature=SIGNATURE",
+                  "host": ["{{base_url}}"],
+                  "path": ["auth", "register", "verify-magic", "PASTE_TOKEN_HERE"],
+                  "query": [
+                    { "key": "expires", "value": "EXPIRES" },
+                    { "key": "signature", "value": "SIGNATURE" }
+                  ]
+                },
+                "description": "Paste the full magic link URL from the verification email. The library validates the signature and completes registration.\n\nWhen `AUTH_MAGIC_LINK_TARGET=frontend`, your frontend receives `?token=uuid` and calls this endpoint with the token.\n\n**Errors:** 422 invalid/expired signature or token already used"
+              }
+            },
+            {
+              "name": "Resend Verification Email",
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "Accept", "value": "application/json" },
+                  { "key": "X-XSRF-TOKEN", "value": "{{xsrf_token}}" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"joe@example.com\"\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/auth/email/resend-verification",
+                  "host": ["{{base_url}}"],
+                  "path": ["auth", "email", "resend-verification"]
+                },
+                "description": "Resends the verification OTP/link for a pending (unverified) registration. Always returns 200 to prevent email enumeration."
               }
             }
-          ],
-          "request": {
-            "method": "GET",
-            "header": [
-              { "key": "Accept", "value": "application/json" }
-            ],
-            "url": {
-              "raw": "{{base_url}}/auth/password/reset/magic/PASTE_TOKEN_FROM_EMAIL?expires=EXPIRES&signature=SIGNATURE",
-              "host": ["{{base_url}}"],
-              "path": ["auth", "password", "reset", "magic", "PASTE_TOKEN_FROM_EMAIL"],
-              "query": [
-                { "key": "expires", "value": "EXPIRES" },
-                { "key": "signature", "value": "SIGNATURE" }
-              ]
-            },
-            "description": "Paste the full URL from the password reset email. Validates the signature and returns a short-lived `reset_token` UUID (valid 15 minutes).\n\nAuto-saves `reset_token` to collection variables."
-          }
+          ]
         },
+
         {
-          "name": "2c. Confirm Reset (with reset_token)",
-          "request": {
-            "method": "POST",
-            "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Accept", "value": "application/json" }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"reset_token\": \"{{reset_token}}\",\n  \"password\": \"NewPassword123!\",\n  \"password_confirmation\": \"NewPassword123!\"\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/auth/password/reset/confirm",
-              "host": ["{{base_url}}"],
-              "path": ["auth", "password", "reset", "confirm"]
-            },
-            "description": "Submits the new password using the `reset_token` received from the magic link step. All sessions are revoked on success.\n\n**Errors:**\n- 422 — reset_token invalid or expired (older than 15 minutes)"
-          }
-        }
-      ]
-    },
-    {
-      "name": "Password Change",
-      "item": [
-        {
-          "name": "Change Password",
-          "request": {
-            "method": "POST",
-            "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Accept", "value": "application/json" },
-              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"current_password\": \"Password123!\",\n  \"new_password\": \"NewPassword456!\",\n  \"new_password_confirmation\": \"NewPassword456!\",\n  \"logout_all\": false\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/auth/password/change",
-              "host": ["{{base_url}}"],
-              "path": ["auth", "password", "change"]
-            },
-            "description": "Changes the authenticated user's password.\n\n**`logout_all`:** When `true`, all other sessions and tokens are revoked but the current session remains active.\n\n**Errors:**\n- 422 — current_password incorrect, new password same as current, or validation failed"
-          }
-        }
-      ]
-    },
-    {
-      "name": "Sessions",
-      "item": [
-        {
-          "name": "List Active Sessions",
-          "event": [
+          "name": "Login & Logout",
+          "item": [
             {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "if (pm.response.code === 200) {",
-                  "    const body = pm.response.json();",
-                  "    const sessions = body.data && body.data.sessions;",
-                  "    if (sessions && sessions.length > 0) {",
-                  "        const nonCurrent = sessions.find(s => !s.is_current);",
-                  "        if (nonCurrent) {",
-                  "            pm.collectionVariables.set('session_id', nonCurrent.id);",
-                  "            console.log('session_id saved (non-current):', nonCurrent.id);",
-                  "        }",
-                  "    }",
-                  "}",
-                  "pm.test('Status is 200', () => pm.response.to.have.status(200));"
+              "name": "Login (SPA)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                      "pm.test('success is true', () => pm.expect(pm.response.json().success).to.be.true);",
+                      "if (pm.response.code === 200) {",
+                      "    const body = pm.response.json();",
+                      "    if (!body.data.token) {",
+                      "        console.log('SPA mode — session cookie set by Sanctum. No token returned.');",
+                      "    }",
+                      "}"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "X-XSRF-TOKEN", "value": "{{xsrf_token}}" }
                 ],
-                "type": "text/javascript"
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"joe@example.com\",\n  \"password\": \"Password123!\"\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/auth/login",
+                  "host": ["{{base_url}}"],
+                  "path": ["auth", "login"]
+                },
+                "description": "Logs in and receives a session cookie. The response `token` is `null` — Sanctum sets `laravel_session` and `XSRF-TOKEN` cookies that Postman stores automatically.\n\n**Important:** This request intentionally has no `Accept: application/json` header. Sending that header can trigger token mode in `AUTH_MODE=both`. Remove it so the server sees a browser-like request.\n\n**Errors:** 401 wrong credentials/locked · 403 inactive/unverified · 422 validation · 429 rate limit"
+              }
+            },
+            {
+              "name": "Get Current User",
+              "request": {
+                "method": "GET",
+                "header": [
+                  { "key": "Accept", "value": "application/json" }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/auth/me",
+                  "host": ["{{base_url}}"],
+                  "path": ["auth", "me"]
+                },
+                "description": "Returns the authenticated user's profile, roles, permissions, and active session count. Authenticated via session cookie — no Authorization header needed."
+              }
+            },
+            {
+              "name": "Logout (current session)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Accept", "value": "application/json" },
+                  { "key": "X-XSRF-TOKEN", "value": "{{xsrf_token}}" }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/auth/logout",
+                  "host": ["{{base_url}}"],
+                  "path": ["auth", "logout"]
+                },
+                "description": "Revokes the current session only. The session cookie is invalidated."
+              }
+            },
+            {
+              "name": "Logout All Devices",
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Accept", "value": "application/json" },
+                  { "key": "X-XSRF-TOKEN", "value": "{{xsrf_token}}" }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/auth/logout/all",
+                  "host": ["{{base_url}}"],
+                  "path": ["auth", "logout", "all"]
+                },
+                "description": "Revokes ALL sessions and tokens for this user across every device."
               }
             }
-          ],
-          "request": {
-            "method": "GET",
-            "header": [
-              { "key": "Accept", "value": "application/json" },
-              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
-            ],
-            "url": {
-              "raw": "{{base_url}}/auth/sessions",
-              "host": ["{{base_url}}"],
-              "path": ["auth", "sessions"]
-            },
-            "description": "Lists all active sessions for the authenticated user with device info, IP, geo location, and last-active timestamp. Auto-saves a non-current `session_id` for use in the delete request."
-          }
+          ]
         },
+
         {
-          "name": "Revoke Specific Session",
-          "request": {
-            "method": "DELETE",
-            "header": [
-              { "key": "Accept", "value": "application/json" },
-              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
-            ],
-            "url": {
-              "raw": "{{base_url}}/auth/sessions/{{session_id}}",
-              "host": ["{{base_url}}"],
-              "path": ["auth", "sessions", "{{session_id}}"]
+          "name": "Password Reset",
+          "item": [
+            {
+              "name": "1. Forgot Password",
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "Accept", "value": "application/json" },
+                  { "key": "X-XSRF-TOKEN", "value": "{{xsrf_token}}" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"joe@example.com\"\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/auth/password/forgot",
+                  "host": ["{{base_url}}"],
+                  "path": ["auth", "password", "forgot"]
+                },
+                "description": "Sends OTP and/or magic link for password reset. Always returns 200 to prevent email enumeration."
+              }
             },
-            "description": "Revokes the session with the given ID. Also deletes the associated Sanctum token if the session was API-based."
-          }
+            {
+              "name": "2a. Reset via OTP",
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "Accept", "value": "application/json" },
+                  { "key": "X-XSRF-TOKEN", "value": "{{xsrf_token}}" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"joe@example.com\",\n  \"otp\": \"654321\",\n  \"password\": \"NewPassword123!\",\n  \"password_confirmation\": \"NewPassword123!\"\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/auth/password/reset/otp",
+                  "host": ["{{base_url}}"],
+                  "path": ["auth", "password", "reset", "otp"]
+                },
+                "description": "Resets the password in one step using the OTP from the email. All existing sessions are revoked on success.\n\n**Errors:** 422 OTP invalid/expired"
+              }
+            },
+            {
+              "name": "2b. Validate Magic Link (get reset_token)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 200) {",
+                      "    const body = pm.response.json();",
+                      "    if (body.data && body.data.reset_token) {",
+                      "        pm.collectionVariables.set('reset_token', body.data.reset_token);",
+                      "        console.log('reset_token saved:', body.data.reset_token);",
+                      "    }",
+                      "}",
+                      "pm.test('Status is 200', () => pm.response.to.have.status(200));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [
+                  { "key": "Accept", "value": "application/json" }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/auth/password/reset/magic/PASTE_TOKEN_HERE?expires=EXPIRES&signature=SIGNATURE",
+                  "host": ["{{base_url}}"],
+                  "path": ["auth", "password", "reset", "magic", "PASTE_TOKEN_HERE"],
+                  "query": [
+                    { "key": "expires", "value": "EXPIRES" },
+                    { "key": "signature", "value": "SIGNATURE" }
+                  ]
+                },
+                "description": "Paste the full URL from the password reset email. Validates the signature and returns a `reset_token` valid for 15 minutes.\n\nAuto-saves `reset_token` to collection variables. Then call **2c. Confirm Reset**."
+              }
+            },
+            {
+              "name": "2c. Confirm Reset (with reset_token)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "Accept", "value": "application/json" },
+                  { "key": "X-XSRF-TOKEN", "value": "{{xsrf_token}}" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"reset_token\": \"{{reset_token}}\",\n  \"password\": \"NewPassword123!\",\n  \"password_confirmation\": \"NewPassword123!\"\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/auth/password/reset/confirm",
+                  "host": ["{{base_url}}"],
+                  "path": ["auth", "password", "reset", "confirm"]
+                },
+                "description": "Submits the new password with the `reset_token` from step 2b. All sessions revoked on success.\n\n**Errors:** 422 reset_token invalid or expired (15 min window)"
+              }
+            }
+          ]
+        },
+
+        {
+          "name": "Password Change",
+          "item": [
+            {
+              "name": "Change Password",
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "Accept", "value": "application/json" },
+                  { "key": "X-XSRF-TOKEN", "value": "{{xsrf_token}}" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"current_password\": \"Password123!\",\n  \"new_password\": \"NewPassword456!\",\n  \"new_password_confirmation\": \"NewPassword456!\",\n  \"logout_all\": false\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/auth/password/change",
+                  "host": ["{{base_url}}"],
+                  "path": ["auth", "password", "change"]
+                },
+                "description": "Changes password for the currently authenticated user.\n\n**`logout_all: true`** — revokes all other sessions except the current one.\n\n**Errors:** 422 current_password incorrect or validation failed"
+              }
+            }
+          ]
+        },
+
+        {
+          "name": "Sessions",
+          "item": [
+            {
+              "name": "List Active Sessions",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 200) {",
+                      "    const sessions = pm.response.json().data && pm.response.json().data.sessions;",
+                      "    if (sessions && sessions.length > 0) {",
+                      "        const nonCurrent = sessions.find(s => !s.is_current);",
+                      "        if (nonCurrent) {",
+                      "            pm.collectionVariables.set('session_id', nonCurrent.id);",
+                      "            console.log('session_id saved (non-current):', nonCurrent.id);",
+                      "        }",
+                      "    }",
+                      "}",
+                      "pm.test('Status is 200', () => pm.response.to.have.status(200));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [
+                  { "key": "Accept", "value": "application/json" }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/auth/sessions",
+                  "host": ["{{base_url}}"],
+                  "path": ["auth", "sessions"]
+                },
+                "description": "Lists all active sessions with device, IP, geo location, and last-active time. Auto-saves a non-current `session_id` for the delete request."
+              }
+            },
+            {
+              "name": "Revoke Specific Session",
+              "request": {
+                "method": "DELETE",
+                "header": [
+                  { "key": "Accept", "value": "application/json" },
+                  { "key": "X-XSRF-TOKEN", "value": "{{xsrf_token}}" }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/auth/sessions/{{session_id}}",
+                  "host": ["{{base_url}}"],
+                  "path": ["auth", "sessions", "{{session_id}}"]
+                },
+                "description": "Revokes the session with the given ID. Also revokes the associated Sanctum token if it was a token-based session."
+              }
+            }
+          ]
+        },
+
+        {
+          "name": "API Tokens",
+          "item": [
+            {
+              "name": "List My API Tokens",
+              "request": {
+                "method": "GET",
+                "header": [
+                  { "key": "Accept", "value": "application/json" }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/auth/api-tokens",
+                  "host": ["{{base_url}}"],
+                  "path": ["auth", "api-tokens"]
+                },
+                "description": "Lists all third-party API tokens owned by the authenticated user.\n\n**Requires:** `AUTH_MODE=api` or `AUTH_MODE=both`."
+              }
+            },
+            {
+              "name": "Create API Token",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 201) {",
+                      "    const body = pm.response.json();",
+                      "    if (body.data && body.data.raw_token) {",
+                      "        pm.collectionVariables.set('api_token_raw', body.data.raw_token);",
+                      "        console.log('api_token_raw saved:', body.data.raw_token);",
+                      "    }",
+                      "    if (body.data && body.data.token && body.data.token.id) {",
+                      "        pm.collectionVariables.set('api_token_id', body.data.token.id);",
+                      "        console.log('api_token_id saved:', body.data.token.id);",
+                      "    }",
+                      "}",
+                      "pm.test('Status is 201', () => pm.response.to.have.status(201));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "Accept", "value": "application/json" },
+                  { "key": "X-XSRF-TOKEN", "value": "{{xsrf_token}}" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"CI Pipeline\",\n  \"abilities\": [\"read\", \"deploy\"],\n  \"expires_in_days\": 365\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/auth/api-tokens",
+                  "host": ["{{base_url}}"],
+                  "path": ["auth", "api-tokens"]
+                },
+                "description": "Creates a new third-party API token. The `raw_token` in the response is shown **only once** — store it securely.\n\n**`abilities`:** array of strings. Use `[\"*\"]` for full access.\n**`expires_in_days`:** `null` = never expires. Max 3650.\n\nToken format: `auth_at_{base64}`\n\nAuto-saves `api_token_raw` and `api_token_id`."
+              }
+            },
+            {
+              "name": "Revoke API Token",
+              "request": {
+                "method": "DELETE",
+                "header": [
+                  { "key": "Accept", "value": "application/json" },
+                  { "key": "X-XSRF-TOKEN", "value": "{{xsrf_token}}" }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/auth/api-tokens/{{api_token_id}}",
+                  "host": ["{{base_url}}"],
+                  "path": ["auth", "api-tokens", "{{api_token_id}}"]
+                },
+                "description": "Revokes the API token with the given ID. Uses `api_token_id` saved by the Create request."
+              }
+            }
+          ]
+        },
+
+        {
+          "name": "Google OAuth",
+          "item": [
+            {
+              "name": "Get Google Redirect URL",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 200) {",
+                      "    const body = pm.response.json();",
+                      "    if (body.data && body.data.redirect_url) {",
+                      "        console.log('Open in browser:', body.data.redirect_url);",
+                      "    }",
+                      "}",
+                      "pm.test('Status is 200', () => pm.response.to.have.status(200));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [
+                  { "key": "Accept", "value": "application/json" }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/auth/social/google/redirect",
+                  "host": ["{{base_url}}"],
+                  "path": ["auth", "social", "google", "redirect"]
+                },
+                "description": "Returns the Google OAuth authorization URL. Copy `data.redirect_url` and open it in a browser to start the OAuth flow.\n\n**Requires:** `AUTH_GOOGLE_ENABLED=true`\n\n**Errors:** 403 Google OAuth disabled"
+              }
+            },
+            {
+              "name": "Google OAuth Callback",
+              "request": {
+                "method": "GET",
+                "header": [
+                  { "key": "Accept", "value": "application/json" }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/auth/social/google/callback?code=GOOGLE_AUTH_CODE&state=STATE",
+                  "host": ["{{base_url}}"],
+                  "path": ["auth", "social", "google", "callback"],
+                  "query": [
+                    { "key": "code", "value": "GOOGLE_AUTH_CODE" },
+                    { "key": "state", "value": "STATE" }
+                  ]
+                },
+                "description": "Google redirects the user's browser here after authorization. In practice you do not call this directly — Google's redirect handles it.\n\n**Handles 3 cases automatically:** existing provider link · email match · new user.\n\n**Errors:** 403 disabled or inactive · 400 OAuth exchange failed"
+              }
+            }
+          ]
         }
+
       ]
     },
+
     {
-      "name": "API Tokens",
+      "name": "API — Bearer Token",
+      "description": "All requests configured for mobile apps and API clients.\n\n**How it works:**\n- Login sends `X-Client-Type: mobile` to receive a Bearer token even in `AUTH_MODE=both`.\n- Every authenticated request includes `Authorization: Bearer {{auth_token}}`.\n- No CSRF cookie or session cookie needed.\n- A `refresh_token` is issued alongside the access token — use **Token Refresh** to rotate them before expiry.\n\n**Required:** `AUTH_MODE=api` or `AUTH_MODE=both`.",
       "item": [
+
         {
-          "name": "List My API Tokens",
-          "request": {
-            "method": "GET",
-            "header": [
-              { "key": "Accept", "value": "application/json" },
-              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
-            ],
-            "url": {
-              "raw": "{{base_url}}/auth/api-tokens",
-              "host": ["{{base_url}}"],
-              "path": ["auth", "api-tokens"]
-            },
-            "description": "Lists all API tokens owned by the authenticated user.\n\n**Requires:** `AUTH_MODE` must be `api` or `both`."
-          }
-        },
-        {
-          "name": "Create API Token",
-          "event": [
+          "name": "Registration",
+          "item": [
             {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "if (pm.response.code === 201) {",
-                  "    const body = pm.response.json();",
-                  "    if (body.data) {",
-                  "        if (body.data.raw_token) {",
-                  "            pm.collectionVariables.set('api_token_raw', body.data.raw_token);",
-                  "            console.log('api_token_raw saved:', body.data.raw_token);",
-                  "        }",
-                  "        if (body.data.token && body.data.token.id) {",
-                  "            pm.collectionVariables.set('api_token_id', body.data.token.id);",
-                  "            console.log('api_token_id saved:', body.data.token.id);",
-                  "        }",
-                  "    }",
-                  "}",
-                  "pm.test('Status is 201', () => pm.response.to.have.status(201));"
+              "name": "1. Initiate Registration",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 201) {",
+                      "    const body = pm.response.json();",
+                      "    if (body.data && body.data.temp_token) {",
+                      "        pm.collectionVariables.set('temp_token', body.data.temp_token);",
+                      "        console.log('temp_token saved:', body.data.temp_token);",
+                      "    }",
+                      "}",
+                      "pm.test('Status is 201', () => pm.response.to.have.status(201));",
+                      "pm.test('success is true', () => pm.expect(pm.response.json().success).to.be.true);"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "Accept", "value": "application/json" },
+                  { "key": "X-Client-Type", "value": "mobile" }
                 ],
-                "type": "text/javascript"
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"joe@example.com\",\n  \"password\": \"Password123!\",\n  \"password_confirmation\": \"Password123!\"\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/auth/register",
+                  "host": ["{{base_url}}"],
+                  "path": ["auth", "register"]
+                },
+                "description": "Initiates registration. Sends OTP + magic link to the email.\n\nDoes **not** create the user yet — that happens on verification.\n\nAuto-saves `temp_token` for Reverb channel subscription.\n\n**Extra fields example:**\n```json\n{\n  \"email\": \"joe@example.com\",\n  \"password\": \"Password123!\",\n  \"password_confirmation\": \"Password123!\",\n  \"phone\": \"+96170000000\",\n  \"birthday\": \"1990-01-01\"\n}\n```\n\n**Errors:** 409 already registered · 422 validation · 429 rate limit"
+              }
+            },
+            {
+              "name": "2a. Verify OTP",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 201) {",
+                      "    const body = pm.response.json();",
+                      "    if (body.data && body.data.token) {",
+                      "        pm.collectionVariables.set('auth_token', body.data.token);",
+                      "        console.log('auth_token saved from verify-otp:', body.data.token);",
+                      "    }",
+                      "    if (body.data && body.data.refresh_token) {",
+                      "        pm.collectionVariables.set('refresh_token', body.data.refresh_token);",
+                      "        console.log('refresh_token saved:', body.data.refresh_token);",
+                      "    }",
+                      "}",
+                      "pm.test('Status is 201', () => pm.response.to.have.status(201));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "Accept", "value": "application/json" },
+                  { "key": "X-Client-Type", "value": "mobile" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"joe@example.com\",\n  \"otp\": \"123456\"\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/auth/register/verify-otp",
+                  "host": ["{{base_url}}"],
+                  "path": ["auth", "register", "verify-otp"]
+                },
+                "description": "Completes registration. Returns `token` (access) and `refresh_token`. Both are auto-saved.\n\n**Errors:** 422 OTP invalid or expired"
+              }
+            },
+            {
+              "name": "2b. Verify Magic Link (click from email)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 201) {",
+                      "    const body = pm.response.json();",
+                      "    if (body.data && body.data.token) {",
+                      "        pm.collectionVariables.set('auth_token', body.data.token);",
+                      "    }",
+                      "    if (body.data && body.data.refresh_token) {",
+                      "        pm.collectionVariables.set('refresh_token', body.data.refresh_token);",
+                      "    }",
+                      "}",
+                      "pm.test('Status is 201', () => pm.response.to.have.status(201));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [
+                  { "key": "Accept", "value": "application/json" }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/auth/register/verify-magic/PASTE_TOKEN_HERE?expires=EXPIRES&signature=SIGNATURE",
+                  "host": ["{{base_url}}"],
+                  "path": ["auth", "register", "verify-magic", "PASTE_TOKEN_HERE"],
+                  "query": [
+                    { "key": "expires", "value": "EXPIRES" },
+                    { "key": "signature", "value": "SIGNATURE" }
+                  ]
+                },
+                "description": "Paste the full magic link URL from the verification email. Returns `token` and `refresh_token`, both auto-saved.\n\n**Errors:** 422 invalid/expired or already used"
+              }
+            },
+            {
+              "name": "Resend Verification Email",
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "Accept", "value": "application/json" },
+                  { "key": "X-Client-Type", "value": "mobile" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"joe@example.com\"\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/auth/email/resend-verification",
+                  "host": ["{{base_url}}"],
+                  "path": ["auth", "email", "resend-verification"]
+                },
+                "description": "Resends OTP/magic link for a pending registration. Always returns 200."
               }
             }
-          ],
-          "request": {
-            "method": "POST",
-            "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Accept", "value": "application/json" },
-              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"name\": \"CI Pipeline\",\n  \"abilities\": [\"read\", \"deploy\"],\n  \"expires_in_days\": 365\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/auth/api-tokens",
-              "host": ["{{base_url}}"],
-              "path": ["auth", "api-tokens"]
-            },
-            "description": "Creates a new API token. The `raw_token` in the response is shown **only once** — store it securely.\n\n**Fields:**\n- `abilities`: array of permission strings. Use `[\"*\"]` for full access.\n- `expires_in_days`: `null` = never expires, max 3650.\n\n**Token format:** `auth_at_{base64}`\n\nAuto-saves `api_token_raw` and `api_token_id`."
-          }
+          ]
         },
+
         {
-          "name": "Revoke API Token",
-          "request": {
-            "method": "DELETE",
-            "header": [
-              { "key": "Accept", "value": "application/json" },
-              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
-            ],
-            "url": {
-              "raw": "{{base_url}}/auth/api-tokens/{{api_token_id}}",
-              "host": ["{{base_url}}"],
-              "path": ["auth", "api-tokens", "{{api_token_id}}"]
+          "name": "Login & Logout",
+          "item": [
+            {
+              "name": "Login (API / Mobile)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                      "pm.test('success is true', () => pm.expect(pm.response.json().success).to.be.true);",
+                      "if (pm.response.code === 200) {",
+                      "    const body = pm.response.json();",
+                      "    if (body.data && body.data.token) {",
+                      "        pm.collectionVariables.set('auth_token', body.data.token);",
+                      "        console.log('auth_token saved:', body.data.token);",
+                      "    }",
+                      "    if (body.data && body.data.refresh_token) {",
+                      "        pm.collectionVariables.set('refresh_token', body.data.refresh_token);",
+                      "        console.log('refresh_token saved:', body.data.refresh_token);",
+                      "    }",
+                      "}"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "Accept", "value": "application/json" },
+                  { "key": "X-Client-Type", "value": "mobile" },
+                  {
+                    "key": "X-Device-Info",
+                    "value": "{\"model\":\"SM-G991B\",\"platform\":\"android\",\"os_version\":\"14\"}",
+                    "description": "Optional — enables detailed device tracking in auth_sessions_extended",
+                    "disabled": true
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"joe@example.com\",\n  \"password\": \"Password123!\"\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/auth/login",
+                  "host": ["{{base_url}}"],
+                  "path": ["auth", "login"]
+                },
+                "description": "Logs in and returns a Bearer `token` (access) + `refresh_token`. Both are auto-saved to collection variables.\n\n`X-Client-Type: mobile` forces token mode in `AUTH_MODE=both`.\n\nEnable `X-Device-Info` to track device model, platform, and OS version in the session record.\n\n**Errors:** 401 wrong credentials/locked · 403 inactive/unverified · 422 validation · 429 rate limit"
+              }
             },
-            "description": "Revokes the API token with the given ID. Only the owner can revoke their own tokens (admin endpoints available separately)."
-          }
+            {
+              "name": "Get Current User",
+              "request": {
+                "method": "GET",
+                "header": [
+                  { "key": "Accept", "value": "application/json" },
+                  { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/auth/me",
+                  "host": ["{{base_url}}"],
+                  "path": ["auth", "me"]
+                },
+                "description": "Returns the authenticated user's profile, roles, permissions, and active session count."
+              }
+            },
+            {
+              "name": "Logout (current token)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Accept", "value": "application/json" },
+                  { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/auth/logout",
+                  "host": ["{{base_url}}"],
+                  "path": ["auth", "logout"]
+                },
+                "description": "Revokes the current Bearer token and its associated session record."
+              }
+            },
+            {
+              "name": "Logout All Devices",
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Accept", "value": "application/json" },
+                  { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/auth/logout/all",
+                  "host": ["{{base_url}}"],
+                  "path": ["auth", "logout", "all"]
+                },
+                "description": "Revokes ALL tokens and sessions for this user across every device."
+              }
+            }
+          ]
         },
+
         {
-          "name": "Use API Token on a Protected Route",
-          "request": {
-            "method": "GET",
-            "header": [
-              { "key": "Accept", "value": "application/json" },
-              { "key": "Authorization", "value": "Bearer {{api_token_raw}}" }
-            ],
-            "url": {
-              "raw": "{{base_url}}/your-protected-route",
-              "host": ["{{base_url}}"],
-              "path": ["your-protected-route"]
+          "name": "Token Refresh",
+          "item": [
+            {
+              "name": "Refresh Access Token",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                      "if (pm.response.code === 200) {",
+                      "    const body = pm.response.json();",
+                      "    if (body.data && body.data.token) {",
+                      "        pm.collectionVariables.set('auth_token', body.data.token);",
+                      "        console.log('auth_token rotated:', body.data.token);",
+                      "    }",
+                      "    if (body.data && body.data.refresh_token) {",
+                      "        pm.collectionVariables.set('refresh_token', body.data.refresh_token);",
+                      "        console.log('refresh_token rotated:', body.data.refresh_token);",
+                      "    }",
+                      "}"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "Accept", "value": "application/json" },
+                  { "key": "X-Client-Type", "value": "mobile" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"refresh_token\": \"{{refresh_token}}\"\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/auth/token/refresh",
+                  "host": ["{{base_url}}"],
+                  "path": ["auth", "token", "refresh"]
+                },
+                "description": "Exchanges the current `refresh_token` for a new access token + refresh token pair. Both old tokens are revoked immediately.\n\nCall this before the access token expires to keep the user logged in without re-entering credentials. The new tokens are auto-saved to `auth_token` and `refresh_token`.\n\nToken lifetimes are configured per client type in `config/auth_system.php` under `token_ttl`.\n\n**Errors:** 401 refresh token invalid, expired, or already used · 429 rate limit"
+              }
+            }
+          ]
+        },
+
+        {
+          "name": "Password Reset",
+          "item": [
+            {
+              "name": "1. Forgot Password",
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "Accept", "value": "application/json" },
+                  { "key": "X-Client-Type", "value": "mobile" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"joe@example.com\"\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/auth/password/forgot",
+                  "host": ["{{base_url}}"],
+                  "path": ["auth", "password", "forgot"]
+                },
+                "description": "Sends OTP and/or magic link for password reset. Always returns 200 to prevent email enumeration."
+              }
             },
-            "description": "Example of calling a route protected by `auth.api-token` middleware. Replace `/your-protected-route` with your actual endpoint.\n\nThe middleware validates that:\n1. The token starts with `auth_at_`\n2. The SHA-256 hash matches a stored record\n3. The token is active and not expired\n4. The token has the required abilities"
-          }
+            {
+              "name": "2a. Reset via OTP",
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "Accept", "value": "application/json" },
+                  { "key": "X-Client-Type", "value": "mobile" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"joe@example.com\",\n  \"otp\": \"654321\",\n  \"password\": \"NewPassword123!\",\n  \"password_confirmation\": \"NewPassword123!\"\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/auth/password/reset/otp",
+                  "host": ["{{base_url}}"],
+                  "path": ["auth", "password", "reset", "otp"]
+                },
+                "description": "Resets the password in one step using the OTP from the email. All existing tokens and sessions are revoked on success.\n\n**Errors:** 422 OTP invalid or expired"
+              }
+            },
+            {
+              "name": "2b. Validate Magic Link (get reset_token)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 200) {",
+                      "    const body = pm.response.json();",
+                      "    if (body.data && body.data.reset_token) {",
+                      "        pm.collectionVariables.set('reset_token', body.data.reset_token);",
+                      "        console.log('reset_token saved:', body.data.reset_token);",
+                      "    }",
+                      "}",
+                      "pm.test('Status is 200', () => pm.response.to.have.status(200));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [
+                  { "key": "Accept", "value": "application/json" }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/auth/password/reset/magic/PASTE_TOKEN_HERE?expires=EXPIRES&signature=SIGNATURE",
+                  "host": ["{{base_url}}"],
+                  "path": ["auth", "password", "reset", "magic", "PASTE_TOKEN_HERE"],
+                  "query": [
+                    { "key": "expires", "value": "EXPIRES" },
+                    { "key": "signature", "value": "SIGNATURE" }
+                  ]
+                },
+                "description": "Paste the full URL from the password reset email. Returns a `reset_token` valid for 15 minutes. Auto-saved to collection variables."
+              }
+            },
+            {
+              "name": "2c. Confirm Reset (with reset_token)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "Accept", "value": "application/json" },
+                  { "key": "X-Client-Type", "value": "mobile" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"reset_token\": \"{{reset_token}}\",\n  \"password\": \"NewPassword123!\",\n  \"password_confirmation\": \"NewPassword123!\"\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/auth/password/reset/confirm",
+                  "host": ["{{base_url}}"],
+                  "path": ["auth", "password", "reset", "confirm"]
+                },
+                "description": "Submits the new password with the `reset_token` from step 2b. All tokens and sessions revoked on success.\n\n**Errors:** 422 reset_token invalid or expired (15 min window)"
+              }
+            }
+          ]
+        },
+
+        {
+          "name": "Password Change",
+          "item": [
+            {
+              "name": "Change Password",
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "Accept", "value": "application/json" },
+                  { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"current_password\": \"Password123!\",\n  \"new_password\": \"NewPassword456!\",\n  \"new_password_confirmation\": \"NewPassword456!\",\n  \"logout_all\": false\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/auth/password/change",
+                  "host": ["{{base_url}}"],
+                  "path": ["auth", "password", "change"]
+                },
+                "description": "Changes password for the currently authenticated user.\n\n**`logout_all: true`** — revokes all other tokens except the current one.\n\n**Errors:** 422 current_password incorrect or validation failed"
+              }
+            }
+          ]
+        },
+
+        {
+          "name": "Sessions",
+          "item": [
+            {
+              "name": "List Active Sessions",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 200) {",
+                      "    const sessions = pm.response.json().data && pm.response.json().data.sessions;",
+                      "    if (sessions && sessions.length > 0) {",
+                      "        const nonCurrent = sessions.find(s => !s.is_current);",
+                      "        if (nonCurrent) {",
+                      "            pm.collectionVariables.set('session_id', nonCurrent.id);",
+                      "            console.log('session_id saved (non-current):', nonCurrent.id);",
+                      "        }",
+                      "    }",
+                      "}",
+                      "pm.test('Status is 200', () => pm.response.to.have.status(200));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [
+                  { "key": "Accept", "value": "application/json" },
+                  { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/auth/sessions",
+                  "host": ["{{base_url}}"],
+                  "path": ["auth", "sessions"]
+                },
+                "description": "Lists all active sessions with device, IP, geo location, and last-active time. Auto-saves a non-current `session_id` for the delete request."
+              }
+            },
+            {
+              "name": "Revoke Specific Session",
+              "request": {
+                "method": "DELETE",
+                "header": [
+                  { "key": "Accept", "value": "application/json" },
+                  { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/auth/sessions/{{session_id}}",
+                  "host": ["{{base_url}}"],
+                  "path": ["auth", "sessions", "{{session_id}}"]
+                },
+                "description": "Revokes the session with the given ID and its associated Sanctum token."
+              }
+            }
+          ]
+        },
+
+        {
+          "name": "API Tokens",
+          "item": [
+            {
+              "name": "List My API Tokens",
+              "request": {
+                "method": "GET",
+                "header": [
+                  { "key": "Accept", "value": "application/json" },
+                  { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/auth/api-tokens",
+                  "host": ["{{base_url}}"],
+                  "path": ["auth", "api-tokens"]
+                },
+                "description": "Lists all third-party API tokens owned by the authenticated user.\n\n**Requires:** `AUTH_MODE=api` or `AUTH_MODE=both`."
+              }
+            },
+            {
+              "name": "Create API Token",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 201) {",
+                      "    const body = pm.response.json();",
+                      "    if (body.data && body.data.raw_token) {",
+                      "        pm.collectionVariables.set('api_token_raw', body.data.raw_token);",
+                      "        console.log('api_token_raw saved:', body.data.raw_token);",
+                      "    }",
+                      "    if (body.data && body.data.token && body.data.token.id) {",
+                      "        pm.collectionVariables.set('api_token_id', body.data.token.id);",
+                      "        console.log('api_token_id saved:', body.data.token.id);",
+                      "    }",
+                      "}",
+                      "pm.test('Status is 201', () => pm.response.to.have.status(201));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "Accept", "value": "application/json" },
+                  { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"CI Pipeline\",\n  \"abilities\": [\"read\", \"deploy\"],\n  \"expires_in_days\": 365\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/auth/api-tokens",
+                  "host": ["{{base_url}}"],
+                  "path": ["auth", "api-tokens"]
+                },
+                "description": "Creates a new third-party API token. The `raw_token` is shown **only once** — store it securely.\n\n**`abilities`:** array of strings. Use `[\"*\"]` for full access.\n**`expires_in_days`:** `null` = never expires. Max 3650.\n\nToken format: `auth_at_{base64}`\n\nAuto-saves `api_token_raw` and `api_token_id`."
+              }
+            },
+            {
+              "name": "Revoke API Token",
+              "request": {
+                "method": "DELETE",
+                "header": [
+                  { "key": "Accept", "value": "application/json" },
+                  { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/auth/api-tokens/{{api_token_id}}",
+                  "host": ["{{base_url}}"],
+                  "path": ["auth", "api-tokens", "{{api_token_id}}"]
+                },
+                "description": "Revokes the API token saved in `api_token_id`."
+              }
+            },
+            {
+              "name": "Use API Token on a Protected Route",
+              "request": {
+                "method": "GET",
+                "header": [
+                  { "key": "Accept", "value": "application/json" },
+                  { "key": "Authorization", "value": "Bearer {{api_token_raw}}" }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/your-protected-route",
+                  "host": ["{{base_url}}"],
+                  "path": ["your-protected-route"]
+                },
+                "description": "Example of calling a route protected by `auth.api-token` middleware. Replace the URL with your actual endpoint.\n\nThe middleware validates:\n1. Token starts with `auth_at_`\n2. SHA-256 hash matches a stored record\n3. Token is active and not expired\n4. Token has the required abilities"
+              }
+            }
+          ]
+        },
+
+        {
+          "name": "Google OAuth",
+          "item": [
+            {
+              "name": "Get Google Redirect URL",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 200) {",
+                      "    const body = pm.response.json();",
+                      "    if (body.data && body.data.redirect_url) {",
+                      "        console.log('Open in browser:', body.data.redirect_url);",
+                      "    }",
+                      "}",
+                      "pm.test('Status is 200', () => pm.response.to.have.status(200));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [
+                  { "key": "Accept", "value": "application/json" }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/auth/social/google/redirect",
+                  "host": ["{{base_url}}"],
+                  "path": ["auth", "social", "google", "redirect"]
+                },
+                "description": "Returns the Google OAuth authorization URL. Open `data.redirect_url` in a browser to start the OAuth flow.\n\n**Requires:** `AUTH_GOOGLE_ENABLED=true`\n\n**Errors:** 403 Google OAuth disabled"
+              }
+            },
+            {
+              "name": "Google OAuth Callback",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 200) {",
+                      "    const body = pm.response.json();",
+                      "    if (body.data && body.data.token) {",
+                      "        pm.collectionVariables.set('auth_token', body.data.token);",
+                      "        console.log('auth_token saved from Google OAuth:', body.data.token);",
+                      "    }",
+                      "    if (body.data && body.data.refresh_token) {",
+                      "        pm.collectionVariables.set('refresh_token', body.data.refresh_token);",
+                      "    }",
+                      "}",
+                      "pm.test('Status is 200', () => pm.response.to.have.status(200));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [
+                  { "key": "Accept", "value": "application/json" }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/auth/social/google/callback?code=GOOGLE_AUTH_CODE&state=STATE",
+                  "host": ["{{base_url}}"],
+                  "path": ["auth", "social", "google", "callback"],
+                  "query": [
+                    { "key": "code", "value": "GOOGLE_AUTH_CODE" },
+                    { "key": "state", "value": "STATE" }
+                  ]
+                },
+                "description": "Google redirects the user's browser here after authorization. In practice you do not call this directly.\n\n**Handles 3 cases automatically:** existing provider link · email match · new user.\n\nAuto-saves `auth_token` and `refresh_token`.\n\n**Errors:** 403 disabled or inactive · 400 OAuth exchange failed"
+              }
+            }
+          ]
         }
+
       ]
     },
-    {
-      "name": "Google OAuth",
-      "item": [
-        {
-          "name": "Get Google Redirect URL",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "if (pm.response.code === 200) {",
-                  "    const body = pm.response.json();",
-                  "    if (body.data && body.data.redirect_url) {",
-                  "        console.log('Open this URL in a browser:', body.data.redirect_url);",
-                  "    }",
-                  "}",
-                  "pm.test('Status is 200', () => pm.response.to.have.status(200));"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "GET",
-            "header": [
-              { "key": "Accept", "value": "application/json" }
-            ],
-            "url": {
-              "raw": "{{base_url}}/auth/social/google/redirect",
-              "host": ["{{base_url}}"],
-              "path": ["auth", "social", "google", "redirect"]
-            },
-            "description": "Returns the Google OAuth authorization URL. Open `data.redirect_url` in a browser to start the OAuth flow.\n\n**Requires:** `AUTH_GOOGLE_ENABLED=true`\n\n**Errors:**\n- 403 — Google OAuth is disabled"
-          }
-        },
-        {
-          "name": "Google OAuth Callback",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "if (pm.response.code === 200) {",
-                  "    const body = pm.response.json();",
-                  "    if (body.data && body.data.token) {",
-                  "        pm.collectionVariables.set('auth_token', body.data.token);",
-                  "        console.log('auth_token saved from Google OAuth:', body.data.token);",
-                  "    }",
-                  "}",
-                  "pm.test('Status is 200', () => pm.response.to.have.status(200));"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "GET",
-            "header": [
-              { "key": "Accept", "value": "application/json" }
-            ],
-            "url": {
-              "raw": "{{base_url}}/auth/social/google/callback?code=GOOGLE_AUTH_CODE&state=STATE",
-              "host": ["{{base_url}}"],
-              "path": ["auth", "social", "google", "callback"],
-              "query": [
-                { "key": "code", "value": "GOOGLE_AUTH_CODE", "description": "Auth code from Google redirect" },
-                { "key": "state", "value": "STATE", "description": "State parameter from Google redirect" }
-              ]
-            },
-            "description": "Google redirects here after authorization. In practice, the user's browser is redirected here automatically — you would not call this directly from Postman.\n\n**Three cases handled automatically:**\n1. Provider ID matches → existing user logged in\n2. Email matches → Google account linked to existing user, then logged in\n3. Brand new → user created (email pre-verified), role assigned, then logged in\n\n**Errors:**\n- 403 — Google OAuth disabled, or account inactive\n- 400 — OAuth exchange failed"
-          }
-        }
-      ]
-    },
+
     {
       "name": "Admin — API Tokens",
+      "description": "Admin endpoints for managing API tokens across all users.\n\n**Requires:** `super-admin` or `admin` role.\n\nUse `Authorization: Bearer {{auth_token}}` (logged in as an admin user).",
       "item": [
         {
-          "name": "Admin: List All API Tokens",
+          "name": "List All API Tokens",
           "request": {
             "method": "GET",
             "header": [
@@ -632,15 +1328,16 @@
               "host": ["{{base_url}}"],
               "path": ["auth", "admin", "api-tokens"]
             },
-            "description": "Lists all API tokens across all users.\n\n**Requires:** `super-admin` or `admin` role."
+            "description": "Lists all API tokens across all users with owner info, abilities, expiry, and last-used timestamp."
           }
         },
         {
-          "name": "Admin: Create Unowned API Token",
+          "name": "Create Unowned API Token",
           "event": [
             {
               "listen": "test",
               "script": {
+                "type": "text/javascript",
                 "exec": [
                   "if (pm.response.code === 201) {",
                   "    const body = pm.response.json();",
@@ -653,8 +1350,7 @@
                   "    }",
                   "}",
                   "pm.test('Status is 201', () => pm.response.to.have.status(201));"
-                ],
-                "type": "text/javascript"
+                ]
               }
             }
           ],
@@ -674,11 +1370,11 @@
               "host": ["{{base_url}}"],
               "path": ["auth", "admin", "api-tokens"]
             },
-            "description": "Creates an API token not attached to any user. Useful for service accounts.\n\n**Requires:** `super-admin` or `admin` role."
+            "description": "Creates an API token not attached to any user — useful for service accounts or CI pipelines."
           }
         },
         {
-          "name": "Admin: Update API Token",
+          "name": "Update API Token",
           "request": {
             "method": "PATCH",
             "header": [
@@ -695,11 +1391,11 @@
               "host": ["{{base_url}}"],
               "path": ["auth", "admin", "api-tokens", "{{api_token_id}}"]
             },
-            "description": "Updates the abilities and/or expiry of any API token.\n\n**Fields (all optional):**\n- `abilities` — replaces the current abilities array\n- `expires_in_days` — `null` clears expiry (never expires)\n\n**Requires:** `super-admin` or `admin` role."
+            "description": "Updates abilities and/or expiry of any API token.\n\n**Fields (all optional):**\n- `abilities` — replaces the current abilities array\n- `expires_in_days` — `null` clears expiry (never expires)"
           }
         },
         {
-          "name": "Admin: Revoke Any API Token",
+          "name": "Revoke Any API Token",
           "request": {
             "method": "DELETE",
             "header": [
@@ -711,16 +1407,18 @@
               "host": ["{{base_url}}"],
               "path": ["auth", "admin", "api-tokens", "{{api_token_id}}"]
             },
-            "description": "Revokes any API token regardless of owner.\n\n**Requires:** `super-admin` or `admin` role."
+            "description": "Revokes any API token regardless of owner."
           }
         }
       ]
     },
+
     {
-      "name": "Health Checks & Reference",
+      "name": "Reference",
+      "description": "Response format examples and HTTP status code reference.",
       "item": [
         {
-          "name": "Response — Success Example",
+          "name": "Success Response Shape",
           "request": {
             "method": "GET",
             "header": [
@@ -732,11 +1430,11 @@
               "host": ["{{base_url}}"],
               "path": ["auth", "me"]
             },
-            "description": "Reference: every successful response has this shape:\n```json\n{\n  \"success\": true,\n  \"message\": \"Human readable message.\",\n  \"data\": { }\n}\n```"
+            "description": "Every successful response follows this shape:\n```json\n{\n  \"success\": true,\n  \"message\": \"Human readable message.\",\n  \"data\": { }\n}\n```\n\nOverride with `ResponseFormatterContract` if your app needs a different envelope."
           }
         },
         {
-          "name": "Response — Error Example (wrong password)",
+          "name": "Error Response Shape (wrong password)",
           "request": {
             "method": "POST",
             "header": [
@@ -752,10 +1450,11 @@
               "host": ["{{base_url}}"],
               "path": ["auth", "login"]
             },
-            "description": "Reference: every error response has this shape:\n```json\n{\n  \"success\": false,\n  \"message\": \"Human readable error.\",\n  \"errors\": { }\n}\n```\n\nHTTP status codes used:\n- 200 OK\n- 201 Created\n- 400 Bad Request\n- 401 Unauthorized\n- 403 Forbidden\n- 404 Not Found\n- 409 Conflict\n- 422 Unprocessable Entity\n- 423 Locked (account lockout)\n- 429 Too Many Requests"
+            "description": "Every error response follows this shape:\n```json\n{\n  \"success\": false,\n  \"message\": \"Human readable error.\",\n  \"errors\": { }\n}\n```\n\n**HTTP status codes used:**\n- `200` OK\n- `201` Created\n- `400` Bad Request\n- `401` Unauthorized\n- `403` Forbidden\n- `404` Not Found\n- `409` Conflict (email already registered)\n- `422` Unprocessable Entity (validation)\n- `423` Locked (account lockout)\n- `429` Too Many Requests (rate limit)"
           }
         }
       ]
     }
+
   ]
 }

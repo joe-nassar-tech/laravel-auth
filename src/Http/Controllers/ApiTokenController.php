@@ -9,6 +9,7 @@ use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Joe404\LaravelAuth\Http\Concerns\RespondsWithJson;
 use Joe404\LaravelAuth\Http\Requests\ApiTokenRequest;
+use Joe404\LaravelAuth\Http\Requests\ApiTokenUpdateRequest;
 use Joe404\LaravelAuth\Models\AuthApiToken;
 use Joe404\LaravelAuth\Services\ApiTokenService;
 
@@ -87,7 +88,7 @@ class ApiTokenController extends Controller
         );
     }
 
-    public function adminUpdate(ApiTokenRequest $request, int $id): JsonResponse
+    public function adminUpdate(ApiTokenUpdateRequest $request, int $id): JsonResponse
     {
         $token = AuthApiToken::where('id', $id)->first();
 

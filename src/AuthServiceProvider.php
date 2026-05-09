@@ -5,9 +5,12 @@ declare(strict_types=1);
 namespace Joe404\LaravelAuth;
 
 use Illuminate\Auth\AuthenticationException;
+use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Console\Scheduling\Schedule;
+use Illuminate\Http\Request;
 use Illuminate\Routing\Router;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\ValidationException;
@@ -19,12 +22,14 @@ use Joe404\LaravelAuth\Events\SuspiciousLoginDetected;
 use Joe404\LaravelAuth\Events\UserRegistered;
 use Joe404\LaravelAuth\Http\Formatters\DefaultResponseFormatter;
 use Joe404\LaravelAuth\Http\Middleware\ApiTokenAuth;
-use Joe404\LaravelAuth\Http\Middleware\AuthMode;
 use Joe404\LaravelAuth\Http\Middleware\DeviceFingerprint;
+use Joe404\LaravelAuth\Http\Middleware\FeatureFlag;
+use Joe404\LaravelAuth\Http\Middleware\RejectRefreshToken;
 use Joe404\LaravelAuth\Http\Middleware\RateLimitAuth;
 use Joe404\LaravelAuth\Http\Middleware\RequireEmailVerified;
 use Joe404\LaravelAuth\Jobs\CleanExpiredApiTokens;
 use Joe404\LaravelAuth\Jobs\CleanExpiredOtpRecords;
+use Joe404\LaravelAuth\Jobs\CleanExpiredRefreshTokens;
 use Joe404\LaravelAuth\Listeners\NotifySuspiciousLogin;
 use Joe404\LaravelAuth\Listeners\SendVerificationNotification;
 
@@ -36,6 +41,15 @@ class AuthServiceProvider extends ServiceProvider
             __DIR__ . '/../config/auth_system.php',
             'auth_system',
         );
+
+        // Bind custom register request class (Option B) when configured
+        $customRequest = config('auth_system.registration.request_class');
+        if ($customRequest !== null && class_exists((string) $customRequest)) {
+            $this->app->bind(
+                \Joe404\LaravelAuth\Http\Requests\RegisterRequest::class,
+                (string) $customRequest,
+            );
+        }
 
         // Bind OTP channel contract
         $this->app->bind(OtpChannelContract::class, function (): OtpChannelContract {
@@ -62,8 +76,11 @@ class AuthServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        $this->validateConfig();
+        $this->ensureApiRateLimiter();
         $this->publishAssets();
         $this->configureSocialite();
+        $this->loadViewsFrom(__DIR__ . '/../resources/views', 'laravel-auth');
         $this->loadMigrationsFrom(__DIR__ . '/../database/migrations');
         $this->registerRoutes();
         $this->registerMiddleware();
@@ -71,6 +88,32 @@ class AuthServiceProvider extends ServiceProvider
         $this->registerSchedule();
         $this->registerEvents();
         $this->registerExceptionHandlers();
+    }
+
+    /**
+     * Host apps that follow the standard Laravel skeleton already register a
+     * named "api" rate limiter via RouteServiceProvider. In bare package
+     * contexts (and tests) it does not exist — register a sensible default so
+     * the package's "throttle:api" middleware does not blow up.
+     */
+    private function ensureApiRateLimiter(): void
+    {
+        if (RateLimiter::limiter('api') === null) {
+            RateLimiter::for('api', fn (Request $request) => Limit::perMinute(60)->by(
+                $request->user()?->getKey() ?? $request->ip(),
+            ));
+        }
+    }
+
+    private function validateConfig(): void
+    {
+        $otpLength = (int) config('auth_system.verification.otp_length', 6);
+
+        if ($otpLength < 4 || $otpLength > 8) {
+            throw new \InvalidArgumentException(
+                "auth_system.verification.otp_length must be between 4 and 8, got {$otpLength}.",
+            );
+        }
     }
 
     private function publishAssets(): void
@@ -91,13 +134,36 @@ class AuthServiceProvider extends ServiceProvider
             $this->publishes([
                 __DIR__ . '/../stubs/' => base_path('stubs/vendor/joe-404/laravel-auth'),
             ], 'auth-stubs');
+
+            $this->publishes([
+                __DIR__ . '/../resources/views' => resource_path('views/vendor/laravel-auth'),
+            ], 'auth-views');
         }
     }
 
     private function registerRoutes(): void
     {
+        $mode = (string) config('auth_system.mode', 'both');
+
+        if ($mode === 'api') {
+            $middleware = ['api'];
+        } else {
+            // Session middleware without the full 'web' group so we can swap
+            // VerifyCsrfToken for ConditionalCsrf, which skips CSRF for Bearer
+            // token requests (mobile / API clients) while still protecting
+            // session-based (SPA) requests.
+            $middleware = [
+                \Illuminate\Cookie\Middleware\EncryptCookies::class,
+                \Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse::class,
+                \Illuminate\Session\Middleware\StartSession::class,
+                \Illuminate\View\Middleware\ShareErrorsFromSession::class,
+                \Joe404\LaravelAuth\Http\Middleware\ConditionalCsrf::class,
+                'api',
+            ];
+        }
+
         Route::prefix('auth')
-            ->middleware('api')
+            ->middleware($middleware)
             ->group(__DIR__ . '/../routes/auth.php');
     }
 
@@ -108,9 +174,26 @@ class AuthServiceProvider extends ServiceProvider
 
         $router->aliasMiddleware('auth.ratelimit', RateLimitAuth::class);
         $router->aliasMiddleware('auth.verified', RequireEmailVerified::class);
-        $router->aliasMiddleware('auth.mode', AuthMode::class);
+        $router->aliasMiddleware('auth.no-refresh', RejectRefreshToken::class);
         $router->aliasMiddleware('auth.device', DeviceFingerprint::class);
         $router->aliasMiddleware('auth.api-token', ApiTokenAuth::class);
+        $router->aliasMiddleware('auth.feature', FeatureFlag::class);
+
+        // Spatie's PermissionServiceProvider stopped auto-registering middleware
+        // aliases in Laravel 11. We register them here so package routes
+        // ("role:super-admin|admin") work without the host app having to add
+        // them to bootstrap/app.php.
+        if (! $router->hasMiddlewareGroup('role')) {
+            if (class_exists(\Spatie\Permission\Middleware\RoleMiddleware::class)) {
+                $router->aliasMiddleware('role', \Spatie\Permission\Middleware\RoleMiddleware::class);
+            }
+            if (class_exists(\Spatie\Permission\Middleware\PermissionMiddleware::class)) {
+                $router->aliasMiddleware('permission', \Spatie\Permission\Middleware\PermissionMiddleware::class);
+            }
+            if (class_exists(\Spatie\Permission\Middleware\RoleOrPermissionMiddleware::class)) {
+                $router->aliasMiddleware('role_or_permission', \Spatie\Permission\Middleware\RoleOrPermissionMiddleware::class);
+            }
+        }
     }
 
     private function registerCommands(): void
@@ -132,10 +215,17 @@ class AuthServiceProvider extends ServiceProvider
                 ->name('auth-clean-expired-otps')
                 ->withoutOverlapping();
 
-            $schedule->job(CleanExpiredApiTokens::class, $queue)
+            $schedule->job(CleanExpiredRefreshTokens::class, $queue)
                 ->hourly()
-                ->name('auth-clean-expired-api-tokens')
+                ->name('auth-clean-expired-refresh-tokens')
                 ->withoutOverlapping();
+
+            if ((bool) config('auth_system.api_tokens.enabled', false)) {
+                $schedule->job(CleanExpiredApiTokens::class, $queue)
+                    ->hourly()
+                    ->name('auth-clean-expired-api-tokens')
+                    ->withoutOverlapping();
+            }
         });
     }
 

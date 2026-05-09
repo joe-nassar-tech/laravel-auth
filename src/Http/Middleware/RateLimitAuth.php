@@ -38,17 +38,12 @@ class RateLimitAuth
             );
         }
 
-        /** @var Response $response */
-        $response = $next($request);
-
-        if ($response->isSuccessful()) {
-            $this->rateLimitService->clear($configKey, $ip);
-
-            if ($email !== '') {
-                $this->rateLimitService->clear($configKey, $email);
-            }
-        }
-
-        return $response;
+        // Do NOT clear on a 2xx response. Many auth endpoints (forgot-password,
+        // resend-verification, social-link-confirm) return 200 unconditionally
+        // to prevent enumeration — auto-clearing would defeat the limit. The
+        // limiter decays naturally via TTL; controllers may call
+        // RateLimitService::clear() explicitly when they have proven success
+        // (e.g. correct password on /login).
+        return $next($request);
     }
 }

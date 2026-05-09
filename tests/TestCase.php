@@ -6,9 +6,9 @@ namespace Joe404\LaravelAuth\Tests;
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Joe404\LaravelAuth\AuthServiceProvider;
-use Joe404\LaravelAuth\Tests\Fixtures\CreateUsersTable;
 use Joe404\LaravelAuth\Tests\Fixtures\User;
 use Laravel\Sanctum\SanctumServiceProvider;
+use Laravel\Socialite\SocialiteServiceProvider;
 use Orchestra\Testbench\TestCase as OrchestraTestCase;
 use Spatie\Permission\PermissionServiceProvider;
 
@@ -36,6 +36,7 @@ abstract class TestCase extends OrchestraTestCase
         return [
             SanctumServiceProvider::class,
             PermissionServiceProvider::class,
+            SocialiteServiceProvider::class,
             AuthServiceProvider::class,
         ];
     }
@@ -88,14 +89,19 @@ abstract class TestCase extends OrchestraTestCase
 
     protected function defineDatabaseMigrations(): void
     {
-        // Create users table (includes package columns)
-        (new CreateUsersTable())->up();
+        // Create the host-app users table BEFORE the package migrations run,
+        // so the package's "alter users add columns" migration has a target.
+        $this->loadMigrationsFrom(__DIR__ . '/Fixtures/migrations');
 
-        // Run package migrations (OTP codes table, etc.)
+        // Package migrations (OTP codes, sessions, refresh tokens, etc).
         $this->loadMigrationsFrom(__DIR__ . '/../database/migrations');
 
-        // Run Spatie permission migrations
-        $this->artisan('migrate', ['--path' => 'vendor/spatie/laravel-permission/database/migrations']);
+        // Spatie permission migrations — registered like the others so they
+        // participate in RefreshDatabase rollback/replay.
+        $this->loadMigrationsFrom(__DIR__ . '/../vendor/spatie/laravel-permission/database/migrations');
+
+        // Sanctum.
+        $this->loadMigrationsFrom(__DIR__ . '/../vendor/laravel/sanctum/database/migrations');
     }
 
     /**

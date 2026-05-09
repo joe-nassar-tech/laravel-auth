@@ -27,17 +27,16 @@ class MagicLinkNotification extends Notification
     {
         $expiresIn = $this->context['expires_in'] ?? 30;
 
-        [$subject, $actionText] = match ($this->type) {
-            'magic_link_reset'  => ['Reset Your Password', 'Reset Password'],
-            default             => ['Verify Your Email Address', 'Verify Email'],
+        [$subject, $view] = match ($this->type) {
+            'magic_link_reset'  => ['Reset Your Password',        'laravel-auth::emails.magic-link-reset'],
+            default             => ['Verify Your Email Address',   'laravel-auth::emails.magic-link-verify'],
         };
 
         return (new MailMessage())
             ->subject($subject)
-            ->greeting('Hello!')
-            ->line('Click the button below to ' . strtolower($actionText) . '.')
-            ->action($actionText, $this->url)
-            ->line("This link will expire in {$expiresIn} minutes.")
-            ->line('If you did not request this, please ignore this email.');
+            ->markdown($view, [
+                'url'       => $this->url,
+                'expiresIn' => $expiresIn,
+            ]);
     }
 }

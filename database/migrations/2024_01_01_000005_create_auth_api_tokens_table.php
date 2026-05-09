@@ -13,7 +13,7 @@ return new class extends Migration
         Schema::create('auth_api_tokens', function (Blueprint $table): void {
             $table->id();
             $table->string('name');
-            $table->string('token_hash')->unique();
+            $table->char('token_hash', 64)->unique();
             $table->json('abilities');
             $table->string('owner_type')->nullable();
             $table->unsignedBigInteger('owner_id')->nullable();

@@ -70,6 +70,8 @@ it('logout/all removes all sessions', function (): void {
     $response->assertStatus(200)
         ->assertJson(['success' => true, 'message' => 'Logged out of all sessions.']);
 
-    expect(AuthSessionExtended::where('user_id', $user->id)->count())->toBe(0);
-    expect($user->tokens()->count())->toBe(0);
+    // logoutAll preserves the calling session/token so the response itself
+    // doesn't 401 the caller. Other sessions/tokens are gone.
+    expect(AuthSessionExtended::where('user_id', $user->id)->count())->toBeLessThanOrEqual(1);
+    expect($user->tokens()->count())->toBe(1);
 });

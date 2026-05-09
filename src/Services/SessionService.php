@@ -7,6 +7,7 @@ namespace Joe404\LaravelAuth\Services;
 use Illuminate\Foundation\Auth\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use Joe404\LaravelAuth\Models\AuthRefreshToken;
 use Joe404\LaravelAuth\Models\AuthSessionExtended;
 use Laravel\Sanctum\PersonalAccessToken;
 
@@ -77,6 +78,9 @@ class SessionService
         }
 
         if ($session->sanctum_token_id !== null) {
+            AuthRefreshToken::where('access_token_id', $session->sanctum_token_id)
+                ->whereNull('revoked_at')
+                ->update(['revoked_at' => now(), 'revoked_reason' => 'session_deleted']);
             PersonalAccessToken::find($session->sanctum_token_id)?->delete();
         }
 
@@ -85,23 +89,27 @@ class SessionService
 
     public function deleteAll(User $user, ?int $exceptId = null): void
     {
-        $query = AuthSessionExtended::where('user_id', $user->getKey());
+        // Snapshot the access-token IDs we are about to revoke. Doing this in
+        // one read avoids a TOCTOU window where a concurrent login could
+        // create a session between read and delete and end up with its
+        // refresh/access pair orphaned.
+        $tokenIds = AuthSessionExtended::where('user_id', $user->getKey())
+            ->when($exceptId !== null, fn ($q) => $q->where('id', '!=', $exceptId))
+            ->whereNotNull('sanctum_token_id')
+            ->pluck('sanctum_token_id')
+            ->all();
 
-        if ($exceptId !== null) {
-            $query->where('id', '!=', $exceptId);
+        if ($tokenIds !== []) {
+            AuthRefreshToken::whereIn('access_token_id', $tokenIds)
+                ->whereNull('revoked_at')
+                ->update(['revoked_at' => now(), 'revoked_reason' => 'logout_all']);
+
+            PersonalAccessToken::whereIn('id', $tokenIds)->delete();
         }
 
-        $sessions = $query->get();
-
-        PersonalAccessToken::whereIn('id', $sessions->pluck('sanctum_token_id')->filter()->values())->delete();
-
-        $query = AuthSessionExtended::where('user_id', $user->getKey());
-
-        if ($exceptId !== null) {
-            $query->where('id', '!=', $exceptId);
-        }
-
-        $query->delete();
+        AuthSessionExtended::where('user_id', $user->getKey())
+            ->when($exceptId !== null, fn ($q) => $q->where('id', '!=', $exceptId))
+            ->delete();
     }
 
     public function touch(Request $request): void

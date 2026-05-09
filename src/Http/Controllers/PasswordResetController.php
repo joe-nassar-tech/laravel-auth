@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Joe404\LaravelAuth\Http\Controllers;
 
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Joe404\LaravelAuth\Exceptions\AuthException;
@@ -53,24 +54,47 @@ class PasswordResetController extends Controller
         return $this->success('Password reset successfully. Please log in with your new password.');
     }
 
-    public function magicRedirect(string $token, Request $request): JsonResponse
+    public function magicRedirect(string $token, Request $request): JsonResponse|RedirectResponse
     {
-        if (! $request->hasValidSignature()) {
-            return $this->failure('Invalid or expired reset link.', [], 422);
+        $isFrontend = config('auth_system.verification.magic_link_target') === 'frontend';
+
+        if (! $isFrontend && ! $request->hasValidSignature()) {
+            return $this->resetFailure($request, 'Invalid or expired reset link.', 'invalid_link');
         }
 
         try {
             $resetToken = $this->authService->validateResetMagicLink($token);
         } catch (OtpExpiredException $e) {
-            return $this->failure($e->getMessage(), [], 422);
+            return $this->resetFailure($request, $e->getMessage(), 'expired_link');
         } catch (OtpInvalidException $e) {
-            return $this->failure($e->getMessage(), [], 422);
+            return $this->resetFailure($request, $e->getMessage(), 'invalid_link');
+        }
+
+        $frontendUrl = (string) config('auth_system.verification.frontend_reset_url', '');
+
+        if ($frontendUrl !== '' && ! $request->wantsJson()) {
+            return redirect()->away(
+                rtrim($frontendUrl, '/') . '?reset_token=' . urlencode($resetToken),
+            );
         }
 
         return $this->success(
             'Link validated. Submit your new password using the reset_token.',
             ['reset_token' => $resetToken],
         );
+    }
+
+    private function resetFailure(Request $request, string $message, string $code): JsonResponse|RedirectResponse
+    {
+        $frontendUrl = (string) config('auth_system.verification.frontend_reset_url', '');
+
+        if ($frontendUrl !== '' && ! $request->wantsJson()) {
+            return redirect()->away(
+                rtrim($frontendUrl, '/') . '?error=' . urlencode($code),
+            );
+        }
+
+        return $this->failure($message, [], 422);
     }
 
     public function confirm(PasswordResetConfirmRequest $request): JsonResponse

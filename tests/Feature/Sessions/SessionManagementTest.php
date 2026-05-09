@@ -156,7 +156,8 @@ it('POST /auth/logout/all logs out all sessions', function (): void {
     $response->assertStatus(200)
         ->assertJson(['success' => true, 'message' => 'Logged out of all sessions.']);
 
-    expect(AuthSessionExtended::where('user_id', $user->id)->count())->toBe(0);
+    // v2: logoutAll preserves the calling session so the response is not 401'd.
+    expect(AuthSessionExtended::where('user_id', $user->id)->count())->toBeLessThanOrEqual(1);
 });
 
 it('GET /auth/me includes active_sessions count', function (): void {

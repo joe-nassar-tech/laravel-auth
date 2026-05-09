@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Joe404\LaravelAuth\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rules\Password;
 
 class PasswordChangeRequest extends FormRequest
 {
@@ -20,9 +21,28 @@ class PasswordChangeRequest extends FormRequest
     {
         return [
             'current_password'          => ['required', 'string'],
-            'new_password'              => ['required', 'string', 'min:8', 'confirmed', 'different:current_password'],
+            'new_password'              => ['required', 'confirmed', 'different:current_password', $this->passwordRule()],
             'new_password_confirmation' => ['required', 'string'],
             'logout_all'                => ['sometimes', 'boolean'],
         ];
+    }
+
+    private function passwordRule(): Password
+    {
+        $rule = Password::min((int) config('auth_system.password.min_length', 8));
+
+        if ((bool) config('auth_system.password.require_uppercase', false)) {
+            $rule = $rule->mixedCase();
+        }
+
+        if ((bool) config('auth_system.password.require_number', false)) {
+            $rule = $rule->numbers();
+        }
+
+        if ((bool) config('auth_system.password.require_special', false)) {
+            $rule = $rule->symbols();
+        }
+
+        return $rule;
     }
 }

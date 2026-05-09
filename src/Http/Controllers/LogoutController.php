@@ -27,7 +27,7 @@ class LogoutController extends Controller
 
     public function logoutAll(Request $request): JsonResponse
     {
-        $this->authService->logoutAll($request->user());
+        $this->authService->logoutAll($request->user(), $request);
 
         return $this->success('Logged out of all sessions.');
     }

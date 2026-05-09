@@ -1,77 +1,61 @@
 # joe-404/laravel-auth
 
+A drop-in, config-driven authentication library for Laravel 13. Register, verify, log in, reset passwords, manage sessions, issue API tokens, and sign in with Google — all through a single JSON API with zero frontend coupling.
+
 [![Latest Version on Packagist](https://img.shields.io/packagist/v/joe-404/laravel-auth.svg?style=flat-square)](https://packagist.org/packages/joe-404/laravel-auth)
-[![PHP Version](https://img.shields.io/badge/PHP-%5E8.2-blue?style=flat-square)](https://packagist.org/packages/joe-404/laravel-auth)
-[![Laravel Version](https://img.shields.io/badge/Laravel-%5E13.0-red?style=flat-square)](https://packagist.org/packages/joe-404/laravel-auth)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg?style=flat-square)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-Pest-purple?style=flat-square)](https://pestphp.com)
-
-**A drop-in, config-driven authentication library for Laravel 13.**
-
-Install once, configure via `.env`, and get a production-ready authentication system with:
-
-- **Registration** with OTP + magic-link email verification (sent simultaneously)
-- **Login / Logout** — Bearer token (API), session cookie (SPA), or auto-detected (`both` mode)
-- **Password reset** via OTP or signed magic link
-- **Session & device tracking** — browser, OS, device model, IP, city, country
-- **API token system** — scoped, optionally expiring tokens for third-party clients
-- **Google OAuth** via Laravel Socialite
-- **Real-time verification** broadcast via Laravel Reverb
-- **Security hardening** — dual-layer rate limiting, account lockout, new-device email alerts
-- **100% JSON API** — consistent `{ success, message, data }` envelope on every response
-
-> **One `composer require`. One `php artisan auth:install`. Zero boilerplate.**
-
----
-
-## Why joe-404/laravel-auth?
-
-| What you'd normally build manually | What this package gives you |
-|---|---|
-| Registration + OTP + magic link logic | Single `POST /auth/register` with both sent simultaneously |
-| Custom session/device fingerprinting | Built-in `auth_sessions_extended` table + `X-Device-Info` header |
-| Rate limiting per IP **and** per email | Configured per endpoint via `.env` |
-| Account lockout across rate windows | Cumulative Redis counter, independent of per-window limits |
-| API token system (scoped, expiring) | Full CRUD + `ApiTokenAuth` middleware with ability checks |
-| Google OAuth → link or create user | `GET /auth/social/google/callback` handles all three cases |
-| Real-time auth events in the browser | `EmailVerified` broadcast on `auth.verification.{temp_token}` |
-| Custom response envelope | `ResponseFormatterContract` — override without touching library code |
-| Custom OTP delivery (SMS, WhatsApp) | `OtpChannelContract` — swap the channel in one line |
+[![PHP](https://img.shields.io/badge/PHP-8.2%2B-blue?style=flat-square)](https://php.net)
+[![Laravel](https://img.shields.io/badge/Laravel-12%2B%20%7C%2013%2B-red?style=flat-square)](https://laravel.com)
+[![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 
 ---
 
 ## Table of Contents
 
-1. [Requirements](#requirements)
-2. [Installation](#installation)
-3. [Configuration Reference](#configuration-reference)
-4. [Authentication Modes](#authentication-modes)
-5. [API Endpoints](#api-endpoints)
-   - [Registration](#registration)
-   - [Email Verification](#email-verification)
-   - [Login](#login)
-   - [Logout](#logout)
-   - [Current User](#current-user)
-   - [Password Reset](#password-reset)
-   - [Password Change](#password-change)
-   - [Session Management](#session-management)
-   - [API Token Management](#api-token-management)
-   - [Google OAuth](#google-oauth)
-6. [Response Envelope](#response-envelope)
-7. [Customising the Response Format](#customising-the-response-format)
-8. [Customising the OTP Channel](#customising-the-otp-channel)
-9. [Security Features](#security-features)
-   - [Rate Limiting](#rate-limiting)
-   - [Account Lockout](#account-lockout)
-   - [New Device Detection](#new-device-detection)
-10. [Real-time Verification (Reverb)](#real-time-verification-reverb)
-11. [Device & Session Tracking](#device--session-tracking)
-12. [Admin API Token Management](#admin-api-token-management)
-13. [Role Assignment](#role-assignment)
-14. [Events Reference](#events-reference)
-15. [Scheduled Jobs](#scheduled-jobs)
-16. [Environment Variable Quick Reference](#environment-variable-quick-reference)
-17. [Extending the Library](#extending-the-library)
+- [Features](#features)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Authentication Modes](#authentication-modes)
+- [API Reference](#api-reference)
+  - [Registration](#registration)
+  - [Login & Logout](#login--logout)
+  - [Token Refresh](#token-refresh)
+  - [Password Reset](#password-reset)
+  - [Password Change](#password-change)
+  - [Sessions](#sessions)
+  - [Google OAuth](#google-oauth)
+  - [API Tokens](#api-tokens)
+- [Configuration](#configuration)
+- [Customization](#customization)
+  - [Extra Registration Fields](#extra-registration-fields)
+  - [Custom OTP Channel (SMS, WhatsApp…)](#custom-otp-channel-sms-whatsapp)
+  - [Custom Response Format](#custom-response-format)
+  - [Custom Email Templates](#custom-email-templates)
+- [Events](#events)
+- [Security Design](#security-design)
+- [Testing](#testing)
+- [License](#license)
+
+---
+
+## Features
+
+| Feature | Details |
+|---|---|
+| **Registration** | Email-only initiation → OTP or magic-link verification → password set after email proof |
+| **Email verification** | OTP code, magic link, or both in a single email |
+| **Login** | Password-based; session cookie or Bearer token depending on auth mode |
+| **Token refresh** | Dedicated refresh tokens (separate table, one-time-use, atomic rotation) |
+| **Password reset** | OTP or magic link; independently configurable from registration |
+| **Password change** | Authenticated; optionally revokes all other sessions |
+| **Session management** | Track device, browser, OS, IP, city, country; revoke individual or all sessions |
+| **Google OAuth** | Sign-in with Google; safe account-linking with inbox-confirmation email |
+| **API tokens** | Long-lived, scoped tokens for third-party integrations (opt-in feature) |
+| **Rate limiting** | Per-IP + per-email; independently configurable per endpoint |
+| **Account lockout** | Temporary lockout after repeated failed login attempts |
+| **New device alerts** | Email notification when a user logs in from an unrecognised browser/OS |
+| **Reverb WebSocket** | Optional real-time verification status push |
+| **Response envelope** | Uniform `{ success, message, data }` / `{ success, message, errors }` on every response |
 
 ---
 
@@ -80,392 +64,167 @@ Install once, configure via `.env`, and get a production-ready authentication sy
 | Dependency | Version |
 |---|---|
 | PHP | `^8.2` |
-| Laravel | `^13.0` |
-| laravel/sanctum | `^4.0` |
-| laravel/socialite | `^5.0` |
-| spatie/laravel-permission | `^6.0` |
-| jenssegers/agent | `^2.6` |
-| A cache driver | Redis recommended, `array` for testing |
+| Laravel | `^12.0` or `^13.0` |
+| Laravel Sanctum | `^4.0` |
+| Laravel Socialite | `^5.0` |
+| Spatie Permission | `^6.0` |
+| Redis (recommended) | phpredis or predis |
 
 ---
 
 ## Installation
 
-### Step 1 — Require the package
+### 1. Install via Composer
 
 ```bash
 composer require joe-404/laravel-auth
 ```
 
-### Step 2 — Run the install command
+### 2. Run the installer
 
 ```bash
 php artisan auth:install
 ```
 
-This command:
-- Publishes `config/auth_system.php`
-- Publishes all database migrations into `database/migrations/`
-- Publishes the role seeder into `database/seeders/`
-- Appends the Reverb channel stub to `routes/channels.php` (for real-time verification)
-- Prints a checklist of next steps
+This command publishes the config file, migrations, and email views, and walks you through the minimal `.env` setup.
 
-### Step 3 — Run migrations
+### 3. Run migrations
 
 ```bash
 php artisan migrate
 ```
 
-The package creates or modifies the following tables:
+Six tables are created:
 
 | Table | Purpose |
 |---|---|
-| `users` (modified) | Adds `google_id`, `is_active`, `last_login_at` columns |
-| `auth_otp_codes` | Stores OTP and magic-link verification tokens |
+| `auth_otp_codes` | OTP codes and magic-link tokens (stored as SHA-256 hashes) |
 | `auth_sessions_extended` | Device and session tracking per user |
-| `auth_social_accounts` | Google OAuth account links |
-| `auth_api_tokens` | Third-party API token management |
+| `auth_refresh_tokens` | Refresh tokens (hashed, separate from Sanctum access tokens) |
+| `auth_social_accounts` | Linked OAuth provider accounts |
+| `auth_api_tokens` | Long-lived API tokens (when feature is enabled) |
+| `users` (altered) | Adds `last_login_at` and `is_active` columns |
 
-### Step 4 — Seed roles
+### 4. Seed roles
 
 ```bash
 php artisan db:seed --class=AuthRolesSeeder
 ```
 
-This creates the three built-in roles: `super-admin`, `admin`, `user`.
+Creates `super-admin`, `admin`, and `user` roles via Spatie Permission.
 
-### Step 5 — Configure your `.env`
+### 5. Configure Sanctum
 
-At a minimum, add:
+In `config/sanctum.php`, make sure your frontend domain is in the `stateful` list:
 
-```dotenv
-AUTH_MODE=api           # api | web | both
-AUTH_GOOGLE_ENABLED=false
-AUTH_REVERB_ENABLED=false
+```php
+'stateful' => explode(',', env('SANCTUM_STATEFUL_DOMAINS', 'localhost,127.0.0.1')),
 ```
 
 ---
 
-## Configuration Reference
+## Quick Start
 
-After publishing, the full config lives in `config/auth_system.php`. Every key maps to an environment variable. Below is a detailed explanation of every option.
+### Minimal `.env`
 
----
+```env
+AUTH_MODE=both
+AUTH_VERIFICATION_METHOD=both
 
-### `mode`
-
-**Env:** `AUTH_MODE` | **Default:** `both`
-
-Controls how authentication tokens are issued.
-
-| Value | Behaviour |
-|---|---|
-| `api` | Always issues a Sanctum **Bearer token**. Every response includes `data.token`. |
-| `web` | Uses Laravel **session cookies** only. `data.token` is always `null`. |
-| `both` | Auto-detects: sends a Bearer token when the request contains `X-Client-Type: mobile` header or `Accept: application/json`. Falls back to session cookie for browser requests. |
-
-**Example:**
-```dotenv
-AUTH_MODE=api
+MAIL_MAILER=smtp
+MAIL_FROM_ADDRESS=hello@yourapp.com
+MAIL_FROM_NAME="${APP_NAME}"
 ```
 
----
-
-### `verification`
-
-Controls email verification after registration.
-
-#### `verification.method`
-
-**Env:** `AUTH_VERIFICATION_METHOD` | **Default:** `both`
-
-| Value | Behaviour |
-|---|---|
-| `otp` | Sends a numeric OTP code to the user's email. User verifies by POSTing the code. |
-| `magic_link` | Sends a signed URL to the user's email. User clicks the link to verify. |
-| `both` | Sends **both** simultaneously. User uses whichever arrives first. |
-
-#### `verification.otp_length`
-
-**Env:** `AUTH_OTP_LENGTH` | **Default:** `6`
-
-Number of digits in the OTP code. Accepted values: `4`–`8`.
-
-#### `verification.otp_expiry`
-
-**Env:** `AUTH_OTP_EXPIRY` | **Default:** `10`
-
-Minutes before the OTP code expires.
-
-#### `verification.magic_expiry`
-
-**Env:** `AUTH_MAGIC_EXPIRY` | **Default:** `30`
-
-Minutes before the magic link URL expires.
-
-**Example:**
-```dotenv
-AUTH_VERIFICATION_METHOD=otp
-AUTH_OTP_LENGTH=6
-AUTH_OTP_EXPIRY=10
-AUTH_MAGIC_EXPIRY=30
-```
-
----
-
-### `token`
-
-#### `token.expiration_minutes`
-
-**Env:** `AUTH_TOKEN_EXPIRY` | **Default:** `10080` (7 days)
-
-How long a Sanctum Bearer token remains valid. Set to `0` for no expiry.
-
-**Example:**
-```dotenv
-AUTH_TOKEN_EXPIRY=1440   # 24 hours
-```
-
----
-
-### `rate_limits`
-
-Protects endpoints against abuse. Format is `"max_attempts:decay_minutes"`.
-
-| Key | Env | Default | Protects |
-|---|---|---|---|
-| `register` | `AUTH_RATE_REGISTER` | `5:1` | `POST /auth/register` |
-| `login` | `AUTH_RATE_LOGIN` | `5:1` | `POST /auth/login` |
-| `otp_send` | `AUTH_RATE_OTP_SEND` | `3:1` | `POST /auth/email/resend-verification` |
-| `password_reset` | `AUTH_RATE_PASSWORD_RESET` | `3:1` | `POST /auth/password/forgot` |
-
-Rate limiting checks both **IP address** and **email address** independently. If either is over the limit the request is blocked with HTTP 429.
-
-**Example — stricter login:**
-```dotenv
-AUTH_RATE_LOGIN=3:5    # 3 attempts per 5 minutes
-```
-
----
-
-### `password`
-
-#### `password.min_length`
-
-**Env:** `AUTH_PASSWORD_MIN` | **Default:** `8`
-
-Minimum password length enforced at the request validation layer.
-
-#### `password.require_uppercase`
-
-**Env:** `AUTH_PASSWORD_UPPERCASE` | **Default:** `false`
-
-Require at least one uppercase letter.
-
-#### `password.require_number`
-
-**Env:** `AUTH_PASSWORD_NUMBER` | **Default:** `false`
-
-Require at least one number.
-
-#### `password.require_special`
-
-**Env:** `AUTH_PASSWORD_SPECIAL` | **Default:** `false`
-
-Require at least one special character.
-
-#### `password.pending_ttl_minutes`
-
-**Env:** `AUTH_PENDING_TTL` | **Default:** `60`
-
-How long (in minutes) the pre-registration cache entry lives. During registration, the user's password hash is stored in cache until email verification is complete. If they do not verify within this window, they must register again.
-
-**Example:**
-```dotenv
-AUTH_PASSWORD_MIN=12
-AUTH_PASSWORD_UPPERCASE=true
-AUTH_PASSWORD_NUMBER=true
-AUTH_PENDING_TTL=30
-```
-
----
-
-### `require_email_verification`
-
-**Env:** `AUTH_REQUIRE_VERIFICATION` | **Default:** `true`
-
-When `true`, users must verify their email before they can log in. Setting this to `false` allows login immediately after registration (useful for internal tools).
-
-```dotenv
-AUTH_REQUIRE_VERIFICATION=false
-```
-
----
-
-### `roles`
-
-#### `roles.default_role`
-
-**Env:** `AUTH_DEFAULT_ROLE` | **Default:** `user`
-
-The Spatie role name automatically assigned to every new user (both via standard registration and Google OAuth).
-
-#### `roles.seeded_roles`
-
-Array of roles created by `AuthRolesSeeder`. Default: `['super-admin', 'admin', 'user']`. Edit the seeder to add custom roles.
-
-**Example:**
-```dotenv
-AUTH_DEFAULT_ROLE=member
-```
-
----
-
-### `otp_channel`
-
-#### `otp_channel.driver`
-
-**Env:** `AUTH_OTP_CHANNEL` | **Default:** `email`
-
-The channel used to deliver OTP codes and magic links. Set to `email` to use the built-in `EmailOtpChannel`, or provide a fully-qualified class name that implements `Joe404\LaravelAuth\Contracts\OtpChannelContract` to use SMS, WhatsApp, etc.
-
-See [Customising the OTP Channel](#customising-the-otp-channel).
-
----
-
-### `social`
-
-#### `social.google.enabled`
-
-**Env:** `AUTH_GOOGLE_ENABLED` | **Default:** `false`
-
-Enables the Google OAuth endpoints. Also requires:
-
-```dotenv
-AUTH_GOOGLE_ENABLED=true
-GOOGLE_CLIENT_ID=your-client-id
-GOOGLE_CLIENT_SECRET=your-client-secret
-GOOGLE_REDIRECT_URI=https://your-app.com/auth/social/google/callback
-```
-
-The library auto-configures `services.google` from these values — you do not need to modify `config/services.php`.
-
----
-
-### `reverb`
-
-#### `reverb.enabled`
-
-**Env:** `AUTH_REVERB_ENABLED` | **Default:** `false`
-
-When `true` and Laravel Reverb is installed, the library broadcasts an `EmailVerified` event on the private channel `auth.verification.{temp_token}` when a user completes email verification. This allows your frontend to react in real-time without polling.
-
-See [Real-time Verification](#real-time-verification-reverb).
-
----
-
-### `queue`
-
-#### `queue.connection`
-
-**Env:** `AUTH_QUEUE_CONNECTION` | **Default:** `null` (uses app default)
-
-Queue connection for background maintenance jobs.
-
-#### `queue.name`
-
-**Env:** `AUTH_QUEUE_NAME` | **Default:** `auth-maintenance`
-
-Queue name for background maintenance jobs.
-
----
-
-### `response`
-
-#### `response.formatter`
-
-**Env:** `AUTH_RESPONSE_FORMATTER` | **Default:** `null`
-
-Fully-qualified class name of a custom response formatter. See [Customising the Response Format](#customising-the-response-format).
-
----
-
-### `security`
-
-#### `security.notify_new_device_login`
-
-**Env:** `AUTH_NOTIFY_NEW_DEVICE` | **Default:** `true`
-
-When `true`, sends an email notification to the user when they log in from a device (browser + OS combination) that has not been seen before. Uses the `NewDeviceLoginNotification` mailable.
-
-#### `security.lockout.enabled`
-
-**Env:** `AUTH_LOCKOUT_ENABLED` | **Default:** `true`
-
-Enables account-level lockout. Unlike rate limiting (which blocks by request rate), account lockout tracks cumulative failures across multiple rate-limit windows. Once `max_attempts` are reached, the account is locked for `decay_minutes` regardless of IP address.
-
-#### `security.lockout.max_attempts`
-
-**Env:** `AUTH_LOCKOUT_MAX` | **Default:** `10`
-
-Number of failed login attempts before the account is locked.
-
-#### `security.lockout.decay_minutes`
-
-**Env:** `AUTH_LOCKOUT_DECAY` | **Default:** `15`
-
-How long the lockout lasts in minutes.
-
-**Example:**
-```dotenv
-AUTH_NOTIFY_NEW_DEVICE=true
-AUTH_LOCKOUT_ENABLED=true
-AUTH_LOCKOUT_MAX=5
-AUTH_LOCKOUT_DECAY=30
+### End-to-end example with curl
+
+```bash
+# 1. Initiate registration (email only — no password yet)
+curl -sX POST http://localhost/auth/register \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json" \
+  -d '{"email":"user@example.com"}'
+# → { "data": { "temp_token": "uuid", "method": "both", "expires_in": 10 } }
+
+# 2. Verify with the OTP code sent to the email
+curl -sX POST http://localhost/auth/register/verify-otp \
+  -H "Content-Type: application/json" \
+  -d '{"email":"user@example.com","otp":"482910"}'
+# → { "data": { "completion_token": "uuid" } }
+
+# 3. Set password and complete registration
+curl -sX POST http://localhost/auth/register/complete \
+  -H "Content-Type: application/json" \
+  -d '{"completion_token":"uuid","password":"Secret123!","password_confirmation":"Secret123!"}'
+# → { "data": { "user": {...}, "token": "1|abc...", "refresh_token": "xyz..." } }
+
+# 4. Login
+curl -sX POST http://localhost/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"user@example.com","password":"Secret123!"}'
+# → { "data": { "user": {...}, "token": "...", "refresh_token": "..." } }
 ```
 
 ---
 
 ## Authentication Modes
 
-The library serves three client types through a single `auth:sanctum` guard:
+Set `AUTH_MODE` to control how credentials are issued after login:
 
-| Client type | How to authenticate |
-|---|---|
-| SPA (browser) | Laravel session cookie. No `Authorization` header needed. |
-| Mobile / API | `Authorization: Bearer {token}` header on every request. |
-| Third-party services | `Authorization: Bearer auth_at_{token}` — uses the API token system, not Sanctum. |
+| Mode | Behaviour | Best for |
+|---|---|---|
+| `web` | Session cookie only, no tokens | Traditional web apps, cookie-based SPAs |
+| `api` | Bearer token always | Pure API backends, mobile apps |
+| `both` | Auto-detect per request (default) | One backend serving both mobile and browser |
 
-For `AUTH_MODE=both`, the library auto-detects the client type:
-- Requests with `X-Client-Type: mobile` header → Bearer token
-- Requests with `Accept: application/json` → Bearer token
-- Everything else → session cookie
+**How `both` mode detects the client:**
+
+1. Request has `X-Client-Type: mobile` header → issues Bearer token (mobile TTL)
+2. `AUTH_SPA_TOKEN=true` and no `X-Client-Type` → issues Bearer token (SPA TTL)
+3. Otherwise → sets a session cookie (no token)
+
+In **web** and **both (session)** modes, SPA clients should:
+- Call `GET /sanctum/csrf-cookie` first
+- Send the CSRF cookie (`X-XSRF-TOKEN` header) with all state-mutating requests
 
 ---
 
-## API Endpoints
+## API Reference
 
-All routes are prefixed with `/auth`. Base URL example: `https://your-app.com/auth`.
+All routes are prefixed with `/auth`. All responses use the envelope:
 
-All requests and responses use `Content-Type: application/json`.
+```json
+// Success
+{ "success": true, "message": "...", "data": { ... } }
+
+// Error
+{ "success": false, "message": "...", "errors": { "field": ["..."] } }
+```
 
 ---
 
 ### Registration
 
-#### `POST /auth/register`
+Registration is a **three-step flow** that proves email ownership before accepting a password, preventing pre-account takeover attacks.
 
-Initiates registration. Sends OTP and/or magic link to the provided email. Does **not** create a user record yet — that happens on verification.
+#### Step 1 — Initiate
 
-**Request body:**
+```
+POST /auth/register
+```
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `email` | string | Yes | User's email address |
-| `password` | string | Yes | Min 8 characters |
-| `password_confirmation` | string | Yes | Must match `password` |
+Accepts `email` plus any extra fields defined in `auth_system.registration.extra_fields_rules`.
 
-**Success response — 201:**
+**Request**
+
+```json
+{
+  "email": "user@example.com"
+}
+```
+
+**Response** `201`
+
 ```json
 {
   "success": true,
@@ -478,363 +237,350 @@ Initiates registration. Sends OTP and/or magic link to the provided email. Does 
 }
 ```
 
-| Field | Description |
-|---|---|
-| `temp_token` | UUID used to subscribe to the Reverb real-time channel `auth.verification.{temp_token}` |
-| `method` | Which verification method(s) were sent (`otp`, `magic_link`, or `both`) |
-| `expires_in` | Minutes until the OTP/link expires |
-
-**Error responses:**
-
-| Status | When |
-|---|---|
-| 409 | Email already registered |
-| 422 | Validation failed |
-| 429 | Rate limit exceeded |
+- `temp_token` — subscribe to `Echo.private("auth.verification.{temp_token}")` for real-time status (requires Reverb)
+- `method` — `"otp"`, `"magic_link"`, or `"both"`
+- `expires_in` — minutes until the OTP expires
 
 ---
 
-#### `POST /auth/register/verify-otp`
+#### Step 2a — Verify with OTP
 
-Completes registration by submitting the OTP code received by email.
+```
+POST /auth/register/verify-otp
+```
 
-**Request body:**
+**Request**
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `email` | string | Yes | Same email used in `/register` |
-| `otp` | string | Yes | The numeric code from the email |
+```json
+{
+  "email": "user@example.com",
+  "otp": "482910"
+}
+```
 
-**Success response — 201:**
+**Response** `200`
+
+```json
+{
+  "success": true,
+  "message": "Email verified. Please set your password.",
+  "data": {
+    "completion_token": "a7f3d9c2-1234-5678-abcd-ef0123456789"
+  }
+}
+```
+
+---
+
+#### Step 2b — Verify with magic link
+
+The user clicks the link in their email. The library handles this route automatically.
+
+```
+GET /auth/register/verify-magic/{token}
+```
+
+Returns the same `{ "completion_token": "..." }` payload as OTP verification.
+
+> **Frontend target mode**: when `AUTH_MAGIC_LINK_TARGET=frontend`, the email link points to `AUTH_FRONTEND_VERIFY_URL?token=xxx`. Your frontend extracts the token and calls `GET /auth/register/verify-magic/{token}` itself.
+
+---
+
+#### Step 3 — Complete registration
+
+```
+POST /auth/register/complete
+```
+
+**Request**
+
+```json
+{
+  "completion_token": "a7f3d9c2-1234-5678-abcd-ef0123456789",
+  "password": "Secret123!",
+  "password_confirmation": "Secret123!"
+}
+```
+
+**Response** `201`
+
 ```json
 {
   "success": true,
   "message": "Registration complete.",
   "data": {
-    "user": { "id": 1, "name": "joe", "email": "joe@example.com", "..." },
+    "user": { "id": 1, "name": "user", "email": "user@example.com" },
     "token": "1|abc123...",
-    "temp_token": "550e8400-..."
+    "refresh_token": "def456..."
   }
 }
 ```
 
-`token` is `null` when `AUTH_MODE=web`.
-
-**Error responses:**
-
-| Status | When |
-|---|---|
-| 422 | OTP is wrong or expired |
+`token` and `refresh_token` are `null` in web/session mode; the session cookie is set automatically.
 
 ---
 
-#### `GET /auth/register/verify-magic/{token}`
+#### Resend verification
 
-Completes registration by clicking the magic link from the email. The `{token}` is the UUID embedded in the link by the library — users never construct this URL manually; they simply click the link in their inbox.
+```
+POST /auth/email/resend-verification
+```
 
-**Success response — 201:** Same structure as `verify-otp`.
+**Request**
 
-**Error responses:**
+```json
+{ "email": "user@example.com" }
+```
 
-| Status | When |
-|---|---|
-| 422 | Link signature is invalid, link is expired, or token was already used |
+Always returns success to prevent email enumeration.
 
 ---
 
-### Email Verification
+### Login & Logout
 
-#### `POST /auth/email/resend-verification`
+#### Login
 
-Resends OTP and/or magic link for a registration that has not yet been verified. Generates a new `temp_token` (invalidating the previous Reverb subscription). Always returns HTTP 200 regardless of whether the email exists — this prevents email enumeration.
+```
+POST /auth/login
+```
 
-**Request body:**
+**Request**
 
-| Field | Type | Required |
-|---|---|---|
-| `email` | string | Yes |
-
-**Success response — 200:**
 ```json
 {
-  "success": true,
-  "message": "If a pending registration exists for that email, a new verification has been sent.",
-  "data": {}
+  "email": "user@example.com",
+  "password": "Secret123!"
 }
 ```
 
----
+Add `X-Client-Type: mobile` to receive a Bearer token in `both` mode.
 
-### Login
+**Response** `200`
 
-#### `POST /auth/login`
-
-Authenticates an existing, verified user.
-
-**Request body:**
-
-| Field | Type | Required |
-|---|---|---|
-| `email` | string | Yes |
-| `password` | string | Yes |
-
-**Optional headers:**
-
-| Header | Value | Effect |
-|---|---|---|
-| `X-Client-Type` | `mobile` | Forces Bearer token response even in `AUTH_MODE=both` |
-| `X-Device-Info` | JSON string (see below) | Identifies mobile device for session tracking |
-
-**`X-Device-Info` JSON format (mobile clients):**
-```json
-{
-  "model": "SM-G991B",
-  "platform": "android",
-  "os_version": "14"
-}
-```
-
-**Success response — 200:**
 ```json
 {
   "success": true,
-  "message": "Logged in successfully.",
+  "message": "Login successful.",
   "data": {
-    "user": {
-      "id": 1,
-      "name": "Joe",
-      "email": "joe@example.com",
-      "email_verified_at": "2025-01-01T00:00:00.000000Z",
-      "last_login_at": "2025-05-08T12:00:00.000000Z"
-    },
-    "token": "2|xyz789..."
+    "user": { "id": 1, "email": "user@example.com" },
+    "token": "1|abc123...",
+    "refresh_token": "def456..."
   }
 }
 ```
 
-`token` is `null` for web session logins.
+**Error codes**
 
-**Error responses:**
-
-| Status | When |
+| HTTP | Reason |
 |---|---|
-| 401 | Wrong email or password; or account locked out |
-| 403 | Account inactive (`is_active = false`) |
-| 403 | Email not verified (`require_email_verification = true`) |
-| 422 | Validation failed |
-| 429 | Rate limit exceeded |
+| `401` | Invalid credentials |
+| `403` | Account inactive or email not verified |
+| `423` | Account locked out |
+| `429` | Rate limit exceeded |
 
 ---
 
-### Logout
+#### Logout
 
-All logout endpoints require authentication (`Authorization: Bearer {token}` or active session cookie).
-
-#### `POST /auth/logout`
-
-Revokes the current token/session only.
-
-**Success response — 200:**
-```json
-{
-  "success": true,
-  "message": "Logged out successfully.",
-  "data": {}
-}
+```
+POST /auth/logout
 ```
 
-#### `POST /auth/logout/all`
-
-Revokes all sessions and tokens for the authenticated user across all devices.
-
-**Success response — 200:**
-```json
-{
-  "success": true,
-  "message": "All sessions have been terminated.",
-  "data": {}
-}
-```
+Revokes the current token (and its paired refresh token) or invalidates the session. Requires authentication.
 
 ---
 
-### Current User
+#### Logout all devices
 
-#### `GET /auth/me`
+```
+POST /auth/logout/all
+```
 
-Returns the authenticated user's profile, roles, permissions, and active session count.
+Revokes all tokens and sessions for the authenticated user. The current session is preserved.
 
-**Requires:** Authentication.
+---
 
-**Success response — 200:**
+#### Get current user
+
+```
+GET /auth/me
+```
+
+**Response** `200`
+
 ```json
 {
   "success": true,
-  "message": "User retrieved.",
   "data": {
-    "user": { "id": 1, "name": "Joe", "email": "joe@example.com" },
+    "user": { "id": 1, "email": "user@example.com" },
     "roles": ["user"],
-    "permissions": ["read-posts", "create-posts"],
-    "active_sessions": 2
+    "permissions": ["read:posts"],
+    "active_sessions": 3
   }
 }
 ```
+
+---
+
+### Token Refresh
+
+Exchange an expired access token for a new pair. The old refresh token is consumed atomically (one-time use). Concurrent refresh requests are safe.
+
+```
+POST /auth/token/refresh
+```
+
+**Request**
+
+```json
+{ "refresh_token": "def456..." }
+```
+
+**Response** `200`
+
+```json
+{
+  "success": true,
+  "data": {
+    "user": { "..." },
+    "token": "2|xyz789...",
+    "refresh_token": "ghi012..."
+  }
+}
+```
+
+**Error codes**
+
+| HTTP | Reason |
+|---|---|
+| `401` | Token invalid or already consumed |
+| `401` | Token expired — user must log in again |
 
 ---
 
 ### Password Reset
 
-Password reset is a two-step process: request → verify → set new password.
+#### Step 1 — Request reset
 
-#### Step 1 — `POST /auth/password/forgot`
+```
+POST /auth/password/forgot
+```
 
-Sends OTP and/or magic link to the email. Always returns 200 to prevent email enumeration.
+**Request**
 
-**Request body:**
+```json
+{ "email": "user@example.com" }
+```
 
-| Field | Type | Required |
-|---|---|---|
-| `email` | string | Yes |
+Always returns success (prevents enumeration). Sends OTP or magic link per `AUTH_PASSWORD_RESET_METHOD`.
 
-**Success response — 200:**
+---
+
+#### Step 2a — Reset with OTP
+
+```
+POST /auth/password/reset/otp
+```
+
+**Request**
+
 ```json
 {
-  "success": true,
-  "message": "If that email is registered, you will receive reset instructions shortly.",
-  "data": {}
+  "email": "user@example.com",
+  "otp": "719283",
+  "password": "NewSecret123!",
+  "password_confirmation": "NewSecret123!"
 }
 ```
 
 ---
 
-#### Step 2a — Reset via OTP: `POST /auth/password/reset/otp`
+#### Step 2b — Reset with magic link
 
-Submit the OTP from the email along with the new password in one call.
+User clicks the link → library validates it → issues a short-lived `reset_token` (15 min).
 
-**Request body:**
+```
+GET /auth/password/reset/magic/{token}
+```
 
-| Field | Type | Required |
-|---|---|---|
-| `email` | string | Yes |
-| `otp` | string | Yes | Numeric code from email |
-| `password` | string | Yes | New password (min 8 chars) |
-| `password_confirmation` | string | Yes |
+**Response** `200`
 
-**Success response — 200:**
 ```json
 {
   "success": true,
-  "message": "Password reset successfully. Please log in with your new password.",
-  "data": {}
+  "data": { "reset_token": "uuid" }
 }
 ```
 
-**Error responses:**
+Then submit the new password:
 
-| Status | When |
-|---|---|
-| 422 | OTP invalid, expired, or user not found |
+```
+POST /auth/password/reset/confirm
+```
 
----
+**Request**
 
-#### Step 2b — Reset via magic link (two parts):
-
-**Part 1 — `GET /auth/password/reset/magic/{token}`**
-
-The user clicks the link in their email. This validates the signed URL and returns a short-lived `reset_token` UUID.
-
-**Success response — 200:**
 ```json
 {
-  "success": true,
-  "message": "Link validated. Submit your new password using the reset_token.",
-  "data": {
-    "reset_token": "a1b2c3d4-e5f6-..."
-  }
+  "reset_token": "uuid",
+  "password": "NewSecret123!",
+  "password_confirmation": "NewSecret123!"
 }
 ```
 
-The `reset_token` is valid for **15 minutes**.
-
-**Part 2 — `POST /auth/password/reset/confirm`**
-
-Submit the `reset_token` with the new password.
-
-**Request body:**
-
-| Field | Type | Required |
-|---|---|---|
-| `reset_token` | string (UUID) | Yes | From step 2b Part 1 |
-| `password` | string | Yes |
-| `password_confirmation` | string | Yes |
-
-**Success response — 200:**
-```json
-{
-  "success": true,
-  "message": "Password reset successfully. Please log in with your new password.",
-  "data": {}
-}
-```
-
-> After a successful password reset, **all existing tokens and sessions are revoked** automatically.
+All sessions and tokens are revoked on successful reset.
 
 ---
 
 ### Password Change
 
-#### `POST /auth/password/change`
+Requires authentication.
 
-Changes the password for the currently authenticated user.
+```
+POST /auth/password/change
+```
 
-**Requires:** Authentication.
+**Request**
 
-**Request body:**
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `current_password` | string | Yes | Must match the stored hash |
-| `new_password` | string | Yes | Min 8 chars, must differ from current |
-| `new_password_confirmation` | string | Yes |
-| `logout_all` | boolean | No | When `true`, revokes all other sessions/tokens (keeps current session active) |
-
-**Success response — 200:**
 ```json
 {
-  "success": true,
-  "message": "Password changed successfully.",
-  "data": {}
+  "current_password": "Secret123!",
+  "new_password": "NewSecret456!",
+  "new_password_confirmation": "NewSecret456!",
+  "logout_all": true
 }
 ```
 
+- `logout_all` — if `true`, all other sessions and tokens are revoked; the current session is preserved
+
 ---
 
-### Session Management
+### Sessions
 
-#### `GET /auth/sessions`
+Requires authentication.
 
-Lists all active sessions for the authenticated user.
+#### List sessions
 
-**Requires:** Authentication.
+```
+GET /auth/sessions
+```
 
-**Success response — 200:**
+**Response** `200`
+
 ```json
 {
   "success": true,
-  "message": "Sessions retrieved.",
   "data": {
     "sessions": [
       {
         "id": 1,
-        "platform": "api",
+        "platform": "web",
         "browser": "Chrome",
         "os": "Windows",
-        "device_model": null,
-        "device_marketing_name": null,
-        "ip_address": "203.0.113.1",
-        "country": "Lebanon",
+        "ip_address": "203.0.113.10",
         "city": "Beirut",
-        "last_active_at": "2025-05-08T12:00:00.000000Z",
+        "country": "LB",
+        "last_active_at": "2026-05-09T14:23:00Z",
         "is_current": true
       }
     ]
@@ -842,220 +588,322 @@ Lists all active sessions for the authenticated user.
 }
 ```
 
-#### `DELETE /auth/sessions/{id}`
-
-Revokes a specific session by its ID.
-
-**Requires:** Authentication.
-
-**Success response — 200:**
-```json
-{
-  "success": true,
-  "message": "Session terminated.",
-  "data": {}
-}
-```
-
----
-
-### API Token Management
-
-API tokens are long-lived, scoped tokens for third-party integrations (CI pipelines, external services, mobile SDKs). They are distinct from Sanctum session tokens.
-
-Token format: `auth_at_{base64_encoded_random}`
-
-> Only the SHA-256 hash of the raw token is stored. **Show the raw token to the user once immediately after creation** — it cannot be recovered.
-
-#### `GET /auth/api-tokens`
-
-Lists all API tokens owned by the authenticated user.
-
-**Requires:** Authentication + `AUTH_MODE` must be `api` or `both`.
-
-**Success response — 200:**
-```json
-{
-  "success": true,
-  "message": "API tokens retrieved.",
-  "data": {
-    "tokens": [
-      {
-        "id": 1,
-        "name": "CI Pipeline",
-        "abilities": ["read", "deploy"],
-        "last_used_at": "2025-05-07T09:00:00Z",
-        "expires_at": null,
-        "is_active": true
-      }
-    ]
-  }
-}
-```
-
-#### `POST /auth/api-tokens`
-
-Creates a new API token.
-
-**Requires:** Authentication + `AUTH_MODE` must be `api` or `both`.
-
-**Request body:**
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `name` | string | Yes | Human-readable label |
-| `abilities` | array of strings | No | Defaults to `["read"]`. Use `["*"]` for full access. |
-| `expires_in_days` | integer | No | `null` = never expires. Max 3650. |
-
-**Success response — 201:**
-```json
-{
-  "success": true,
-  "message": "API token created. Store it securely — it will not be shown again.",
-  "data": {
-    "raw_token": "auth_at_dGhpcyBpcyBhIHRlc3Q...",
-    "token": {
-      "id": 1,
-      "name": "CI Pipeline",
-      "abilities": ["read", "deploy"],
-      "expires_at": null,
-      "is_active": true
-    }
-  }
-}
-```
-
-#### `DELETE /auth/api-tokens/{id}`
-
-Revokes one of the authenticated user's API tokens.
-
-**Requires:** Authentication.
-
-**Success response — 200:**
-```json
-{
-  "success": true,
-  "message": "API token revoked.",
-  "data": {}
-}
-```
-
----
-
-#### Using an API Token
-
-Pass it in the `Authorization` header on requests to your own application endpoints. Your application middleware must include `auth.api-token`:
+#### Revoke a session
 
 ```
-Authorization: Bearer auth_at_dGhpcyBpcyBhIHRlc3Q...
+DELETE /auth/sessions/{id}
 ```
 
-Add the middleware to your routes:
-
-```php
-// Require any valid API token
-Route::middleware('auth.api-token')->group(function () { ... });
-
-// Require specific abilities
-Route::middleware('auth.api-token:read,orders')->group(function () { ... });
-```
-
-Inside the controller, the resolved token is available as:
-```php
-$request->get('_api_token');  // AuthApiToken model
-```
+Returns `403` if the session does not belong to the authenticated user.
 
 ---
 
 ### Google OAuth
 
-#### `GET /auth/social/google/redirect`
+#### Step 1 — Get redirect URL
 
-Returns the Google OAuth authorization URL. Your frontend should redirect the user to this URL.
+```
+GET /auth/social/google/redirect
+```
 
-**Requires:** `AUTH_GOOGLE_ENABLED=true`.
+- Browser clients get a `302` redirect to Google
+- JSON/XHR clients get `{ "redirect_url": "https://accounts.google.com/..." }`
 
-**Success response — 200:**
+#### Step 2 — Handle callback
+
+Google redirects back to:
+
+```
+GET /auth/social/google/callback
+```
+
+**Happy path** (existing or new account):
+
 ```json
 {
   "success": true,
-  "message": "Redirect URL generated.",
+  "message": "Logged in with Google successfully.",
   "data": {
-    "redirect_url": "https://accounts.google.com/o/oauth2/auth?client_id=..."
+    "user": { "..." },
+    "token": "1|abc123...",
+    "refresh_token": "def456..."
   }
 }
 ```
 
-**Error response:**
+**Account-linking required** (Google email matches an existing local account but no social link exists):
 
-| Status | When |
-|---|---|
-| 403 | Google OAuth is disabled in config |
-
-#### `GET /auth/social/google/callback`
-
-Google redirects the user to this URL after authorization. The library handles the OAuth exchange automatically.
-
-**Three cases:**
-
-| Case | What happens |
-|---|---|
-| Provider ID matches an existing `auth_social_accounts` record | The user is logged in |
-| No provider ID match but email matches an existing user | Google account is linked to the existing user, then logged in |
-| Brand new user | A new user account is created (email pre-verified), role assigned, then logged in |
-
-**Success response — 200:**
 ```json
 {
   "success": true,
-  "message": "Authenticated via Google.",
+  "message": "An email was sent to confirm linking your account.",
+  "data": { "email": "user@example.com" }
+}
+```
+
+A signed confirmation email is sent. The user clicks it to approve the link — the library never auto-links based on email match alone.
+
+#### Step 3 — Confirm account link (email click)
+
+```
+GET /auth/social/{provider}/link/confirm/{token}
+```
+
+After confirming, the user is logged in and redirected to `AUTH_SOCIAL_FRONTEND_URL` (or a JSON response if not set).
+
+**Required `.env`**
+
+```env
+AUTH_GOOGLE_ENABLED=true
+AUTH_GOOGLE_CLIENT_ID=123456789.apps.googleusercontent.com
+AUTH_GOOGLE_CLIENT_SECRET=GOCSPX-xxxx
+AUTH_GOOGLE_REDIRECT=https://yourapp.com/auth/social/google/callback
+AUTH_SOCIAL_FRONTEND_URL=https://yourapp.com/auth/callback   # optional
+```
+
+---
+
+### API Tokens
+
+Long-lived, scoped tokens for third-party integrations (CI/CD pipelines, scripts, external services). **Disabled by default** — enable with `AUTH_API_TOKENS_ENABLED=true`.
+
+These tokens use the format `auth_at_{base64}`, are stored in `auth_api_tokens`, and are completely separate from Sanctum session tokens.
+
+#### User endpoints (requires auth)
+
+```
+GET    /auth/api-tokens           # List your tokens
+POST   /auth/api-tokens           # Create a token
+DELETE /auth/api-tokens/{id}      # Revoke a token
+```
+
+**Create a token — Request**
+
+```json
+{
+  "name": "My CI Pipeline",
+  "abilities": ["read", "deploy"],
+  "expires_in_days": 90
+}
+```
+
+**Response** `201`
+
+```json
+{
+  "success": true,
   "data": {
-    "user": { "id": 3, "email": "joe@gmail.com", "email_verified_at": "2025-05-08T12:00:00Z" },
-    "token": "3|abc..."
+    "raw_token": "auth_at_...",
+    "token": { "id": 1, "name": "My CI Pipeline", "abilities": ["read","deploy"], "expires_at": "2026-08-07T00:00:00Z" }
   }
 }
 ```
 
-**Error responses:**
+> Store `raw_token` securely — it is shown only once.
 
-| Status | When |
-|---|---|
-| 403 | Google OAuth disabled, or account is inactive |
-| 400 | OAuth exchange failed (Google error) |
+#### Admin endpoints (requires `super-admin` or `admin` role)
 
----
-
-## Response Envelope
-
-Every response from this library follows the same JSON structure:
-
-**Success:**
-```json
-{
-  "success": true,
-  "message": "Human-readable description.",
-  "data": { }
-}
 ```
-
-**Failure:**
-```json
-{
-  "success": false,
-  "message": "Human-readable error description.",
-  "errors": { }
-}
+GET    /auth/admin/api-tokens          # List all tokens
+POST   /auth/admin/api-tokens          # Create a system-level token
+PATCH  /auth/admin/api-tokens/{id}     # Update abilities / expiry
+DELETE /auth/admin/api-tokens/{id}     # Revoke any token
 ```
 
 ---
 
-## Customising the Response Format
+## Configuration
 
-If your application uses a different JSON structure (e.g., wrapping in `{ "status": "ok", "result": {} }`), implement the `ResponseFormatterContract`:
+After running `php artisan auth:install`, edit `config/auth_system.php`. Every option has a corresponding `.env` variable.
+
+### Complete `.env` reference
+
+```env
+# ── Core ─────────────────────────────────────────────────────────────────────
+AUTH_MODE=both                        # api | web | both (default: both)
+AUTH_SPA_TOKEN=false                  # true = SPA clients get Bearer token in 'both' mode
+AUTH_REQUIRE_VERIFICATION=true        # false = allow login without email verification
+
+# ── Verification ─────────────────────────────────────────────────────────────
+AUTH_VERIFICATION_METHOD=both         # otp | magic_link | both
+AUTH_OTP_LENGTH=6                     # digits in the OTP code (4–8)
+AUTH_OTP_EXPIRY=10                    # minutes until OTP expires
+AUTH_OTP_MAX_ATTEMPTS=5               # wrong guesses before OTP is invalidated
+AUTH_MAGIC_EXPIRY=30                  # minutes until magic link expires
+AUTH_MAGIC_LINK_TARGET=backend        # backend | frontend
+AUTH_FRONTEND_VERIFY_URL=             # e.g. https://yourapp.com/verify-email
+AUTH_FRONTEND_RESET_URL=              # e.g. https://yourapp.com/reset-password
+AUTH_PENDING_TTL=60                   # minutes to keep pending registration in cache
+
+# ── Password Reset ────────────────────────────────────────────────────────────
+AUTH_PASSWORD_RESET_METHOD=           # null = inherit AUTH_VERIFICATION_METHOD
+                                      # or: otp | magic_link | both
+
+# ── Password Policy ───────────────────────────────────────────────────────────
+AUTH_PASSWORD_MIN=8                   # minimum password length
+AUTH_PASSWORD_UPPERCASE=false         # require at least one uppercase letter
+AUTH_PASSWORD_NUMBER=false            # require at least one digit
+AUTH_PASSWORD_SPECIAL=false           # require at least one symbol
+
+# ── Token TTL (in minutes) ────────────────────────────────────────────────────
+AUTH_TOKEN_TTL_MOBILE=10080           # mobile access token — 7 days
+AUTH_REFRESH_TTL_MOBILE=43200         # mobile refresh token — 30 days
+AUTH_TOKEN_TTL_SPA=1440               # SPA access token — 24 hours
+AUTH_REFRESH_TTL_SPA=10080            # SPA refresh token — 7 days
+AUTH_TOKEN_TTL_API=525600             # API access token — 365 days
+AUTH_REFRESH_TTL_API=0                # API refresh token — 0 = never expires
+
+# ── Rate Limits (format: "max_attempts:decay_minutes") ───────────────────────
+AUTH_RATE_REGISTER=5:1                # 5 registrations per minute
+AUTH_RATE_LOGIN=5:1                   # 5 login attempts per minute
+AUTH_RATE_OTP_VERIFY=10:5             # 10 OTP guesses per 5 minutes
+AUTH_RATE_OTP_SEND=3:1                # 3 OTP resend requests per minute
+AUTH_RATE_PASSWORD_RESET=3:1          # 3 reset requests per minute
+
+# ── Security ─────────────────────────────────────────────────────────────────
+AUTH_NOTIFY_NEW_DEVICE=true           # email alert on new browser/OS login
+AUTH_LOCKOUT_ENABLED=true             # lock account after repeated failures
+AUTH_LOCKOUT_MAX=10                   # failed attempts before lockout
+AUTH_LOCKOUT_DECAY=15                 # minutes the lockout lasts
+
+# ── Roles ────────────────────────────────────────────────────────────────────
+AUTH_DEFAULT_ROLE=user                # role auto-assigned on registration
+
+# ── OTP delivery channel ──────────────────────────────────────────────────────
+AUTH_OTP_CHANNEL=email                # email (default) | App\Channels\SmsOtpChannel
+
+# ── Google OAuth ─────────────────────────────────────────────────────────────
+AUTH_GOOGLE_ENABLED=false
+AUTH_GOOGLE_CLIENT_ID=123456789.apps.googleusercontent.com
+AUTH_GOOGLE_CLIENT_SECRET=GOCSPX-xxxx
+AUTH_GOOGLE_REDIRECT=https://yourapp.com/auth/social/google/callback
+AUTH_SOCIAL_FRONTEND_URL=             # redirect target after social link confirmation
+
+# ── API Tokens ────────────────────────────────────────────────────────────────
+AUTH_API_TOKENS_ENABLED=false         # enable the long-lived API token system
+
+# ── Queue ────────────────────────────────────────────────────────────────────
+AUTH_QUEUE_CONNECTION=                # null = app default queue
+AUTH_QUEUE_NAME=auth-maintenance      # queue name for maintenance jobs
+
+# ── Reverb (real-time WebSocket) ──────────────────────────────────────────────
+AUTH_REVERB_ENABLED=false
+
+# ── Response formatter ────────────────────────────────────────────────────────
+AUTH_RESPONSE_FORMATTER=              # null = default { success, message, data }
+```
+
+---
+
+## Customization
+
+### Extra Registration Fields
+
+Add custom fields to registration without touching library code.
+
+**Option A — simple rule strings** (in `config/auth_system.php`):
 
 ```php
-namespace App\Auth;
+'registration' => [
+    'extra_fields_rules' => [
+        'phone'   => 'required|string|max:20',
+        'country' => 'required|string|size:2',
+    ],
+],
+```
 
+Ensure the field names are in your `User` model's `$fillable` array. Their validated values are passed directly to `User::create()`.
+
+**Option B — custom FormRequest** (for complex rules, custom messages):
+
+```php
+// app/Http/Requests/MyRegisterRequest.php
+use Joe404\LaravelAuth\Http\Requests\RegisterRequest;
+use Illuminate\Validation\Rule;
+
+class MyRegisterRequest extends RegisterRequest
+{
+    public function rules(): array
+    {
+        return array_merge(parent::rules(), [
+            'phone' => ['required', 'string', Rule::unique('users')],
+        ]);
+    }
+
+    public function messages(): array
+    {
+        return [
+            'phone.unique' => 'That phone number is already registered.',
+        ];
+    }
+}
+```
+
+```php
+// config/auth_system.php
+'registration' => [
+    'request_class' => \App\Http\Requests\MyRegisterRequest::class,
+],
+```
+
+---
+
+### Custom OTP Channel (SMS, WhatsApp…)
+
+Replace the built-in email delivery with any channel by implementing `OtpChannelContract`:
+
+```php
+use Joe404\LaravelAuth\Contracts\OtpChannelContract;
+
+class SmsOtpChannel implements OtpChannelContract
+{
+    public function send(string $recipient, string $code, string $type, array $context = []): void
+    {
+        // $code  — plain OTP digits (e.g. "482910") or the full magic link URL
+        // $type  — 'email_verify' | 'magic_link_verify' | 'password_reset' | 'magic_link_reset'
+        TwilioClient::messages->create($recipient, [
+            'from' => config('services.twilio.from'),
+            'body' => "Your code: {$code}",
+        ]);
+    }
+}
+```
+
+For channels that can combine OTP + magic link into a single message, implement `CombinedOtpChannelContract`:
+
+```php
+use Joe404\LaravelAuth\Contracts\CombinedOtpChannelContract;
+
+class WhatsAppChannel implements CombinedOtpChannelContract
+{
+    public function send(string $recipient, string $code, string $type, array $context = []): void
+    {
+        // Fallback: code-only delivery
+    }
+
+    public function sendCombined(string $recipient, string $code, string $url, string $type, array $context = []): void
+    {
+        // Single message with both the OTP code and the clickable magic link
+    }
+}
+```
+
+Register in config:
+
+```php
+// config/auth_system.php
+'otp_channel' => [
+    'driver' => \App\Channels\SmsOtpChannel::class,
+],
+```
+
+---
+
+### Custom Response Format
+
+Every response passes through a formatter. Swap the envelope to match your API conventions:
+
+```php
 use Joe404\LaravelAuth\Contracts\ResponseFormatterContract;
 
 class MyFormatter implements ResponseFormatterContract
@@ -1063,427 +911,147 @@ class MyFormatter implements ResponseFormatterContract
     public function format(bool $success, string $message, array $data, array $errors): array
     {
         return [
-            'status'  => $success ? 'ok' : 'error',
-            'message' => $message,
-            'result'  => $success ? $data : $errors,
+            'ok'      => $success,
+            'msg'     => $message,
+            'payload' => $data ?: $errors,
         ];
     }
 }
 ```
 
-Then register it — two ways (first one wins):
+Register via config (recommended) or service container:
 
-**Option A — config:**
-```dotenv
-AUTH_RESPONSE_FORMATTER=App\Auth\MyFormatter
-```
-
-**Option B — service container (in `AppServiceProvider`):**
 ```php
-$this->app->bind(
-    \Joe404\LaravelAuth\Contracts\ResponseFormatterContract::class,
-    \App\Auth\MyFormatter::class,
-);
+// Option 1 — config/auth_system.php
+'response' => [
+    'formatter' => \App\Auth\MyFormatter::class,
+],
+
+// Option 2 — AppServiceProvider (config takes priority)
+use Joe404\LaravelAuth\Contracts\ResponseFormatterContract;
+$this->app->bind(ResponseFormatterContract::class, \App\Auth\MyFormatter::class);
 ```
 
 ---
 
-## Customising the OTP Channel
+### Custom Email Templates
 
-By default OTP codes and magic links are delivered via email. To use SMS or another channel, implement `OtpChannelContract`:
+**Option 1 — Blade views** (recommended for styling):
+
+```bash
+php artisan vendor:publish --tag=auth-views
+```
+
+Edit files in `resources/views/vendor/laravel-auth/emails/`:
+
+| File | Email |
+|---|---|
+| `otp-verify.blade.php` | OTP code — registration |
+| `otp-reset.blade.php` | OTP code — password reset |
+| `magic-link-verify.blade.php` | Magic link — registration |
+| `magic-link-reset.blade.php` | Magic link — password reset |
+| `otp-verify-combined.blade.php` | OTP + magic link in one email (method=both, registration) |
+| `otp-reset-combined.blade.php` | OTP + magic link in one email (method=both, password reset) |
+
+**Option 2 — custom notification class** (for full control over the mailable):
+
+Your class receives `($code, $type, $context)` in its constructor. For combined: `($code, $url, $type, $context)`.
 
 ```php
-namespace App\Auth;
-
-use Joe404\LaravelAuth\Contracts\OtpChannelContract;
-
-class SmsOtpChannel implements OtpChannelContract
-{
-    public function sendOtp(string $email, string $code, array $context = []): void
-    {
-        // Look up phone number by email, send SMS
-    }
-
-    public function sendMagicLink(string $email, string $url, array $context = []): void
-    {
-        // Send the link via SMS
-    }
-}
+// config/auth_system.php
+'mail' => [
+    'otp_reset_notification' => \App\Notifications\MyResetEmail::class,
+],
 ```
 
-Register it:
-```dotenv
-AUTH_OTP_CHANNEL=App\Auth\SmsOtpChannel
-```
+You can mix — override only specific emails and let the library handle the rest.
 
 ---
 
-## Security Features
+## Events
 
-### Rate Limiting
+| Event | When fired | Payload |
+|---|---|---|
+| `UserRegistered` | Registration initiated | `$user` |
+| `EmailVerified` | Email verified and account created | `$user`, `$completionToken` |
+| `UserLoggedIn` | Successful login | `$user`, `$request` |
+| `UserLoggedOut` | Any logout | — |
+| `PasswordChanged` | Password reset or changed | `$user` |
+| `SuspiciousLoginDetected` | Login from unrecognised device | `$user`, `$ip`, `$browser`, `$os`, `$city`, `$country` |
 
-All public auth endpoints are protected by the `auth.ratelimit` middleware. Rate limits apply independently per **IP address** and per **email address**. If either is over the limit, a `429 Too Many Requests` response is returned with a `Retry-After` header.
-
-The response on rate limit:
-```json
-{
-  "success": false,
-  "message": "Too many attempts. Please try again in 42 seconds.",
-  "errors": {}
-}
-```
-
-Rate limits are cleared automatically on a successful response.
-
-To customise limits:
-```dotenv
-AUTH_RATE_LOGIN=3:5         # 3 attempts per 5 minutes
-AUTH_RATE_REGISTER=10:1     # 10 per minute
-AUTH_RATE_OTP_SEND=2:5      # 2 resend attempts per 5 minutes
-AUTH_RATE_PASSWORD_RESET=2:10
-```
-
----
-
-### Account Lockout
-
-Account lockout is a second, independent layer on top of rate limiting. Where rate limiting blocks within a sliding window, lockout tracks **cumulative failures across all windows** for a specific email address.
-
-Flow:
-1. User fails login → failure counter incremented in cache (key: `auth:lockout_count:{sha1(email)}`)
-2. Counter resets after `AUTH_LOCKOUT_DECAY` minutes of inactivity
-3. After `AUTH_LOCKOUT_MAX` total failures, a lockout flag is set (key: `auth:locked:{sha1(email)}`) for `AUTH_LOCKOUT_DECAY` minutes
-4. Any login attempt during lockout (including correct credentials) returns 401 with the locked message
-5. Successful login immediately clears both the counter and the lockout flag
-
-Configuration:
-```dotenv
-AUTH_LOCKOUT_ENABLED=true
-AUTH_LOCKOUT_MAX=10       # lock after 10 cumulative failures
-AUTH_LOCKOUT_DECAY=15     # locked for 15 minutes
-```
-
-Locked-out response:
-```json
-{
-  "success": false,
-  "message": "Account temporarily locked due to too many failed attempts. Try again in 15 minute(s).",
-  "errors": {}
-}
-```
-
----
-
-### New Device Detection
-
-When a user successfully logs in from a device (browser + OS combination) that has no prior session in `auth_sessions_extended`, the library:
-
-1. Dispatches `SuspiciousLoginDetected` event
-2. The `NotifySuspiciousLogin` listener sends a `NewDeviceLoginNotification` email
-
-The email includes:
-- IP address of the new login
-- Browser and OS (when available)
-- City and country (from ip-api.com geo lookup)
-
-Configuration:
-```dotenv
-AUTH_NOTIFY_NEW_DEVICE=true
-```
-
-To listen to the event yourself (e.g., to also send a push notification):
-```php
-// In EventServiceProvider
-protected $listen = [
-    \Joe404\LaravelAuth\Events\SuspiciousLoginDetected::class => [
-        \App\Listeners\SendPushNotificationOnNewDevice::class,
-    ],
-];
-```
-
-Event payload:
-```php
-$event->user        // the authenticated user model
-$event->ipAddress   // string
-$event->browser     // string|null
-$event->os          // string|null
-$event->city        // string|null
-$event->country     // string|null
-```
-
----
-
-## Real-time Verification (Reverb)
-
-When `AUTH_REVERB_ENABLED=true` and `laravel/reverb` is installed, registration verification triggers a real-time broadcast.
-
-**Setup:**
-
-```dotenv
-AUTH_REVERB_ENABLED=true
-REVERB_APP_ID=your-reverb-app-id
-REVERB_APP_KEY=your-reverb-app-key
-REVERB_APP_SECRET=your-reverb-app-secret
-```
-
-The `auth:install` command appends a channel auth stub to `routes/channels.php`. You must open the `/broadcasting/auth` route to unauthenticated requests (add it before the `auth:sanctum` middleware group):
+**Example — send a welcome email after registration:**
 
 ```php
-// bootstrap/app.php or routes/api.php
-Route::post('/broadcasting/auth', function (Request $request) {
-    return Broadcast::auth($request);
-})->withoutMiddleware('auth:sanctum');
-```
+use Joe404\LaravelAuth\Events\EmailVerified;
+use Illuminate\Support\Facades\Event;
+use App\Mail\WelcomeMail;
+use Illuminate\Support\Facades\Mail;
 
-**Frontend flow:**
-
-```js
-// 1. Register → receive temp_token
-const { temp_token } = response.data;
-
-// 2. Subscribe to the private channel
-const channel = Echo.private(`auth.verification.${temp_token}`);
-
-// 3. Listen for verification
-channel.listen('EmailVerified', (event) => {
-    const { token } = event;  // Sanctum token
-    // Redirect to app, store token
+Event::listen(EmailVerified::class, function (EmailVerified $event): void {
+    Mail::to($event->user)->send(new WelcomeMail($event->user));
 });
 ```
 
-**Broadcast payload:**
-```json
-{
-  "verified": true,
-  "token": "1|sanctum_token_here",
-  "redirect": "/dashboard"
-}
-```
-
 ---
 
-## Device & Session Tracking
+## Security Design
 
-Every login creates an `auth_sessions_extended` record. The library detects device info from two sources:
+### Registration — no pre-account takeover
 
-**Web browsers:** Parsed from the `User-Agent` header using `jenssegers/agent`.
+The three-step flow ensures that the person who proves email ownership is the one who sets the password:
 
-**Mobile / API clients:** Send a `X-Device-Info` JSON header:
-```json
-{
-  "model": "SM-G991B",
-  "platform": "android",
-  "os_version": "14"
-}
-```
+1. **Initiate** — only the email is captured; nothing sensitive is cached
+2. **Verify** — proves inbox access; issues a `completion_token` (15-min TTL)
+3. **Complete** — whoever holds the `completion_token` sets the password
 
-The library maps the `model` code against `resources/devices.json` (~500 entries) to a marketing name. Unknown model codes are stored as-is.
+An attacker who registers with a victim's email receives a `temp_token` but never gets the `completion_token` — that is given to whoever completes the inbox challenge. The victim who clicks the verification link sets their own password. Neither party can impersonate the other.
 
-Geo-location (city, country) is fetched from `ip-api.com` using the request IP. Private/local IPs are skipped. The lookup has a 3-second timeout and fails silently.
+### Token storage
 
-The session record stored:
+All tokens are stored as SHA-256 hashes — plain values are never written to the database:
 
-| Column | Description |
-|---|---|
-| `platform` | `web` / `mobile` / `api` |
-| `browser` | `Chrome`, `Firefox`, etc. |
-| `os` | `Windows`, `iOS`, `Android`, etc. |
-| `device_model` | Raw model code |
-| `device_marketing_name` | Human name from `devices.json` |
-| `ip_address` | Client IP |
-| `country` | From geo lookup |
-| `city` | From geo lookup |
-| `last_active_at` | Updated on every authenticated request |
-
----
-
-## Admin API Token Management
-
-Admin users (`super-admin` or `admin` role) have access to additional endpoints under `/auth/admin`:
-
-| Method | Endpoint | Description |
+| Token | Table | Type |
 |---|---|---|
-| `GET` | `/auth/admin/api-tokens` | List all tokens across all users |
-| `POST` | `/auth/admin/api-tokens` | Create a token not tied to any user |
-| `PATCH` | `/auth/admin/api-tokens/{id}` | Update abilities or expiry |
-| `DELETE` | `/auth/admin/api-tokens/{id}` | Revoke any token |
+| Access token | `personal_access_tokens` | Sanctum SHA-256 |
+| Refresh token | `auth_refresh_tokens` | SHA-256, one-time use |
+| OTP code | `auth_otp_codes` | SHA-256 |
+| Magic link UUID | `auth_otp_codes` | SHA-256 |
+| API token | `auth_api_tokens` | SHA-256 |
 
-**Admin update request body:**
+### Refresh token rotation
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `abilities` | array | No | Replaces the token's current abilities |
-| `expires_in_days` | integer\|null | No | `null` clears expiry (never expires) |
+Refresh tokens live in a dedicated `auth_refresh_tokens` table, completely separate from Sanctum's `personal_access_tokens`. Each token is:
+- **One-time use** — consumed via `DB::transaction()` + `SELECT FOR UPDATE` to prevent concurrent reuse
+- **Paired** — each refresh token points to exactly one access token; only that pair is revoked on rotation
 
----
+### OTP brute-force protection
 
-## Role Assignment
+Each wrong OTP guess increments a `failed_attempts` counter on the active OTP row (atomic `INCREMENT` to prevent races). When the counter reaches `AUTH_OTP_MAX_ATTEMPTS` (default 5), the OTP is invalidated and the user must request a new one.
 
-The library integrates with `spatie/laravel-permission`. The default role (`AUTH_DEFAULT_ROLE`) is assigned automatically on:
-- Email verification (OTP or magic link)
-- Google OAuth new user creation
+### Rate limiting
 
-Your user model must use the `HasRoles` trait from Spatie:
+All auth endpoints are rate-limited per IP **and** per email address independently. Exceeding either limit returns HTTP 429.
 
-```php
-use Spatie\Permission\Traits\HasRoles;
+### Account lockout
 
-class User extends Authenticatable
-{
-    use HasRoles;
-}
-```
+Repeated failed login attempts trigger a time-limited lockout (`AUTH_LOCKOUT_MAX` failures → locked for `AUTH_LOCKOUT_DECAY` minutes). This is separate from rate limiting — it persists even across slow, distributed attempts.
 
-To protect your own routes by role, use Spatie's built-in middleware:
+### OAuth account linking
 
-```php
-Route::middleware('role:admin')->group(function () { ... });
-Route::middleware('permission:edit-posts')->group(function () { ... });
-```
+When a Google account's email matches an existing local account, the library **never auto-links** based on email alone. A signed confirmation email is sent to the registered address; only after the legitimate inbox owner clicks the link is the social account linked, preventing account takeover via OAuth email spoofing.
 
 ---
 
-## Events Reference
+## Testing
 
-All events are in the `Joe404\LaravelAuth\Events` namespace.
-
-| Event | When fired | Key payload |
-|---|---|---|
-| `UserRegistered` | After `POST /auth/register` initiates | `$user_email`, `$password` (hashed) |
-| `EmailVerified` | After OTP or magic link verification completes | `$user`, `$tempToken`, `$sanctumToken` |
-| `UserLoggedIn` | After successful login | `$user`, `$request` |
-| `UserLoggedOut` | After logout or logout-all | — |
-| `PasswordChanged` | After password reset or change | `$user` |
-| `SuspiciousLoginDetected` | Login from unrecognised device | `$user`, `$ipAddress`, `$browser`, `$os`, `$city`, `$country` |
-
-Listen to any event in your `EventServiceProvider`:
-
-```php
-protected $listen = [
-    \Joe404\LaravelAuth\Events\UserLoggedIn::class => [
-        \App\Listeners\LogUserActivity::class,
-    ],
-    \Joe404\LaravelAuth\Events\PasswordChanged::class => [
-        \App\Listeners\NotifyPasswordChange::class,
-    ],
-];
-```
-
----
-
-## Scheduled Jobs
-
-The library registers two maintenance jobs automatically via `AuthServiceProvider`. They run on the queue named `AUTH_QUEUE_NAME` (default: `auth-maintenance`).
-
-| Job | Schedule | What it does |
-|---|---|---|
-| `CleanExpiredOtpRecords` | Every 5 minutes | Deletes expired and used rows from `auth_otp_codes` |
-| `CleanExpiredApiTokens` | Every hour | Marks or deletes API tokens past their `expires_at` date |
-
-Make sure your queue worker is running:
 ```bash
-php artisan queue:work --queue=auth-maintenance,default
+composer test
 ```
 
-Or with Horizon:
-```bash
-php artisan horizon
-```
+The test suite uses Pest with `RefreshDatabase`, `Mail::fake()`, and `Queue::fake()`. No real emails or HTTP calls are made.
 
 ---
 
-## Environment Variable Quick Reference
+## License
 
-```dotenv
-# Core
-AUTH_MODE=both                          # api | web | both
-AUTH_REQUIRE_VERIFICATION=true
-
-# Verification
-AUTH_VERIFICATION_METHOD=both           # otp | magic_link | both
-AUTH_OTP_LENGTH=6
-AUTH_OTP_EXPIRY=10                      # minutes
-AUTH_MAGIC_EXPIRY=30                    # minutes
-
-# Tokens
-AUTH_TOKEN_EXPIRY=10080                 # minutes (default = 7 days)
-
-# Password
-AUTH_PASSWORD_MIN=8
-AUTH_PASSWORD_UPPERCASE=false
-AUTH_PASSWORD_NUMBER=false
-AUTH_PASSWORD_SPECIAL=false
-AUTH_PENDING_TTL=60                     # minutes
-
-# Rate Limiting (format: "max:decay_minutes")
-AUTH_RATE_REGISTER=5:1
-AUTH_RATE_LOGIN=5:1
-AUTH_RATE_OTP_SEND=3:1
-AUTH_RATE_PASSWORD_RESET=3:1
-
-# Security
-AUTH_NOTIFY_NEW_DEVICE=true
-AUTH_LOCKOUT_ENABLED=true
-AUTH_LOCKOUT_MAX=10
-AUTH_LOCKOUT_DECAY=15                   # minutes
-
-# Roles
-AUTH_DEFAULT_ROLE=user
-
-# OTP channel
-AUTH_OTP_CHANNEL=email                  # email | FQCN
-
-# Google OAuth
-AUTH_GOOGLE_ENABLED=false
-GOOGLE_CLIENT_ID=
-GOOGLE_CLIENT_SECRET=
-GOOGLE_REDIRECT_URI=
-
-# Reverb
-AUTH_REVERB_ENABLED=false
-
-# Queue
-AUTH_QUEUE_CONNECTION=redis
-AUTH_QUEUE_NAME=auth-maintenance
-
-# Response formatter
-AUTH_RESPONSE_FORMATTER=               # FQCN or empty
-```
-
----
-
-## Extending the Library
-
-### Custom user model
-
-The library reads `auth.providers.users.model` from your Laravel config. As long as your user model extends `Illuminate\Foundation\Auth\User`, everything works.
-
-### Custom OTP channel
-
-Implement `Joe404\LaravelAuth\Contracts\OtpChannelContract` and set `AUTH_OTP_CHANNEL` to your FQCN.
-
-### Custom response formatter
-
-Implement `Joe404\LaravelAuth\Contracts\ResponseFormatterContract` and set `AUTH_RESPONSE_FORMATTER` or bind it in your service provider.
-
-### Listening to events
-
-Register listeners in your `EventServiceProvider` as shown in the [Events Reference](#events-reference).
-
-### Adding abilities to API tokens
-
-When creating a token, pass any string as an ability:
-
-```json
-{
-  "name": "Order service",
-  "abilities": ["orders:read", "orders:create", "inventory:read"]
-}
-```
-
-Protect your routes:
-```php
-Route::middleware('auth.api-token:orders:read')->get('/orders', ...);
-```
-
-Wildcard `["*"]` grants all abilities.
+MIT. See [LICENSE](LICENSE).

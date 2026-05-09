@@ -58,14 +58,22 @@ it('does not dispatch event for known device', function (): void {
         'password' => bcrypt('password'),
     ]);
 
-    // Seed a session record matching Chrome on Windows
+    // Seed a session record matching the exact fingerprint that
+    // DeviceService::parseUserAgent will produce for the UA below.
+    /** @var \Joe404\LaravelAuth\Services\DeviceService $svc */
+    $svc = app(\Joe404\LaravelAuth\Services\DeviceService::class);
+    $req = \Illuminate\Http\Request::create('/', 'POST', server: [
+        'HTTP_USER_AGENT' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0',
+    ]);
+    $fp = $svc->parseUserAgent($req);
+
     AuthSessionExtended::create([
         'user_id'          => $user->id,
         'session_id'       => null,
         'sanctum_token_id' => null,
-        'platform'         => 'web',
-        'browser'          => 'Chrome',
-        'os'               => 'Windows',
+        'platform'         => $fp['platform'],
+        'browser'          => $fp['browser'],
+        'os'               => $fp['os'],
         'ip_address'       => '127.0.0.1',
         'last_active_at'   => now()->subDay(),
     ]);
