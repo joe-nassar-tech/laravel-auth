@@ -1,25 +1,26 @@
 {
   "info": {
     "name": "joe-404/laravel-auth",
-    "description": "Complete API collection for the joe-404/laravel-auth Laravel library.\n\n**Two ready-to-use folders:**\n- **SPA — Session & Cookie** — for browser/SPA clients. Uses Laravel session cookies + CSRF token. No Authorization header needed on authenticated requests. A folder-level pre-request script automatically fetches `/sanctum/csrf-cookie` before every request in this folder.\n- **API — Bearer Token** — for mobile apps and API clients. Uses `Authorization: Bearer {{auth_token}}` on every authenticated request. Sends `X-Client-Type: mobile` on login to get a token.\n\n**Quick start (SPA mode):**\n1. Set `base_url` variable to your app URL\n2. Run **Setup → Get CSRF Cookie** once\n3. Call **SPA / Registration / 1. Initiate Registration**, verify email, then **Login**\n4. Session cookie is stored automatically by Postman's cookie jar\n\n**Quick start (API/mobile mode):**\n1. Set `base_url` variable\n2. Call **API / Registration / 1. Initiate Registration**, verify email, then **Login**\n3. `auth_token` and `refresh_token` are saved automatically\n4. Use `POST /auth/token/refresh` before token expires\n\n**Variables:**\n- `base_url` — your Laravel app URL (e.g. `http://localhost:8000`)\n- `auth_token` — auto-saved on API login / verify / Google OAuth\n- `refresh_token` — auto-saved on API login / verify / token refresh\n- `xsrf_token` — auto-saved by SPA folder pre-request script\n- `temp_token` — auto-saved after registration initiation\n- `reset_token` — auto-saved after magic link password reset step\n- `api_token_id` — auto-saved after creating an API token\n- `api_token_raw` — auto-saved after creating an API token\n- `session_id` — auto-saved after listing sessions",
+    "description": "Complete API collection for the joe-404/laravel-auth Laravel library.\n\n**Two ready-to-use folders:**\n- **Web & SPA — Session / Cookie** — for browser/SPA clients. Uses Laravel session cookies + CSRF token. No Authorization header needed on authenticated requests. A folder-level pre-request script automatically fetches `/sanctum/csrf-cookie` before every request in this folder.\n- **Mobile — Bearer Token** — for mobile apps and API clients. Uses `Authorization: Bearer {{auth_token}}` on every authenticated request. Sends `X-Client-Type: mobile` on login to get a token + refresh token.\n\n**Quick start (Web/SPA mode):**\n1. Set `base_url` variable to your app URL\n2. Run **Setup → Get CSRF Cookie** once\n3. Call **Web & SPA / Registration / 1. Initiate Registration** (email only — no password)\n4. Verify email via **2a. Verify OTP** or **2b. Verify Magic Link** — this saves a `completion_token`\n5. Call **3. Complete Registration** with the password to finalize the account\n6. Then **Login** — session cookie is stored automatically by Postman's cookie jar\n\n**Quick start (Mobile mode):**\n1. Set `base_url` variable\n2. Call **Mobile / Registration / 1. Initiate Registration** (email only)\n3. Verify email — saves `completion_token`\n4. Call **3. Complete Registration** — `auth_token` and `refresh_token` are saved automatically\n5. Use `POST /auth/token/refresh` before token expires\n\n**Three-step registration:**\nThe library now uses a 3-step registration flow. The user's password is NEVER sent to `POST /auth/register`. Instead:\n1. `POST /auth/register` with `{email}` only → returns `temp_token`\n2. Verify email (OTP or magic link) → returns `completion_token` (UUID, 15 min TTL)\n3. `POST /auth/register/complete` with `{completion_token, password, password_confirmation}` → creates the user, fires `EmailVerified`, logs them in\n\n**Variables:**\n- `base_url` — your Laravel app URL (e.g. `http://localhost:8000`)\n- `auth_token` — auto-saved on login / register-complete (mobile) / Google OAuth\n- `refresh_token` — auto-saved on login / register-complete (mobile) / token refresh\n- `xsrf_token` — auto-saved by SPA folder pre-request script\n- `temp_token` — auto-saved after registration initiation\n- `completion_token` — auto-saved after email verification (step 2); consumed in step 3\n- `reset_token` — auto-saved after magic link password reset step\n- `api_token_id` — auto-saved after creating an API token\n- `api_token_raw` — auto-saved after creating an API token\n- `session_id` — auto-saved after listing sessions",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
-    { "key": "base_url",      "value": "http://localhost:8000", "type": "string" },
-    { "key": "auth_token",    "value": "", "type": "string" },
-    { "key": "refresh_token", "value": "", "type": "string" },
-    { "key": "xsrf_token",   "value": "", "type": "string" },
-    { "key": "temp_token",   "value": "", "type": "string" },
-    { "key": "reset_token",  "value": "", "type": "string" },
-    { "key": "api_token_id", "value": "", "type": "string" },
-    { "key": "api_token_raw","value": "", "type": "string" },
-    { "key": "session_id",   "value": "", "type": "string" }
+    { "key": "base_url",         "value": "http://localhost:8000", "type": "string" },
+    { "key": "auth_token",       "value": "", "type": "string" },
+    { "key": "refresh_token",    "value": "", "type": "string" },
+    { "key": "xsrf_token",       "value": "", "type": "string" },
+    { "key": "temp_token",       "value": "", "type": "string" },
+    { "key": "completion_token", "value": "", "type": "string" },
+    { "key": "reset_token",      "value": "", "type": "string" },
+    { "key": "api_token_id",     "value": "", "type": "string" },
+    { "key": "api_token_raw",    "value": "", "type": "string" },
+    { "key": "session_id",       "value": "", "type": "string" }
   ],
   "item": [
 
     {
       "name": "Setup",
-      "description": "Run these once before using the SPA folder.",
+      "description": "Run these once before using the Web & SPA folder.",
       "item": [
         {
           "name": "Get CSRF Cookie & Session",
@@ -49,15 +50,39 @@
               "host": ["{{base_url}}"],
               "path": ["sanctum", "csrf-cookie"]
             },
-            "description": "**Run this before making any SPA/web mode requests.**\n\nSanctum sets two cookies:\n- `laravel_session` — your session identifier\n- `XSRF-TOKEN` — the CSRF token\n\nThe test script saves the token to `xsrf_token`. The SPA folder's pre-request script also does this automatically before every request.\n\n**Not required for the API / Bearer Token folder.**"
-          }
+            "description": "**Run this before making any Web/SPA mode requests.**\n\nSanctum sets two cookies:\n- `laravel_session` — your session identifier\n- `XSRF-TOKEN` — the CSRF token\n\nThe test script saves the token to `xsrf_token`. The Web & SPA folder's pre-request script also does this automatically before every request.\n\n**Not required for the Mobile / Bearer Token folder.**"
+          },
+          "response": [
+            {
+              "name": "204 — Success",
+              "originalRequest": {
+                "method": "GET",
+                "header": [{ "key": "Accept", "value": "application/json" }],
+                "url": {
+                  "raw": "{{base_url}}/sanctum/csrf-cookie",
+                  "host": ["{{base_url}}"],
+                  "path": ["sanctum", "csrf-cookie"]
+                }
+              },
+              "status": "No Content",
+              "code": 204,
+              "_postman_previewlanguage": "json",
+              "header": [
+                { "key": "Content-Type", "value": "application/json" },
+                { "key": "Set-Cookie", "value": "XSRF-TOKEN=eyJpdiI...; expires=...; path=/" },
+                { "key": "Set-Cookie", "value": "laravel_session=eyJpdiI...; expires=...; path=/; httponly" }
+              ],
+              "cookie": [],
+              "body": ""
+            }
+          ]
         }
       ]
     },
 
     {
-      "name": "SPA — Session & Cookie",
-      "description": "All requests configured for browser/SPA clients.\n\n**How it works:**\n- A folder-level pre-request script fetches `/sanctum/csrf-cookie` automatically before every request and saves the token to `xsrf_token`.\n- All mutating requests (POST/DELETE/PATCH) include `X-XSRF-TOKEN: {{xsrf_token}}`.\n- Authenticated requests use the session cookie set by Postman's cookie jar — no Authorization header needed.\n- Login returns `token: null`; Sanctum sets the session cookie on the response.\n\n**Required:** `AUTH_MODE=web` or `AUTH_MODE=both` (without `AUTH_SPA_TOKEN=true`).",
+      "name": "Web & SPA — Session / Cookie",
+      "description": "All requests configured for browser/SPA clients.\n\n**How it works:**\n- A folder-level pre-request script fetches `/sanctum/csrf-cookie` automatically before every request and saves the token to `xsrf_token`.\n- All mutating requests (POST/DELETE/PATCH) include `X-XSRF-TOKEN: {{xsrf_token}}`.\n- Authenticated requests use the session cookie set by Postman's cookie jar — no Authorization header needed.\n- Login and Complete Registration return `token: null`; Sanctum sets the session cookie on the response.\n\n**Required:** `AUTH_MODE=web` or `AUTH_MODE=both` (without `AUTH_SPA_TOKEN=true`).",
       "event": [
         {
           "listen": "prerequest",
@@ -112,15 +137,109 @@
                 ],
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"email\": \"joe@example.com\",\n  \"password\": \"Password123!\",\n  \"password_confirmation\": \"Password123!\"\n}"
+                  "raw": "{\n  \"email\": \"joe@example.com\"\n}"
                 },
                 "url": {
                   "raw": "{{base_url}}/auth/register",
                   "host": ["{{base_url}}"],
                   "path": ["auth", "register"]
                 },
-                "description": "Initiates registration. Sends OTP + magic link to the email (one combined email when `AUTH_VERIFICATION_METHOD=both`).\n\nDoes **not** create the user yet — that happens on verification.\n\nAuto-saves `temp_token` for Reverb channel subscription.\n\n**Extra fields example** — if your app requires more data, add them here:\n```json\n{\n  \"email\": \"joe@example.com\",\n  \"password\": \"Password123!\",\n  \"password_confirmation\": \"Password123!\",\n  \"phone\": \"+96170000000\",\n  \"birthday\": \"1990-01-01\"\n}\n```\n\n**Errors:** 409 already registered · 422 validation · 429 rate limit"
-              }
+                "description": "**Step 1 of 3.** Initiates registration. Body is `{email}` only — **NO password** is sent at this step. Sends OTP + magic link to the email (one combined email when `AUTH_VERIFICATION_METHOD=both`).\n\nDoes **not** create the user yet — that happens in step 3 after the password is set.\n\nAuto-saves `temp_token` for Reverb channel subscription. After verifying the email (step 2) you will receive a `completion_token` to use in step 3.\n\n**Extra fields example** — if your app collects more data at signup, add them here (still no password):\n```json\n{\n  \"email\": \"joe@example.com\",\n  \"phone\": \"+96170000000\",\n  \"birthday\": \"1990-01-01\"\n}\n```\n\n**Errors:** 409 already registered · 422 validation · 429 rate limit"
+              },
+              "response": [
+                {
+                  "name": "201 — Verification email sent",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      { "key": "Content-Type", "value": "application/json" },
+                      { "key": "Accept", "value": "application/json" },
+                      { "key": "X-XSRF-TOKEN", "value": "{{xsrf_token}}" }
+                    ],
+                    "body": { "mode": "raw", "raw": "{\n  \"email\": \"joe@example.com\"\n}" },
+                    "url": {
+                      "raw": "{{base_url}}/auth/register",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "register"]
+                    }
+                  },
+                  "status": "Created",
+                  "code": 201,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": true,\n  \"message\": \"Verification email sent. Check your inbox.\",\n  \"data\": {\n    \"temp_token\": \"tok_a1b2c3d4e5f6g7h8\",\n    \"expires_in\": 900\n  }\n}"
+                },
+                {
+                  "name": "409 — Email already registered",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      { "key": "Content-Type", "value": "application/json" },
+                      { "key": "Accept", "value": "application/json" },
+                      { "key": "X-XSRF-TOKEN", "value": "{{xsrf_token}}" }
+                    ],
+                    "body": { "mode": "raw", "raw": "{\n  \"email\": \"joe@example.com\"\n}" },
+                    "url": {
+                      "raw": "{{base_url}}/auth/register",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "register"]
+                    }
+                  },
+                  "status": "Conflict",
+                  "code": 409,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": false,\n  \"message\": \"Email already registered.\",\n  \"errors\": {\n    \"email\": [\"This email is already in use.\"]\n  }\n}"
+                },
+                {
+                  "name": "422 — Validation error",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      { "key": "Content-Type", "value": "application/json" },
+                      { "key": "Accept", "value": "application/json" },
+                      { "key": "X-XSRF-TOKEN", "value": "{{xsrf_token}}" }
+                    ],
+                    "body": { "mode": "raw", "raw": "{\n  \"email\": \"joe@example.com\"\n}" },
+                    "url": {
+                      "raw": "{{base_url}}/auth/register",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "register"]
+                    }
+                  },
+                  "status": "Unprocessable Entity",
+                  "code": 422,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": false,\n  \"message\": \"The given data was invalid.\",\n  \"errors\": {\n    \"email\": [\"The email field is required.\"]\n  }\n}"
+                },
+                {
+                  "name": "429 — Rate limited",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      { "key": "Content-Type", "value": "application/json" },
+                      { "key": "Accept", "value": "application/json" },
+                      { "key": "X-XSRF-TOKEN", "value": "{{xsrf_token}}" }
+                    ],
+                    "body": { "mode": "raw", "raw": "{\n  \"email\": \"joe@example.com\"\n}" },
+                    "url": {
+                      "raw": "{{base_url}}/auth/register",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "register"]
+                    }
+                  },
+                  "status": "Too Many Requests",
+                  "code": 429,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": false,\n  \"message\": \"Too many requests.\",\n  \"errors\": {\n    \"retry_after\": 60\n  }\n}"
+                }
+              ]
             },
             {
               "name": "2a. Verify OTP",
@@ -130,11 +249,15 @@
                   "script": {
                     "type": "text/javascript",
                     "exec": [
-                      "pm.test('Status is 201', () => pm.response.to.have.status(201));",
-                      "pm.test('success is true', () => pm.expect(pm.response.json().success).to.be.true);",
                       "if (pm.response.code === 201) {",
-                      "    console.log('SPA mode — session cookie set, no token returned.');",
-                      "}"
+                      "    const body = pm.response.json();",
+                      "    if (body.data && body.data.completion_token) {",
+                      "        pm.collectionVariables.set('completion_token', body.data.completion_token);",
+                      "        console.log('completion_token saved:', body.data.completion_token);",
+                      "    }",
+                      "}",
+                      "pm.test('Status is 201', () => pm.response.to.have.status(201));",
+                      "pm.test('success is true', () => pm.expect(pm.response.json().success).to.be.true);"
                     ]
                   }
                 }
@@ -155,8 +278,56 @@
                   "host": ["{{base_url}}"],
                   "path": ["auth", "register", "verify-otp"]
                 },
-                "description": "Completes registration using the OTP from the email. Replace `123456` with the actual code.\n\nIn SPA mode the response `token` is `null` — Sanctum sets the session cookie.\n\n**Errors:** 422 OTP invalid or expired"
-              }
+                "description": "**Step 2 of 3.** Returns a `completion_token` (UUID, 15 min TTL). Use it in step 3 to set your password and finalize the account.\n\nReplace `123456` with the actual OTP from the email.\n\n**Errors:** 422 OTP invalid or expired"
+              },
+              "response": [
+                {
+                  "name": "201 — Email verified, completion_token issued",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      { "key": "Content-Type", "value": "application/json" },
+                      { "key": "Accept", "value": "application/json" },
+                      { "key": "X-XSRF-TOKEN", "value": "{{xsrf_token}}" }
+                    ],
+                    "body": { "mode": "raw", "raw": "{\n  \"email\": \"joe@example.com\",\n  \"otp\": \"123456\"\n}" },
+                    "url": {
+                      "raw": "{{base_url}}/auth/register/verify-otp",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "register", "verify-otp"]
+                    }
+                  },
+                  "status": "Created",
+                  "code": 201,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": true,\n  \"message\": \"Email verified. Please set your password.\",\n  \"data\": {\n    \"completion_token\": \"550e8400-e29b-41d4-a716-446655440000\"\n  }\n}"
+                },
+                {
+                  "name": "422 — Invalid OTP",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      { "key": "Content-Type", "value": "application/json" },
+                      { "key": "Accept", "value": "application/json" },
+                      { "key": "X-XSRF-TOKEN", "value": "{{xsrf_token}}" }
+                    ],
+                    "body": { "mode": "raw", "raw": "{\n  \"email\": \"joe@example.com\",\n  \"otp\": \"000000\"\n}" },
+                    "url": {
+                      "raw": "{{base_url}}/auth/register/verify-otp",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "register", "verify-otp"]
+                    }
+                  },
+                  "status": "Unprocessable Entity",
+                  "code": 422,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": false,\n  \"message\": \"Invalid or expired OTP.\",\n  \"errors\": {\n    \"otp\": [\"The OTP is incorrect.\"]\n  }\n}"
+                }
+              ]
             },
             {
               "name": "2b. Verify Magic Link (click from email)",
@@ -166,6 +337,13 @@
                   "script": {
                     "type": "text/javascript",
                     "exec": [
+                      "if (pm.response.code === 201) {",
+                      "    const body = pm.response.json();",
+                      "    if (body.data && body.data.completion_token) {",
+                      "        pm.collectionVariables.set('completion_token', body.data.completion_token);",
+                      "        console.log('completion_token saved:', body.data.completion_token);",
+                      "    }",
+                      "}",
                       "pm.test('Status is 201', () => pm.response.to.have.status(201));"
                     ]
                   }
@@ -185,8 +363,160 @@
                     { "key": "signature", "value": "SIGNATURE" }
                   ]
                 },
-                "description": "Paste the full magic link URL from the verification email. The library validates the signature and completes registration.\n\nWhen `AUTH_MAGIC_LINK_TARGET=frontend`, your frontend receives `?token=uuid` and calls this endpoint with the token.\n\n**Errors:** 422 invalid/expired signature or token already used"
-              }
+                "description": "**Step 2 of 3 (alternative).** Returns a `completion_token` (UUID, 15 min TTL). Use it in step 3 to set your password and finalize the account.\n\nPaste the full magic link URL from the verification email. The library validates the signature.\n\nWhen `AUTH_MAGIC_LINK_TARGET=frontend`, your frontend receives `?token=uuid` and calls this endpoint with the token.\n\n**Errors:** 422 invalid/expired signature or token already used"
+              },
+              "response": [
+                {
+                  "name": "201 — Email verified, completion_token issued",
+                  "originalRequest": {
+                    "method": "GET",
+                    "header": [{ "key": "Accept", "value": "application/json" }],
+                    "url": {
+                      "raw": "{{base_url}}/auth/register/verify-magic/PASTE_TOKEN_HERE?expires=EXPIRES&signature=SIGNATURE",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "register", "verify-magic", "PASTE_TOKEN_HERE"],
+                      "query": [
+                        { "key": "expires", "value": "EXPIRES" },
+                        { "key": "signature", "value": "SIGNATURE" }
+                      ]
+                    }
+                  },
+                  "status": "Created",
+                  "code": 201,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": true,\n  \"message\": \"Email verified. Please set your password.\",\n  \"data\": {\n    \"completion_token\": \"550e8400-e29b-41d4-a716-446655440000\"\n  }\n}"
+                },
+                {
+                  "name": "422 — Invalid or expired signature",
+                  "originalRequest": {
+                    "method": "GET",
+                    "header": [{ "key": "Accept", "value": "application/json" }],
+                    "url": {
+                      "raw": "{{base_url}}/auth/register/verify-magic/PASTE_TOKEN_HERE?expires=EXPIRES&signature=SIGNATURE",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "register", "verify-magic", "PASTE_TOKEN_HERE"],
+                      "query": [
+                        { "key": "expires", "value": "EXPIRES" },
+                        { "key": "signature", "value": "SIGNATURE" }
+                      ]
+                    }
+                  },
+                  "status": "Unprocessable Entity",
+                  "code": 422,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": false,\n  \"message\": \"Invalid or expired magic link.\",\n  \"errors\": {}\n}"
+                }
+              ]
+            },
+            {
+              "name": "3. Complete Registration",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('Status is 201', () => pm.response.to.have.status(201));",
+                      "if (pm.response.code === 201) {",
+                      "    console.log('SPA mode — session cookie set, no token returned.');",
+                      "}"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "Accept", "value": "application/json" },
+                  { "key": "X-XSRF-TOKEN", "value": "{{xsrf_token}}" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"completion_token\": \"{{completion_token}}\",\n  \"password\": \"Password123!\",\n  \"password_confirmation\": \"Password123!\"\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/auth/register/complete",
+                  "host": ["{{base_url}}"],
+                  "path": ["auth", "register", "complete"]
+                },
+                "description": "**Step 3 of 3.** Finalizes registration by setting the user's password. The `completion_token` is consumed (one-time use). On success the user is created, assigned the default role, logged in, and the `EmailVerified` event fires.\n\nIn SPA mode the response `token` is `null` — Sanctum sets the session cookie.\n\n**Errors:** 422 completion_token invalid/expired · 422 password validation"
+              },
+              "response": [
+                {
+                  "name": "201 — Registration complete (SPA)",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      { "key": "Content-Type", "value": "application/json" },
+                      { "key": "Accept", "value": "application/json" },
+                      { "key": "X-XSRF-TOKEN", "value": "{{xsrf_token}}" }
+                    ],
+                    "body": { "mode": "raw", "raw": "{\n  \"completion_token\": \"{{completion_token}}\",\n  \"password\": \"Password123!\",\n  \"password_confirmation\": \"Password123!\"\n}" },
+                    "url": {
+                      "raw": "{{base_url}}/auth/register/complete",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "register", "complete"]
+                    }
+                  },
+                  "status": "Created",
+                  "code": 201,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": true,\n  \"message\": \"Registration complete. Welcome!\",\n  \"data\": {\n    \"user\": {\n      \"id\": 1,\n      \"name\": null,\n      \"email\": \"joe@example.com\",\n      \"email_verified_at\": \"2026-05-09T12:00:00.000000Z\",\n      \"is_active\": true,\n      \"created_at\": \"2026-05-09T12:00:00.000000Z\"\n    },\n    \"token\": null\n  }\n}"
+                },
+                {
+                  "name": "422 — completion_token invalid",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      { "key": "Content-Type", "value": "application/json" },
+                      { "key": "Accept", "value": "application/json" },
+                      { "key": "X-XSRF-TOKEN", "value": "{{xsrf_token}}" }
+                    ],
+                    "body": { "mode": "raw", "raw": "{\n  \"completion_token\": \"bad-token\",\n  \"password\": \"Password123!\",\n  \"password_confirmation\": \"Password123!\"\n}" },
+                    "url": {
+                      "raw": "{{base_url}}/auth/register/complete",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "register", "complete"]
+                    }
+                  },
+                  "status": "Unprocessable Entity",
+                  "code": 422,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": false,\n  \"message\": \"Invalid or expired completion token. Please verify your email again.\",\n  \"errors\": {}\n}"
+                },
+                {
+                  "name": "422 — Password validation",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      { "key": "Content-Type", "value": "application/json" },
+                      { "key": "Accept", "value": "application/json" },
+                      { "key": "X-XSRF-TOKEN", "value": "{{xsrf_token}}" }
+                    ],
+                    "body": { "mode": "raw", "raw": "{\n  \"completion_token\": \"{{completion_token}}\",\n  \"password\": \"weak\",\n  \"password_confirmation\": \"weak\"\n}" },
+                    "url": {
+                      "raw": "{{base_url}}/auth/register/complete",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "register", "complete"]
+                    }
+                  },
+                  "status": "Unprocessable Entity",
+                  "code": 422,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": false,\n  \"message\": \"The given data was invalid.\",\n  \"errors\": {\n    \"password\": [\"The password must be at least 8 characters and contain a number and a symbol.\"]\n  }\n}"
+                }
+              ]
             },
             {
               "name": "Resend Verification Email",
@@ -207,7 +537,55 @@
                   "path": ["auth", "email", "resend-verification"]
                 },
                 "description": "Resends the verification OTP/link for a pending (unverified) registration. Always returns 200 to prevent email enumeration."
-              }
+              },
+              "response": [
+                {
+                  "name": "200 — Sent (or pretended)",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      { "key": "Content-Type", "value": "application/json" },
+                      { "key": "Accept", "value": "application/json" },
+                      { "key": "X-XSRF-TOKEN", "value": "{{xsrf_token}}" }
+                    ],
+                    "body": { "mode": "raw", "raw": "{\n  \"email\": \"joe@example.com\"\n}" },
+                    "url": {
+                      "raw": "{{base_url}}/auth/email/resend-verification",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "email", "resend-verification"]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": true,\n  \"message\": \"If a pending registration exists, a verification email has been sent.\",\n  \"data\": {}\n}"
+                },
+                {
+                  "name": "429 — Rate limited",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      { "key": "Content-Type", "value": "application/json" },
+                      { "key": "Accept", "value": "application/json" },
+                      { "key": "X-XSRF-TOKEN", "value": "{{xsrf_token}}" }
+                    ],
+                    "body": { "mode": "raw", "raw": "{\n  \"email\": \"joe@example.com\"\n}" },
+                    "url": {
+                      "raw": "{{base_url}}/auth/email/resend-verification",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "email", "resend-verification"]
+                    }
+                  },
+                  "status": "Too Many Requests",
+                  "code": 429,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": false,\n  \"message\": \"Too many requests.\",\n  \"errors\": {\n    \"retry_after\": 60\n  }\n}"
+                }
+              ]
             }
           ]
         },
@@ -251,7 +629,97 @@
                   "path": ["auth", "login"]
                 },
                 "description": "Logs in and receives a session cookie. The response `token` is `null` — Sanctum sets `laravel_session` and `XSRF-TOKEN` cookies that Postman stores automatically.\n\n**Important:** This request intentionally has no `Accept: application/json` header. Sending that header can trigger token mode in `AUTH_MODE=both`. Remove it so the server sees a browser-like request.\n\n**Errors:** 401 wrong credentials/locked · 403 inactive/unverified · 422 validation · 429 rate limit"
-              }
+              },
+              "response": [
+                {
+                  "name": "200 — Logged in (SPA)",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      { "key": "Content-Type", "value": "application/json" },
+                      { "key": "X-XSRF-TOKEN", "value": "{{xsrf_token}}" }
+                    ],
+                    "body": { "mode": "raw", "raw": "{\n  \"email\": \"joe@example.com\",\n  \"password\": \"Password123!\"\n}" },
+                    "url": {
+                      "raw": "{{base_url}}/auth/login",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "login"]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": true,\n  \"message\": \"Logged in successfully.\",\n  \"data\": {\n    \"user\": {\n      \"id\": 1,\n      \"email\": \"joe@example.com\"\n    },\n    \"token\": null\n  }\n}"
+                },
+                {
+                  "name": "401 — Wrong credentials",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      { "key": "Content-Type", "value": "application/json" },
+                      { "key": "X-XSRF-TOKEN", "value": "{{xsrf_token}}" }
+                    ],
+                    "body": { "mode": "raw", "raw": "{\n  \"email\": \"joe@example.com\",\n  \"password\": \"wrong\"\n}" },
+                    "url": {
+                      "raw": "{{base_url}}/auth/login",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "login"]
+                    }
+                  },
+                  "status": "Unauthorized",
+                  "code": 401,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": false,\n  \"message\": \"Invalid credentials.\",\n  \"errors\": {}\n}"
+                },
+                {
+                  "name": "403 — Account not verified",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      { "key": "Content-Type", "value": "application/json" },
+                      { "key": "X-XSRF-TOKEN", "value": "{{xsrf_token}}" }
+                    ],
+                    "body": { "mode": "raw", "raw": "{\n  \"email\": \"joe@example.com\",\n  \"password\": \"Password123!\"\n}" },
+                    "url": {
+                      "raw": "{{base_url}}/auth/login",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "login"]
+                    }
+                  },
+                  "status": "Forbidden",
+                  "code": 403,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": false,\n  \"message\": \"Account not verified.\",\n  \"errors\": {}\n}"
+                },
+                {
+                  "name": "423 — Account locked",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      { "key": "Content-Type", "value": "application/json" },
+                      { "key": "X-XSRF-TOKEN", "value": "{{xsrf_token}}" }
+                    ],
+                    "body": { "mode": "raw", "raw": "{\n  \"email\": \"joe@example.com\",\n  \"password\": \"Password123!\"\n}" },
+                    "url": {
+                      "raw": "{{base_url}}/auth/login",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "login"]
+                    }
+                  },
+                  "status": "Locked",
+                  "code": 423,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": false,\n  \"message\": \"Too many failed attempts. Try again later.\",\n  \"errors\": {}\n}"
+                }
+              ]
             },
             {
               "name": "Get Current User",
@@ -266,7 +734,45 @@
                   "path": ["auth", "me"]
                 },
                 "description": "Returns the authenticated user's profile, roles, permissions, and active session count. Authenticated via session cookie — no Authorization header needed."
-              }
+              },
+              "response": [
+                {
+                  "name": "200 — Profile",
+                  "originalRequest": {
+                    "method": "GET",
+                    "header": [{ "key": "Accept", "value": "application/json" }],
+                    "url": {
+                      "raw": "{{base_url}}/auth/me",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "me"]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": true,\n  \"message\": \"OK.\",\n  \"data\": {\n    \"user\": {\n      \"id\": 1,\n      \"email\": \"joe@example.com\",\n      \"email_verified_at\": \"2026-05-09T12:00:00.000000Z\",\n      \"is_active\": true\n    },\n    \"roles\": [\"user\"],\n    \"permissions\": [],\n    \"active_sessions\": 2\n  }\n}"
+                },
+                {
+                  "name": "401 — Unauthenticated",
+                  "originalRequest": {
+                    "method": "GET",
+                    "header": [{ "key": "Accept", "value": "application/json" }],
+                    "url": {
+                      "raw": "{{base_url}}/auth/me",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "me"]
+                    }
+                  },
+                  "status": "Unauthorized",
+                  "code": 401,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": false,\n  \"message\": \"Unauthenticated.\",\n  \"errors\": {}\n}"
+                }
+              ]
             },
             {
               "name": "Logout (current session)",
@@ -282,7 +788,30 @@
                   "path": ["auth", "logout"]
                 },
                 "description": "Revokes the current session only. The session cookie is invalidated."
-              }
+              },
+              "response": [
+                {
+                  "name": "200 — Logged out",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      { "key": "Accept", "value": "application/json" },
+                      { "key": "X-XSRF-TOKEN", "value": "{{xsrf_token}}" }
+                    ],
+                    "url": {
+                      "raw": "{{base_url}}/auth/logout",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "logout"]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": true,\n  \"message\": \"Logged out.\",\n  \"data\": {}\n}"
+                }
+              ]
             },
             {
               "name": "Logout All Devices",
@@ -298,7 +827,30 @@
                   "path": ["auth", "logout", "all"]
                 },
                 "description": "Revokes ALL sessions and tokens for this user across every device."
-              }
+              },
+              "response": [
+                {
+                  "name": "200 — All sessions revoked",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      { "key": "Accept", "value": "application/json" },
+                      { "key": "X-XSRF-TOKEN", "value": "{{xsrf_token}}" }
+                    ],
+                    "url": {
+                      "raw": "{{base_url}}/auth/logout/all",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "logout", "all"]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": true,\n  \"message\": \"Logged out from all devices.\",\n  \"data\": {}\n}"
+                }
+              ]
             }
           ]
         },
@@ -325,7 +877,32 @@
                   "path": ["auth", "password", "forgot"]
                 },
                 "description": "Sends OTP and/or magic link for password reset. Always returns 200 to prevent email enumeration."
-              }
+              },
+              "response": [
+                {
+                  "name": "200 — Reset link sent (or pretended)",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      { "key": "Content-Type", "value": "application/json" },
+                      { "key": "Accept", "value": "application/json" },
+                      { "key": "X-XSRF-TOKEN", "value": "{{xsrf_token}}" }
+                    ],
+                    "body": { "mode": "raw", "raw": "{\n  \"email\": \"joe@example.com\"\n}" },
+                    "url": {
+                      "raw": "{{base_url}}/auth/password/forgot",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "password", "forgot"]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": true,\n  \"message\": \"If the email exists, a reset link has been sent.\",\n  \"data\": {}\n}"
+                }
+              ]
             },
             {
               "name": "2a. Reset via OTP",
@@ -346,7 +923,55 @@
                   "path": ["auth", "password", "reset", "otp"]
                 },
                 "description": "Resets the password in one step using the OTP from the email. All existing sessions are revoked on success.\n\n**Errors:** 422 OTP invalid/expired"
-              }
+              },
+              "response": [
+                {
+                  "name": "200 — Password reset",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      { "key": "Content-Type", "value": "application/json" },
+                      { "key": "Accept", "value": "application/json" },
+                      { "key": "X-XSRF-TOKEN", "value": "{{xsrf_token}}" }
+                    ],
+                    "body": { "mode": "raw", "raw": "{\n  \"email\": \"joe@example.com\",\n  \"otp\": \"654321\",\n  \"password\": \"NewPassword123!\",\n  \"password_confirmation\": \"NewPassword123!\"\n}" },
+                    "url": {
+                      "raw": "{{base_url}}/auth/password/reset/otp",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "password", "reset", "otp"]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": true,\n  \"message\": \"Password reset successfully. All sessions have been revoked.\",\n  \"data\": {}\n}"
+                },
+                {
+                  "name": "422 — OTP invalid/expired",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      { "key": "Content-Type", "value": "application/json" },
+                      { "key": "Accept", "value": "application/json" },
+                      { "key": "X-XSRF-TOKEN", "value": "{{xsrf_token}}" }
+                    ],
+                    "body": { "mode": "raw", "raw": "{\n  \"email\": \"joe@example.com\",\n  \"otp\": \"000000\",\n  \"password\": \"NewPassword123!\",\n  \"password_confirmation\": \"NewPassword123!\"\n}" },
+                    "url": {
+                      "raw": "{{base_url}}/auth/password/reset/otp",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "password", "reset", "otp"]
+                    }
+                  },
+                  "status": "Unprocessable Entity",
+                  "code": 422,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": false,\n  \"message\": \"Invalid or expired OTP.\",\n  \"errors\": {\n    \"otp\": [\"The OTP is incorrect.\"]\n  }\n}"
+                }
+              ]
             },
             {
               "name": "2b. Validate Magic Link (get reset_token)",
@@ -383,7 +1008,53 @@
                   ]
                 },
                 "description": "Paste the full URL from the password reset email. Validates the signature and returns a `reset_token` valid for 15 minutes.\n\nAuto-saves `reset_token` to collection variables. Then call **2c. Confirm Reset**."
-              }
+              },
+              "response": [
+                {
+                  "name": "200 — Magic link valid",
+                  "originalRequest": {
+                    "method": "GET",
+                    "header": [{ "key": "Accept", "value": "application/json" }],
+                    "url": {
+                      "raw": "{{base_url}}/auth/password/reset/magic/PASTE_TOKEN_HERE?expires=EXPIRES&signature=SIGNATURE",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "password", "reset", "magic", "PASTE_TOKEN_HERE"],
+                      "query": [
+                        { "key": "expires", "value": "EXPIRES" },
+                        { "key": "signature", "value": "SIGNATURE" }
+                      ]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": true,\n  \"message\": \"Magic link valid. Submit new password within 15 minutes.\",\n  \"data\": {\n    \"reset_token\": \"550e8400-e29b-41d4-a716-446655440111\"\n  }\n}"
+                },
+                {
+                  "name": "422 — Invalid signature",
+                  "originalRequest": {
+                    "method": "GET",
+                    "header": [{ "key": "Accept", "value": "application/json" }],
+                    "url": {
+                      "raw": "{{base_url}}/auth/password/reset/magic/PASTE_TOKEN_HERE?expires=EXPIRES&signature=SIGNATURE",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "password", "reset", "magic", "PASTE_TOKEN_HERE"],
+                      "query": [
+                        { "key": "expires", "value": "EXPIRES" },
+                        { "key": "signature", "value": "SIGNATURE" }
+                      ]
+                    }
+                  },
+                  "status": "Unprocessable Entity",
+                  "code": 422,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": false,\n  \"message\": \"Invalid or expired magic link.\",\n  \"errors\": {}\n}"
+                }
+              ]
             },
             {
               "name": "2c. Confirm Reset (with reset_token)",
@@ -404,7 +1075,55 @@
                   "path": ["auth", "password", "reset", "confirm"]
                 },
                 "description": "Submits the new password with the `reset_token` from step 2b. All sessions revoked on success.\n\n**Errors:** 422 reset_token invalid or expired (15 min window)"
-              }
+              },
+              "response": [
+                {
+                  "name": "200 — Password reset",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      { "key": "Content-Type", "value": "application/json" },
+                      { "key": "Accept", "value": "application/json" },
+                      { "key": "X-XSRF-TOKEN", "value": "{{xsrf_token}}" }
+                    ],
+                    "body": { "mode": "raw", "raw": "{\n  \"reset_token\": \"{{reset_token}}\",\n  \"password\": \"NewPassword123!\",\n  \"password_confirmation\": \"NewPassword123!\"\n}" },
+                    "url": {
+                      "raw": "{{base_url}}/auth/password/reset/confirm",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "password", "reset", "confirm"]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": true,\n  \"message\": \"Password reset successfully. All sessions have been revoked.\",\n  \"data\": {}\n}"
+                },
+                {
+                  "name": "422 — reset_token invalid/expired",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      { "key": "Content-Type", "value": "application/json" },
+                      { "key": "Accept", "value": "application/json" },
+                      { "key": "X-XSRF-TOKEN", "value": "{{xsrf_token}}" }
+                    ],
+                    "body": { "mode": "raw", "raw": "{\n  \"reset_token\": \"bad\",\n  \"password\": \"NewPassword123!\",\n  \"password_confirmation\": \"NewPassword123!\"\n}" },
+                    "url": {
+                      "raw": "{{base_url}}/auth/password/reset/confirm",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "password", "reset", "confirm"]
+                    }
+                  },
+                  "status": "Unprocessable Entity",
+                  "code": 422,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": false,\n  \"message\": \"Invalid or expired reset token.\",\n  \"errors\": {}\n}"
+                }
+              ]
             }
           ]
         },
@@ -431,7 +1150,55 @@
                   "path": ["auth", "password", "change"]
                 },
                 "description": "Changes password for the currently authenticated user.\n\n**`logout_all: true`** — revokes all other sessions except the current one.\n\n**Errors:** 422 current_password incorrect or validation failed"
-              }
+              },
+              "response": [
+                {
+                  "name": "200 — Password changed",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      { "key": "Content-Type", "value": "application/json" },
+                      { "key": "Accept", "value": "application/json" },
+                      { "key": "X-XSRF-TOKEN", "value": "{{xsrf_token}}" }
+                    ],
+                    "body": { "mode": "raw", "raw": "{\n  \"current_password\": \"Password123!\",\n  \"new_password\": \"NewPassword456!\",\n  \"new_password_confirmation\": \"NewPassword456!\",\n  \"logout_all\": false\n}" },
+                    "url": {
+                      "raw": "{{base_url}}/auth/password/change",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "password", "change"]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": true,\n  \"message\": \"Password changed.\",\n  \"data\": {}\n}"
+                },
+                {
+                  "name": "422 — Current password incorrect",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      { "key": "Content-Type", "value": "application/json" },
+                      { "key": "Accept", "value": "application/json" },
+                      { "key": "X-XSRF-TOKEN", "value": "{{xsrf_token}}" }
+                    ],
+                    "body": { "mode": "raw", "raw": "{\n  \"current_password\": \"wrong\",\n  \"new_password\": \"NewPassword456!\",\n  \"new_password_confirmation\": \"NewPassword456!\",\n  \"logout_all\": false\n}" },
+                    "url": {
+                      "raw": "{{base_url}}/auth/password/change",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "password", "change"]
+                    }
+                  },
+                  "status": "Unprocessable Entity",
+                  "code": 422,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": false,\n  \"message\": \"The given data was invalid.\",\n  \"errors\": {\n    \"current_password\": [\"The current password is incorrect.\"]\n  }\n}"
+                }
+              ]
             }
           ]
         },
@@ -473,7 +1240,27 @@
                   "path": ["auth", "sessions"]
                 },
                 "description": "Lists all active sessions with device, IP, geo location, and last-active time. Auto-saves a non-current `session_id` for the delete request."
-              }
+              },
+              "response": [
+                {
+                  "name": "200 — Sessions list",
+                  "originalRequest": {
+                    "method": "GET",
+                    "header": [{ "key": "Accept", "value": "application/json" }],
+                    "url": {
+                      "raw": "{{base_url}}/auth/sessions",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "sessions"]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": true,\n  \"message\": \"OK.\",\n  \"data\": {\n    \"sessions\": [\n      {\n        \"id\": 1,\n        \"device_name\": \"Samsung Galaxy S21\",\n        \"platform\": \"android\",\n        \"ip_address\": \"192.168.1.10\",\n        \"location\": \"Beirut, LB\",\n        \"last_active_at\": \"2026-05-09T12:00:00.000000Z\",\n        \"is_current\": true\n      },\n      {\n        \"id\": 2,\n        \"device_name\": \"iPhone 15\",\n        \"platform\": \"ios\",\n        \"ip_address\": \"10.0.0.5\",\n        \"location\": \"Paris, FR\",\n        \"last_active_at\": \"2026-05-08T18:30:00.000000Z\",\n        \"is_current\": false\n      }\n    ]\n  }\n}"
+                }
+              ]
             },
             {
               "name": "Revoke Specific Session",
@@ -489,7 +1276,51 @@
                   "path": ["auth", "sessions", "{{session_id}}"]
                 },
                 "description": "Revokes the session with the given ID. Also revokes the associated Sanctum token if it was a token-based session."
-              }
+              },
+              "response": [
+                {
+                  "name": "200 — Session revoked",
+                  "originalRequest": {
+                    "method": "DELETE",
+                    "header": [
+                      { "key": "Accept", "value": "application/json" },
+                      { "key": "X-XSRF-TOKEN", "value": "{{xsrf_token}}" }
+                    ],
+                    "url": {
+                      "raw": "{{base_url}}/auth/sessions/{{session_id}}",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "sessions", "{{session_id}}"]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": true,\n  \"message\": \"Session revoked.\",\n  \"data\": {}\n}"
+                },
+                {
+                  "name": "404 — Not found",
+                  "originalRequest": {
+                    "method": "DELETE",
+                    "header": [
+                      { "key": "Accept", "value": "application/json" },
+                      { "key": "X-XSRF-TOKEN", "value": "{{xsrf_token}}" }
+                    ],
+                    "url": {
+                      "raw": "{{base_url}}/auth/sessions/{{session_id}}",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "sessions", "{{session_id}}"]
+                    }
+                  },
+                  "status": "Not Found",
+                  "code": 404,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": false,\n  \"message\": \"Session not found.\",\n  \"errors\": {}\n}"
+                }
+              ]
             }
           ]
         },
@@ -510,7 +1341,27 @@
                   "path": ["auth", "api-tokens"]
                 },
                 "description": "Lists all third-party API tokens owned by the authenticated user.\n\n**Requires:** `AUTH_MODE=api` or `AUTH_MODE=both`."
-              }
+              },
+              "response": [
+                {
+                  "name": "200 — Tokens list",
+                  "originalRequest": {
+                    "method": "GET",
+                    "header": [{ "key": "Accept", "value": "application/json" }],
+                    "url": {
+                      "raw": "{{base_url}}/auth/api-tokens",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "api-tokens"]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": true,\n  \"message\": \"OK.\",\n  \"data\": {\n    \"tokens\": [\n      {\n        \"id\": 12,\n        \"name\": \"CI Pipeline\",\n        \"abilities\": [\"read\", \"deploy\"],\n        \"expires_at\": \"2027-05-09T12:00:00.000000Z\",\n        \"last_used_at\": \"2026-05-09T11:30:00.000000Z\",\n        \"created_at\": \"2026-05-09T10:00:00.000000Z\"\n      }\n    ]\n  }\n}"
+                }
+              ]
             },
             {
               "name": "Create API Token",
@@ -553,7 +1404,32 @@
                   "path": ["auth", "api-tokens"]
                 },
                 "description": "Creates a new third-party API token. The `raw_token` in the response is shown **only once** — store it securely.\n\n**`abilities`:** array of strings. Use `[\"*\"]` for full access.\n**`expires_in_days`:** `null` = never expires. Max 3650.\n\nToken format: `auth_at_{base64}`\n\nAuto-saves `api_token_raw` and `api_token_id`."
-              }
+              },
+              "response": [
+                {
+                  "name": "201 — Token created",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      { "key": "Content-Type", "value": "application/json" },
+                      { "key": "Accept", "value": "application/json" },
+                      { "key": "X-XSRF-TOKEN", "value": "{{xsrf_token}}" }
+                    ],
+                    "body": { "mode": "raw", "raw": "{\n  \"name\": \"CI Pipeline\",\n  \"abilities\": [\"read\", \"deploy\"],\n  \"expires_in_days\": 365\n}" },
+                    "url": {
+                      "raw": "{{base_url}}/auth/api-tokens",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "api-tokens"]
+                    }
+                  },
+                  "status": "Created",
+                  "code": 201,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": true,\n  \"message\": \"API token created. Store the raw_token securely — it will not be shown again.\",\n  \"data\": {\n    \"token\": {\n      \"id\": 13,\n      \"name\": \"CI Pipeline\",\n      \"abilities\": [\"read\", \"deploy\"],\n      \"expires_at\": \"2027-05-09T12:00:00.000000Z\"\n    },\n    \"raw_token\": \"auth_at_aBcDeFgHiJkLmNoPqRsTuVwXyZ1234567890\"\n  }\n}"
+                }
+              ]
             },
             {
               "name": "Revoke API Token",
@@ -569,7 +1445,30 @@
                   "path": ["auth", "api-tokens", "{{api_token_id}}"]
                 },
                 "description": "Revokes the API token with the given ID. Uses `api_token_id` saved by the Create request."
-              }
+              },
+              "response": [
+                {
+                  "name": "200 — Token revoked",
+                  "originalRequest": {
+                    "method": "DELETE",
+                    "header": [
+                      { "key": "Accept", "value": "application/json" },
+                      { "key": "X-XSRF-TOKEN", "value": "{{xsrf_token}}" }
+                    ],
+                    "url": {
+                      "raw": "{{base_url}}/auth/api-tokens/{{api_token_id}}",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "api-tokens", "{{api_token_id}}"]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": true,\n  \"message\": \"API token revoked.\",\n  \"data\": {}\n}"
+                }
+              ]
             }
           ]
         },
@@ -607,7 +1506,45 @@
                   "path": ["auth", "social", "google", "redirect"]
                 },
                 "description": "Returns the Google OAuth authorization URL. Copy `data.redirect_url` and open it in a browser to start the OAuth flow.\n\n**Requires:** `AUTH_GOOGLE_ENABLED=true`\n\n**Errors:** 403 Google OAuth disabled"
-              }
+              },
+              "response": [
+                {
+                  "name": "200 — Redirect URL",
+                  "originalRequest": {
+                    "method": "GET",
+                    "header": [{ "key": "Accept", "value": "application/json" }],
+                    "url": {
+                      "raw": "{{base_url}}/auth/social/google/redirect",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "social", "google", "redirect"]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": true,\n  \"message\": \"OK.\",\n  \"data\": {\n    \"redirect_url\": \"https://accounts.google.com/o/oauth2/auth?client_id=...&redirect_uri=...&response_type=code&scope=email+profile&state=...\"\n  }\n}"
+                },
+                {
+                  "name": "403 — Google OAuth disabled",
+                  "originalRequest": {
+                    "method": "GET",
+                    "header": [{ "key": "Accept", "value": "application/json" }],
+                    "url": {
+                      "raw": "{{base_url}}/auth/social/google/redirect",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "social", "google", "redirect"]
+                    }
+                  },
+                  "status": "Forbidden",
+                  "code": 403,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": false,\n  \"message\": \"Google OAuth is disabled.\",\n  \"errors\": {}\n}"
+                }
+              ]
             },
             {
               "name": "Google OAuth Callback",
@@ -626,7 +1563,75 @@
                   ]
                 },
                 "description": "Google redirects the user's browser here after authorization. In practice you do not call this directly — Google's redirect handles it.\n\n**Handles 3 cases automatically:** existing provider link · email match · new user.\n\n**Errors:** 403 disabled or inactive · 400 OAuth exchange failed"
-              }
+              },
+              "response": [
+                {
+                  "name": "200 — Logged in with Google",
+                  "originalRequest": {
+                    "method": "GET",
+                    "header": [{ "key": "Accept", "value": "application/json" }],
+                    "url": {
+                      "raw": "{{base_url}}/auth/social/google/callback?code=GOOGLE_AUTH_CODE&state=STATE",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "social", "google", "callback"],
+                      "query": [
+                        { "key": "code", "value": "GOOGLE_AUTH_CODE" },
+                        { "key": "state", "value": "STATE" }
+                      ]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": true,\n  \"message\": \"Logged in with Google.\",\n  \"data\": {\n    \"status\": \"logged_in\",\n    \"user\": {\n      \"id\": 1,\n      \"email\": \"joe@gmail.com\"\n    },\n    \"token\": null\n  }\n}"
+                },
+                {
+                  "name": "202 — Requires link confirmation",
+                  "originalRequest": {
+                    "method": "GET",
+                    "header": [{ "key": "Accept", "value": "application/json" }],
+                    "url": {
+                      "raw": "{{base_url}}/auth/social/google/callback?code=GOOGLE_AUTH_CODE&state=STATE",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "social", "google", "callback"],
+                      "query": [
+                        { "key": "code", "value": "GOOGLE_AUTH_CODE" },
+                        { "key": "state", "value": "STATE" }
+                      ]
+                    }
+                  },
+                  "status": "Accepted",
+                  "code": 202,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": true,\n  \"message\": \"An account with this email already exists. A confirmation link has been sent to verify the link request.\",\n  \"data\": {\n    \"status\": \"requires_link_confirmation\"\n  }\n}"
+                },
+                {
+                  "name": "400 — OAuth exchange failed",
+                  "originalRequest": {
+                    "method": "GET",
+                    "header": [{ "key": "Accept", "value": "application/json" }],
+                    "url": {
+                      "raw": "{{base_url}}/auth/social/google/callback?code=GOOGLE_AUTH_CODE&state=STATE",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "social", "google", "callback"],
+                      "query": [
+                        { "key": "code", "value": "GOOGLE_AUTH_CODE" },
+                        { "key": "state", "value": "STATE" }
+                      ]
+                    }
+                  },
+                  "status": "Bad Request",
+                  "code": 400,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": false,\n  \"message\": \"OAuth code exchange failed.\",\n  \"errors\": {}\n}"
+                }
+              ]
             }
           ]
         }
@@ -635,8 +1640,8 @@
     },
 
     {
-      "name": "API — Bearer Token",
-      "description": "All requests configured for mobile apps and API clients.\n\n**How it works:**\n- Login sends `X-Client-Type: mobile` to receive a Bearer token even in `AUTH_MODE=both`.\n- Every authenticated request includes `Authorization: Bearer {{auth_token}}`.\n- No CSRF cookie or session cookie needed.\n- A `refresh_token` is issued alongside the access token — use **Token Refresh** to rotate them before expiry.\n\n**Required:** `AUTH_MODE=api` or `AUTH_MODE=both`.",
+      "name": "Mobile — Bearer Token",
+      "description": "All requests configured for mobile apps and API clients.\n\n**How it works:**\n- Login sends `X-Client-Type: mobile` to receive a Bearer token even in `AUTH_MODE=both`.\n- Every authenticated request includes `Authorization: Bearer {{auth_token}}`.\n- No CSRF cookie or session cookie needed.\n- A `refresh_token` is issued alongside the access token — use **Token Refresh** to rotate them before expiry.\n- Step 3 of registration (Complete) returns the access + refresh tokens; both are auto-saved.\n\n**Required:** `AUTH_MODE=api` or `AUTH_MODE=both`.",
       "item": [
 
         {
@@ -672,15 +1677,86 @@
                 ],
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"email\": \"joe@example.com\",\n  \"password\": \"Password123!\",\n  \"password_confirmation\": \"Password123!\"\n}"
+                  "raw": "{\n  \"email\": \"joe@example.com\"\n}"
                 },
                 "url": {
                   "raw": "{{base_url}}/auth/register",
                   "host": ["{{base_url}}"],
                   "path": ["auth", "register"]
                 },
-                "description": "Initiates registration. Sends OTP + magic link to the email.\n\nDoes **not** create the user yet — that happens on verification.\n\nAuto-saves `temp_token` for Reverb channel subscription.\n\n**Extra fields example:**\n```json\n{\n  \"email\": \"joe@example.com\",\n  \"password\": \"Password123!\",\n  \"password_confirmation\": \"Password123!\",\n  \"phone\": \"+96170000000\",\n  \"birthday\": \"1990-01-01\"\n}\n```\n\n**Errors:** 409 already registered · 422 validation · 429 rate limit"
-              }
+                "description": "**Step 1 of 3.** Initiates registration. Body is `{email}` only — **NO password** is sent at this step. Sends OTP + magic link to the email.\n\nDoes **not** create the user yet — that happens in step 3 after the password is set.\n\nAuto-saves `temp_token` for Reverb channel subscription. After verifying the email (step 2) you will receive a `completion_token` to use in step 3.\n\n**Extra fields example** (still no password):\n```json\n{\n  \"email\": \"joe@example.com\",\n  \"phone\": \"+96170000000\",\n  \"birthday\": \"1990-01-01\"\n}\n```\n\n**Errors:** 409 already registered · 422 validation · 429 rate limit"
+              },
+              "response": [
+                {
+                  "name": "201 — Verification email sent",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      { "key": "Content-Type", "value": "application/json" },
+                      { "key": "Accept", "value": "application/json" },
+                      { "key": "X-Client-Type", "value": "mobile" }
+                    ],
+                    "body": { "mode": "raw", "raw": "{\n  \"email\": \"joe@example.com\"\n}" },
+                    "url": {
+                      "raw": "{{base_url}}/auth/register",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "register"]
+                    }
+                  },
+                  "status": "Created",
+                  "code": 201,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": true,\n  \"message\": \"Verification email sent. Check your inbox.\",\n  \"data\": {\n    \"temp_token\": \"tok_a1b2c3d4e5f6g7h8\",\n    \"expires_in\": 900\n  }\n}"
+                },
+                {
+                  "name": "409 — Email already registered",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      { "key": "Content-Type", "value": "application/json" },
+                      { "key": "Accept", "value": "application/json" },
+                      { "key": "X-Client-Type", "value": "mobile" }
+                    ],
+                    "body": { "mode": "raw", "raw": "{\n  \"email\": \"joe@example.com\"\n}" },
+                    "url": {
+                      "raw": "{{base_url}}/auth/register",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "register"]
+                    }
+                  },
+                  "status": "Conflict",
+                  "code": 409,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": false,\n  \"message\": \"Email already registered.\",\n  \"errors\": {\n    \"email\": [\"This email is already in use.\"]\n  }\n}"
+                },
+                {
+                  "name": "422 — Validation error",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      { "key": "Content-Type", "value": "application/json" },
+                      { "key": "Accept", "value": "application/json" },
+                      { "key": "X-Client-Type", "value": "mobile" }
+                    ],
+                    "body": { "mode": "raw", "raw": "{}" },
+                    "url": {
+                      "raw": "{{base_url}}/auth/register",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "register"]
+                    }
+                  },
+                  "status": "Unprocessable Entity",
+                  "code": 422,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": false,\n  \"message\": \"The given data was invalid.\",\n  \"errors\": {\n    \"email\": [\"The email field is required.\"]\n  }\n}"
+                }
+              ]
             },
             {
               "name": "2a. Verify OTP",
@@ -692,13 +1768,9 @@
                     "exec": [
                       "if (pm.response.code === 201) {",
                       "    const body = pm.response.json();",
-                      "    if (body.data && body.data.token) {",
-                      "        pm.collectionVariables.set('auth_token', body.data.token);",
-                      "        console.log('auth_token saved from verify-otp:', body.data.token);",
-                      "    }",
-                      "    if (body.data && body.data.refresh_token) {",
-                      "        pm.collectionVariables.set('refresh_token', body.data.refresh_token);",
-                      "        console.log('refresh_token saved:', body.data.refresh_token);",
+                      "    if (body.data && body.data.completion_token) {",
+                      "        pm.collectionVariables.set('completion_token', body.data.completion_token);",
+                      "        console.log('completion_token saved:', body.data.completion_token);",
                       "    }",
                       "}",
                       "pm.test('Status is 201', () => pm.response.to.have.status(201));"
@@ -722,8 +1794,56 @@
                   "host": ["{{base_url}}"],
                   "path": ["auth", "register", "verify-otp"]
                 },
-                "description": "Completes registration. Returns `token` (access) and `refresh_token`. Both are auto-saved.\n\n**Errors:** 422 OTP invalid or expired"
-              }
+                "description": "**Step 2 of 3.** Returns a `completion_token` (UUID, 15 min TTL). Use it in step 3 to set your password and finalize the account.\n\n**Errors:** 422 OTP invalid or expired"
+              },
+              "response": [
+                {
+                  "name": "201 — Email verified, completion_token issued",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      { "key": "Content-Type", "value": "application/json" },
+                      { "key": "Accept", "value": "application/json" },
+                      { "key": "X-Client-Type", "value": "mobile" }
+                    ],
+                    "body": { "mode": "raw", "raw": "{\n  \"email\": \"joe@example.com\",\n  \"otp\": \"123456\"\n}" },
+                    "url": {
+                      "raw": "{{base_url}}/auth/register/verify-otp",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "register", "verify-otp"]
+                    }
+                  },
+                  "status": "Created",
+                  "code": 201,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": true,\n  \"message\": \"Email verified. Please set your password.\",\n  \"data\": {\n    \"completion_token\": \"550e8400-e29b-41d4-a716-446655440000\"\n  }\n}"
+                },
+                {
+                  "name": "422 — Invalid OTP",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      { "key": "Content-Type", "value": "application/json" },
+                      { "key": "Accept", "value": "application/json" },
+                      { "key": "X-Client-Type", "value": "mobile" }
+                    ],
+                    "body": { "mode": "raw", "raw": "{\n  \"email\": \"joe@example.com\",\n  \"otp\": \"000000\"\n}" },
+                    "url": {
+                      "raw": "{{base_url}}/auth/register/verify-otp",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "register", "verify-otp"]
+                    }
+                  },
+                  "status": "Unprocessable Entity",
+                  "code": 422,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": false,\n  \"message\": \"Invalid or expired OTP.\",\n  \"errors\": {\n    \"otp\": [\"The OTP is incorrect.\"]\n  }\n}"
+                }
+              ]
             },
             {
               "name": "2b. Verify Magic Link (click from email)",
@@ -735,11 +1855,9 @@
                     "exec": [
                       "if (pm.response.code === 201) {",
                       "    const body = pm.response.json();",
-                      "    if (body.data && body.data.token) {",
-                      "        pm.collectionVariables.set('auth_token', body.data.token);",
-                      "    }",
-                      "    if (body.data && body.data.refresh_token) {",
-                      "        pm.collectionVariables.set('refresh_token', body.data.refresh_token);",
+                      "    if (body.data && body.data.completion_token) {",
+                      "        pm.collectionVariables.set('completion_token', body.data.completion_token);",
+                      "        console.log('completion_token saved:', body.data.completion_token);",
                       "    }",
                       "}",
                       "pm.test('Status is 201', () => pm.response.to.have.status(201));"
@@ -761,8 +1879,168 @@
                     { "key": "signature", "value": "SIGNATURE" }
                   ]
                 },
-                "description": "Paste the full magic link URL from the verification email. Returns `token` and `refresh_token`, both auto-saved.\n\n**Errors:** 422 invalid/expired or already used"
-              }
+                "description": "**Step 2 of 3 (alternative).** Returns a `completion_token` (UUID, 15 min TTL). Use it in step 3 to set your password and finalize the account.\n\nPaste the full magic link URL from the verification email.\n\n**Errors:** 422 invalid/expired or already used"
+              },
+              "response": [
+                {
+                  "name": "201 — Email verified, completion_token issued",
+                  "originalRequest": {
+                    "method": "GET",
+                    "header": [{ "key": "Accept", "value": "application/json" }],
+                    "url": {
+                      "raw": "{{base_url}}/auth/register/verify-magic/PASTE_TOKEN_HERE?expires=EXPIRES&signature=SIGNATURE",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "register", "verify-magic", "PASTE_TOKEN_HERE"],
+                      "query": [
+                        { "key": "expires", "value": "EXPIRES" },
+                        { "key": "signature", "value": "SIGNATURE" }
+                      ]
+                    }
+                  },
+                  "status": "Created",
+                  "code": 201,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": true,\n  \"message\": \"Email verified. Please set your password.\",\n  \"data\": {\n    \"completion_token\": \"550e8400-e29b-41d4-a716-446655440000\"\n  }\n}"
+                },
+                {
+                  "name": "422 — Invalid signature",
+                  "originalRequest": {
+                    "method": "GET",
+                    "header": [{ "key": "Accept", "value": "application/json" }],
+                    "url": {
+                      "raw": "{{base_url}}/auth/register/verify-magic/PASTE_TOKEN_HERE?expires=EXPIRES&signature=SIGNATURE",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "register", "verify-magic", "PASTE_TOKEN_HERE"],
+                      "query": [
+                        { "key": "expires", "value": "EXPIRES" },
+                        { "key": "signature", "value": "SIGNATURE" }
+                      ]
+                    }
+                  },
+                  "status": "Unprocessable Entity",
+                  "code": 422,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": false,\n  \"message\": \"Invalid or expired magic link.\",\n  \"errors\": {}\n}"
+                }
+              ]
+            },
+            {
+              "name": "3. Complete Registration",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('Status is 201', () => pm.response.to.have.status(201));",
+                      "if (pm.response.code === 201) {",
+                      "    const body = pm.response.json();",
+                      "    if (body.data && body.data.token) {",
+                      "        pm.collectionVariables.set('auth_token', body.data.token);",
+                      "        console.log('auth_token saved:', body.data.token);",
+                      "    }",
+                      "    if (body.data && body.data.refresh_token) {",
+                      "        pm.collectionVariables.set('refresh_token', body.data.refresh_token);",
+                      "        console.log('refresh_token saved:', body.data.refresh_token);",
+                      "    }",
+                      "}"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "Accept", "value": "application/json" },
+                  { "key": "X-Client-Type", "value": "mobile" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"completion_token\": \"{{completion_token}}\",\n  \"password\": \"Password123!\",\n  \"password_confirmation\": \"Password123!\"\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/auth/register/complete",
+                  "host": ["{{base_url}}"],
+                  "path": ["auth", "register", "complete"]
+                },
+                "description": "**Step 3 of 3.** Finalizes registration by setting the user's password. The `completion_token` is consumed (one-time use). On success the user is created, assigned the default role, logged in, and the `EmailVerified` event fires.\n\nIn Mobile mode the response includes `token` (access) and `refresh_token`. Both are auto-saved.\n\n**Errors:** 422 completion_token invalid/expired · 422 password validation"
+              },
+              "response": [
+                {
+                  "name": "201 — Registration complete (Mobile)",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      { "key": "Content-Type", "value": "application/json" },
+                      { "key": "Accept", "value": "application/json" },
+                      { "key": "X-Client-Type", "value": "mobile" }
+                    ],
+                    "body": { "mode": "raw", "raw": "{\n  \"completion_token\": \"{{completion_token}}\",\n  \"password\": \"Password123!\",\n  \"password_confirmation\": \"Password123!\"\n}" },
+                    "url": {
+                      "raw": "{{base_url}}/auth/register/complete",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "register", "complete"]
+                    }
+                  },
+                  "status": "Created",
+                  "code": 201,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": true,\n  \"message\": \"Registration complete. Welcome!\",\n  \"data\": {\n    \"user\": {\n      \"id\": 1,\n      \"email\": \"joe@example.com\",\n      \"email_verified_at\": \"2026-05-09T12:00:00.000000Z\",\n      \"is_active\": true\n    },\n    \"token\": \"1|wXyZ123abc456def789...\",\n    \"refresh_token\": \"rt_a1b2c3d4e5f6\"\n  }\n}"
+                },
+                {
+                  "name": "422 — completion_token invalid",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      { "key": "Content-Type", "value": "application/json" },
+                      { "key": "Accept", "value": "application/json" },
+                      { "key": "X-Client-Type", "value": "mobile" }
+                    ],
+                    "body": { "mode": "raw", "raw": "{\n  \"completion_token\": \"bad-token\",\n  \"password\": \"Password123!\",\n  \"password_confirmation\": \"Password123!\"\n}" },
+                    "url": {
+                      "raw": "{{base_url}}/auth/register/complete",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "register", "complete"]
+                    }
+                  },
+                  "status": "Unprocessable Entity",
+                  "code": 422,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": false,\n  \"message\": \"Invalid or expired completion token. Please verify your email again.\",\n  \"errors\": {}\n}"
+                },
+                {
+                  "name": "422 — Password validation",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      { "key": "Content-Type", "value": "application/json" },
+                      { "key": "Accept", "value": "application/json" },
+                      { "key": "X-Client-Type", "value": "mobile" }
+                    ],
+                    "body": { "mode": "raw", "raw": "{\n  \"completion_token\": \"{{completion_token}}\",\n  \"password\": \"weak\",\n  \"password_confirmation\": \"weak\"\n}" },
+                    "url": {
+                      "raw": "{{base_url}}/auth/register/complete",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "register", "complete"]
+                    }
+                  },
+                  "status": "Unprocessable Entity",
+                  "code": 422,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": false,\n  \"message\": \"The given data was invalid.\",\n  \"errors\": {\n    \"password\": [\"The password must be at least 8 characters and contain a number and a symbol.\"]\n  }\n}"
+                }
+              ]
             },
             {
               "name": "Resend Verification Email",
@@ -783,7 +2061,32 @@
                   "path": ["auth", "email", "resend-verification"]
                 },
                 "description": "Resends OTP/magic link for a pending registration. Always returns 200."
-              }
+              },
+              "response": [
+                {
+                  "name": "200 — Sent (or pretended)",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      { "key": "Content-Type", "value": "application/json" },
+                      { "key": "Accept", "value": "application/json" },
+                      { "key": "X-Client-Type", "value": "mobile" }
+                    ],
+                    "body": { "mode": "raw", "raw": "{\n  \"email\": \"joe@example.com\"\n}" },
+                    "url": {
+                      "raw": "{{base_url}}/auth/email/resend-verification",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "email", "resend-verification"]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": true,\n  \"message\": \"If a pending registration exists, a verification email has been sent.\",\n  \"data\": {}\n}"
+                }
+              ]
             }
           ]
         },
@@ -839,7 +2142,78 @@
                   "path": ["auth", "login"]
                 },
                 "description": "Logs in and returns a Bearer `token` (access) + `refresh_token`. Both are auto-saved to collection variables.\n\n`X-Client-Type: mobile` forces token mode in `AUTH_MODE=both`.\n\nEnable `X-Device-Info` to track device model, platform, and OS version in the session record.\n\n**Errors:** 401 wrong credentials/locked · 403 inactive/unverified · 422 validation · 429 rate limit"
-              }
+              },
+              "response": [
+                {
+                  "name": "200 — Logged in (Mobile)",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      { "key": "Content-Type", "value": "application/json" },
+                      { "key": "Accept", "value": "application/json" },
+                      { "key": "X-Client-Type", "value": "mobile" }
+                    ],
+                    "body": { "mode": "raw", "raw": "{\n  \"email\": \"joe@example.com\",\n  \"password\": \"Password123!\"\n}" },
+                    "url": {
+                      "raw": "{{base_url}}/auth/login",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "login"]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": true,\n  \"message\": \"Logged in successfully.\",\n  \"data\": {\n    \"user\": {\n      \"id\": 1,\n      \"email\": \"joe@example.com\"\n    },\n    \"token\": \"2|abc123...\",\n    \"refresh_token\": \"rt_xyz789...\",\n    \"expires_in\": 3600\n  }\n}"
+                },
+                {
+                  "name": "401 — Wrong credentials",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      { "key": "Content-Type", "value": "application/json" },
+                      { "key": "Accept", "value": "application/json" },
+                      { "key": "X-Client-Type", "value": "mobile" }
+                    ],
+                    "body": { "mode": "raw", "raw": "{\n  \"email\": \"joe@example.com\",\n  \"password\": \"wrong\"\n}" },
+                    "url": {
+                      "raw": "{{base_url}}/auth/login",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "login"]
+                    }
+                  },
+                  "status": "Unauthorized",
+                  "code": 401,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": false,\n  \"message\": \"Invalid credentials.\",\n  \"errors\": {}\n}"
+                },
+                {
+                  "name": "403 — Account not verified",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      { "key": "Content-Type", "value": "application/json" },
+                      { "key": "Accept", "value": "application/json" },
+                      { "key": "X-Client-Type", "value": "mobile" }
+                    ],
+                    "body": { "mode": "raw", "raw": "{\n  \"email\": \"joe@example.com\",\n  \"password\": \"Password123!\"\n}" },
+                    "url": {
+                      "raw": "{{base_url}}/auth/login",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "login"]
+                    }
+                  },
+                  "status": "Forbidden",
+                  "code": 403,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": false,\n  \"message\": \"Account not verified.\",\n  \"errors\": {}\n}"
+                }
+              ]
             },
             {
               "name": "Get Current User",
@@ -855,7 +2229,51 @@
                   "path": ["auth", "me"]
                 },
                 "description": "Returns the authenticated user's profile, roles, permissions, and active session count."
-              }
+              },
+              "response": [
+                {
+                  "name": "200 — Profile",
+                  "originalRequest": {
+                    "method": "GET",
+                    "header": [
+                      { "key": "Accept", "value": "application/json" },
+                      { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+                    ],
+                    "url": {
+                      "raw": "{{base_url}}/auth/me",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "me"]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": true,\n  \"message\": \"OK.\",\n  \"data\": {\n    \"user\": {\n      \"id\": 1,\n      \"email\": \"joe@example.com\",\n      \"email_verified_at\": \"2026-05-09T12:00:00.000000Z\",\n      \"is_active\": true\n    },\n    \"roles\": [\"user\"],\n    \"permissions\": [],\n    \"active_sessions\": 2\n  }\n}"
+                },
+                {
+                  "name": "401 — Unauthenticated",
+                  "originalRequest": {
+                    "method": "GET",
+                    "header": [
+                      { "key": "Accept", "value": "application/json" },
+                      { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+                    ],
+                    "url": {
+                      "raw": "{{base_url}}/auth/me",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "me"]
+                    }
+                  },
+                  "status": "Unauthorized",
+                  "code": 401,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": false,\n  \"message\": \"Unauthenticated.\",\n  \"errors\": {}\n}"
+                }
+              ]
             },
             {
               "name": "Logout (current token)",
@@ -871,7 +2289,30 @@
                   "path": ["auth", "logout"]
                 },
                 "description": "Revokes the current Bearer token and its associated session record."
-              }
+              },
+              "response": [
+                {
+                  "name": "200 — Logged out",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      { "key": "Accept", "value": "application/json" },
+                      { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+                    ],
+                    "url": {
+                      "raw": "{{base_url}}/auth/logout",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "logout"]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": true,\n  \"message\": \"Logged out.\",\n  \"data\": {}\n}"
+                }
+              ]
             },
             {
               "name": "Logout All Devices",
@@ -887,7 +2328,30 @@
                   "path": ["auth", "logout", "all"]
                 },
                 "description": "Revokes ALL tokens and sessions for this user across every device."
-              }
+              },
+              "response": [
+                {
+                  "name": "200 — All revoked",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      { "key": "Accept", "value": "application/json" },
+                      { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+                    ],
+                    "url": {
+                      "raw": "{{base_url}}/auth/logout/all",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "logout", "all"]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": true,\n  \"message\": \"Logged out from all devices.\",\n  \"data\": {}\n}"
+                }
+              ]
             }
           ]
         },
@@ -936,7 +2400,55 @@
                   "path": ["auth", "token", "refresh"]
                 },
                 "description": "Exchanges the current `refresh_token` for a new access token + refresh token pair. Both old tokens are revoked immediately.\n\nCall this before the access token expires to keep the user logged in without re-entering credentials. The new tokens are auto-saved to `auth_token` and `refresh_token`.\n\nToken lifetimes are configured per client type in `config/auth_system.php` under `token_ttl`.\n\n**Errors:** 401 refresh token invalid, expired, or already used · 429 rate limit"
-              }
+              },
+              "response": [
+                {
+                  "name": "200 — Tokens rotated",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      { "key": "Content-Type", "value": "application/json" },
+                      { "key": "Accept", "value": "application/json" },
+                      { "key": "X-Client-Type", "value": "mobile" }
+                    ],
+                    "body": { "mode": "raw", "raw": "{\n  \"refresh_token\": \"{{refresh_token}}\"\n}" },
+                    "url": {
+                      "raw": "{{base_url}}/auth/token/refresh",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "token", "refresh"]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": true,\n  \"message\": \"Token refreshed.\",\n  \"data\": {\n    \"token\": \"3|newAccessToken...\",\n    \"refresh_token\": \"rt_newRefresh...\",\n    \"expires_in\": 3600\n  }\n}"
+                },
+                {
+                  "name": "401 — Refresh token invalid",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      { "key": "Content-Type", "value": "application/json" },
+                      { "key": "Accept", "value": "application/json" },
+                      { "key": "X-Client-Type", "value": "mobile" }
+                    ],
+                    "body": { "mode": "raw", "raw": "{\n  \"refresh_token\": \"bad\"\n}" },
+                    "url": {
+                      "raw": "{{base_url}}/auth/token/refresh",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "token", "refresh"]
+                    }
+                  },
+                  "status": "Unauthorized",
+                  "code": 401,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": false,\n  \"message\": \"Refresh token invalid or already used.\",\n  \"errors\": {}\n}"
+                }
+              ]
             }
           ]
         },
@@ -963,7 +2475,32 @@
                   "path": ["auth", "password", "forgot"]
                 },
                 "description": "Sends OTP and/or magic link for password reset. Always returns 200 to prevent email enumeration."
-              }
+              },
+              "response": [
+                {
+                  "name": "200 — Sent (or pretended)",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      { "key": "Content-Type", "value": "application/json" },
+                      { "key": "Accept", "value": "application/json" },
+                      { "key": "X-Client-Type", "value": "mobile" }
+                    ],
+                    "body": { "mode": "raw", "raw": "{\n  \"email\": \"joe@example.com\"\n}" },
+                    "url": {
+                      "raw": "{{base_url}}/auth/password/forgot",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "password", "forgot"]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": true,\n  \"message\": \"If the email exists, a reset link has been sent.\",\n  \"data\": {}\n}"
+                }
+              ]
             },
             {
               "name": "2a. Reset via OTP",
@@ -984,7 +2521,32 @@
                   "path": ["auth", "password", "reset", "otp"]
                 },
                 "description": "Resets the password in one step using the OTP from the email. All existing tokens and sessions are revoked on success.\n\n**Errors:** 422 OTP invalid or expired"
-              }
+              },
+              "response": [
+                {
+                  "name": "200 — Password reset",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      { "key": "Content-Type", "value": "application/json" },
+                      { "key": "Accept", "value": "application/json" },
+                      { "key": "X-Client-Type", "value": "mobile" }
+                    ],
+                    "body": { "mode": "raw", "raw": "{\n  \"email\": \"joe@example.com\",\n  \"otp\": \"654321\",\n  \"password\": \"NewPassword123!\",\n  \"password_confirmation\": \"NewPassword123!\"\n}" },
+                    "url": {
+                      "raw": "{{base_url}}/auth/password/reset/otp",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "password", "reset", "otp"]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": true,\n  \"message\": \"Password reset successfully. All sessions have been revoked.\",\n  \"data\": {}\n}"
+                }
+              ]
             },
             {
               "name": "2b. Validate Magic Link (get reset_token)",
@@ -1021,7 +2583,31 @@
                   ]
                 },
                 "description": "Paste the full URL from the password reset email. Returns a `reset_token` valid for 15 minutes. Auto-saved to collection variables."
-              }
+              },
+              "response": [
+                {
+                  "name": "200 — Magic link valid",
+                  "originalRequest": {
+                    "method": "GET",
+                    "header": [{ "key": "Accept", "value": "application/json" }],
+                    "url": {
+                      "raw": "{{base_url}}/auth/password/reset/magic/PASTE_TOKEN_HERE?expires=EXPIRES&signature=SIGNATURE",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "password", "reset", "magic", "PASTE_TOKEN_HERE"],
+                      "query": [
+                        { "key": "expires", "value": "EXPIRES" },
+                        { "key": "signature", "value": "SIGNATURE" }
+                      ]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": true,\n  \"message\": \"Magic link valid. Submit new password within 15 minutes.\",\n  \"data\": {\n    \"reset_token\": \"550e8400-e29b-41d4-a716-446655440111\"\n  }\n}"
+                }
+              ]
             },
             {
               "name": "2c. Confirm Reset (with reset_token)",
@@ -1042,7 +2628,32 @@
                   "path": ["auth", "password", "reset", "confirm"]
                 },
                 "description": "Submits the new password with the `reset_token` from step 2b. All tokens and sessions revoked on success.\n\n**Errors:** 422 reset_token invalid or expired (15 min window)"
-              }
+              },
+              "response": [
+                {
+                  "name": "200 — Password reset",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      { "key": "Content-Type", "value": "application/json" },
+                      { "key": "Accept", "value": "application/json" },
+                      { "key": "X-Client-Type", "value": "mobile" }
+                    ],
+                    "body": { "mode": "raw", "raw": "{\n  \"reset_token\": \"{{reset_token}}\",\n  \"password\": \"NewPassword123!\",\n  \"password_confirmation\": \"NewPassword123!\"\n}" },
+                    "url": {
+                      "raw": "{{base_url}}/auth/password/reset/confirm",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "password", "reset", "confirm"]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": true,\n  \"message\": \"Password reset successfully. All sessions have been revoked.\",\n  \"data\": {}\n}"
+                }
+              ]
             }
           ]
         },
@@ -1069,7 +2680,32 @@
                   "path": ["auth", "password", "change"]
                 },
                 "description": "Changes password for the currently authenticated user.\n\n**`logout_all: true`** — revokes all other tokens except the current one.\n\n**Errors:** 422 current_password incorrect or validation failed"
-              }
+              },
+              "response": [
+                {
+                  "name": "200 — Password changed",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      { "key": "Content-Type", "value": "application/json" },
+                      { "key": "Accept", "value": "application/json" },
+                      { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+                    ],
+                    "body": { "mode": "raw", "raw": "{\n  \"current_password\": \"Password123!\",\n  \"new_password\": \"NewPassword456!\",\n  \"new_password_confirmation\": \"NewPassword456!\",\n  \"logout_all\": false\n}" },
+                    "url": {
+                      "raw": "{{base_url}}/auth/password/change",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "password", "change"]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": true,\n  \"message\": \"Password changed.\",\n  \"data\": {}\n}"
+                }
+              ]
             }
           ]
         },
@@ -1112,7 +2748,30 @@
                   "path": ["auth", "sessions"]
                 },
                 "description": "Lists all active sessions with device, IP, geo location, and last-active time. Auto-saves a non-current `session_id` for the delete request."
-              }
+              },
+              "response": [
+                {
+                  "name": "200 — Sessions list",
+                  "originalRequest": {
+                    "method": "GET",
+                    "header": [
+                      { "key": "Accept", "value": "application/json" },
+                      { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+                    ],
+                    "url": {
+                      "raw": "{{base_url}}/auth/sessions",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "sessions"]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": true,\n  \"message\": \"OK.\",\n  \"data\": {\n    \"sessions\": [\n      {\n        \"id\": 1,\n        \"device_name\": \"Samsung Galaxy S21\",\n        \"platform\": \"android\",\n        \"ip_address\": \"192.168.1.10\",\n        \"location\": \"Beirut, LB\",\n        \"last_active_at\": \"2026-05-09T12:00:00.000000Z\",\n        \"is_current\": true\n      },\n      {\n        \"id\": 2,\n        \"device_name\": \"iPhone 15\",\n        \"platform\": \"ios\",\n        \"ip_address\": \"10.0.0.5\",\n        \"location\": \"Paris, FR\",\n        \"last_active_at\": \"2026-05-08T18:30:00.000000Z\",\n        \"is_current\": false\n      }\n    ]\n  }\n}"
+                }
+              ]
             },
             {
               "name": "Revoke Specific Session",
@@ -1128,7 +2787,30 @@
                   "path": ["auth", "sessions", "{{session_id}}"]
                 },
                 "description": "Revokes the session with the given ID and its associated Sanctum token."
-              }
+              },
+              "response": [
+                {
+                  "name": "200 — Session revoked",
+                  "originalRequest": {
+                    "method": "DELETE",
+                    "header": [
+                      { "key": "Accept", "value": "application/json" },
+                      { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+                    ],
+                    "url": {
+                      "raw": "{{base_url}}/auth/sessions/{{session_id}}",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "sessions", "{{session_id}}"]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": true,\n  \"message\": \"Session revoked.\",\n  \"data\": {}\n}"
+                }
+              ]
             }
           ]
         },
@@ -1150,7 +2832,30 @@
                   "path": ["auth", "api-tokens"]
                 },
                 "description": "Lists all third-party API tokens owned by the authenticated user.\n\n**Requires:** `AUTH_MODE=api` or `AUTH_MODE=both`."
-              }
+              },
+              "response": [
+                {
+                  "name": "200 — Tokens list",
+                  "originalRequest": {
+                    "method": "GET",
+                    "header": [
+                      { "key": "Accept", "value": "application/json" },
+                      { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+                    ],
+                    "url": {
+                      "raw": "{{base_url}}/auth/api-tokens",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "api-tokens"]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": true,\n  \"message\": \"OK.\",\n  \"data\": {\n    \"tokens\": [\n      {\n        \"id\": 12,\n        \"name\": \"CI Pipeline\",\n        \"abilities\": [\"read\", \"deploy\"],\n        \"expires_at\": \"2027-05-09T12:00:00.000000Z\",\n        \"last_used_at\": \"2026-05-09T11:30:00.000000Z\",\n        \"created_at\": \"2026-05-09T10:00:00.000000Z\"\n      }\n    ]\n  }\n}"
+                }
+              ]
             },
             {
               "name": "Create API Token",
@@ -1193,7 +2898,32 @@
                   "path": ["auth", "api-tokens"]
                 },
                 "description": "Creates a new third-party API token. The `raw_token` is shown **only once** — store it securely.\n\n**`abilities`:** array of strings. Use `[\"*\"]` for full access.\n**`expires_in_days`:** `null` = never expires. Max 3650.\n\nToken format: `auth_at_{base64}`\n\nAuto-saves `api_token_raw` and `api_token_id`."
-              }
+              },
+              "response": [
+                {
+                  "name": "201 — Token created",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      { "key": "Content-Type", "value": "application/json" },
+                      { "key": "Accept", "value": "application/json" },
+                      { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+                    ],
+                    "body": { "mode": "raw", "raw": "{\n  \"name\": \"CI Pipeline\",\n  \"abilities\": [\"read\", \"deploy\"],\n  \"expires_in_days\": 365\n}" },
+                    "url": {
+                      "raw": "{{base_url}}/auth/api-tokens",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "api-tokens"]
+                    }
+                  },
+                  "status": "Created",
+                  "code": 201,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": true,\n  \"message\": \"API token created. Store the raw_token securely — it will not be shown again.\",\n  \"data\": {\n    \"token\": {\n      \"id\": 13,\n      \"name\": \"CI Pipeline\",\n      \"abilities\": [\"read\", \"deploy\"],\n      \"expires_at\": \"2027-05-09T12:00:00.000000Z\"\n    },\n    \"raw_token\": \"auth_at_aBcDeFgHiJkLmNoPqRsTuVwXyZ1234567890\"\n  }\n}"
+                }
+              ]
             },
             {
               "name": "Revoke API Token",
@@ -1209,7 +2939,30 @@
                   "path": ["auth", "api-tokens", "{{api_token_id}}"]
                 },
                 "description": "Revokes the API token saved in `api_token_id`."
-              }
+              },
+              "response": [
+                {
+                  "name": "200 — Token revoked",
+                  "originalRequest": {
+                    "method": "DELETE",
+                    "header": [
+                      { "key": "Accept", "value": "application/json" },
+                      { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+                    ],
+                    "url": {
+                      "raw": "{{base_url}}/auth/api-tokens/{{api_token_id}}",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "api-tokens", "{{api_token_id}}"]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": true,\n  \"message\": \"API token revoked.\",\n  \"data\": {}\n}"
+                }
+              ]
             },
             {
               "name": "Use API Token on a Protected Route",
@@ -1225,7 +2978,51 @@
                   "path": ["your-protected-route"]
                 },
                 "description": "Example of calling a route protected by `auth.api-token` middleware. Replace the URL with your actual endpoint.\n\nThe middleware validates:\n1. Token starts with `auth_at_`\n2. SHA-256 hash matches a stored record\n3. Token is active and not expired\n4. Token has the required abilities"
-              }
+              },
+              "response": [
+                {
+                  "name": "200 — OK",
+                  "originalRequest": {
+                    "method": "GET",
+                    "header": [
+                      { "key": "Accept", "value": "application/json" },
+                      { "key": "Authorization", "value": "Bearer {{api_token_raw}}" }
+                    ],
+                    "url": {
+                      "raw": "{{base_url}}/your-protected-route",
+                      "host": ["{{base_url}}"],
+                      "path": ["your-protected-route"]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": true,\n  \"message\": \"OK.\",\n  \"data\": {}\n}"
+                },
+                {
+                  "name": "401 — Token invalid",
+                  "originalRequest": {
+                    "method": "GET",
+                    "header": [
+                      { "key": "Accept", "value": "application/json" },
+                      { "key": "Authorization", "value": "Bearer {{api_token_raw}}" }
+                    ],
+                    "url": {
+                      "raw": "{{base_url}}/your-protected-route",
+                      "host": ["{{base_url}}"],
+                      "path": ["your-protected-route"]
+                    }
+                  },
+                  "status": "Unauthorized",
+                  "code": 401,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": false,\n  \"message\": \"Invalid API token.\",\n  \"errors\": {}\n}"
+                }
+              ]
             }
           ]
         },
@@ -1263,7 +3060,27 @@
                   "path": ["auth", "social", "google", "redirect"]
                 },
                 "description": "Returns the Google OAuth authorization URL. Open `data.redirect_url` in a browser to start the OAuth flow.\n\n**Requires:** `AUTH_GOOGLE_ENABLED=true`\n\n**Errors:** 403 Google OAuth disabled"
-              }
+              },
+              "response": [
+                {
+                  "name": "200 — Redirect URL",
+                  "originalRequest": {
+                    "method": "GET",
+                    "header": [{ "key": "Accept", "value": "application/json" }],
+                    "url": {
+                      "raw": "{{base_url}}/auth/social/google/redirect",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "social", "google", "redirect"]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": true,\n  \"message\": \"OK.\",\n  \"data\": {\n    \"redirect_url\": \"https://accounts.google.com/o/oauth2/auth?client_id=...&redirect_uri=...&response_type=code&scope=email+profile&state=...\"\n  }\n}"
+                }
+              ]
             },
             {
               "name": "Google OAuth Callback",
@@ -1303,7 +3120,53 @@
                   ]
                 },
                 "description": "Google redirects the user's browser here after authorization. In practice you do not call this directly.\n\n**Handles 3 cases automatically:** existing provider link · email match · new user.\n\nAuto-saves `auth_token` and `refresh_token`.\n\n**Errors:** 403 disabled or inactive · 400 OAuth exchange failed"
-              }
+              },
+              "response": [
+                {
+                  "name": "200 — Logged in with Google",
+                  "originalRequest": {
+                    "method": "GET",
+                    "header": [{ "key": "Accept", "value": "application/json" }],
+                    "url": {
+                      "raw": "{{base_url}}/auth/social/google/callback?code=GOOGLE_AUTH_CODE&state=STATE",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "social", "google", "callback"],
+                      "query": [
+                        { "key": "code", "value": "GOOGLE_AUTH_CODE" },
+                        { "key": "state", "value": "STATE" }
+                      ]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": true,\n  \"message\": \"Logged in with Google.\",\n  \"data\": {\n    \"status\": \"logged_in\",\n    \"user\": {\n      \"id\": 1,\n      \"email\": \"joe@gmail.com\"\n    },\n    \"token\": \"4|googleToken...\",\n    \"refresh_token\": \"rt_google...\"\n  }\n}"
+                },
+                {
+                  "name": "202 — Requires link confirmation",
+                  "originalRequest": {
+                    "method": "GET",
+                    "header": [{ "key": "Accept", "value": "application/json" }],
+                    "url": {
+                      "raw": "{{base_url}}/auth/social/google/callback?code=GOOGLE_AUTH_CODE&state=STATE",
+                      "host": ["{{base_url}}"],
+                      "path": ["auth", "social", "google", "callback"],
+                      "query": [
+                        { "key": "code", "value": "GOOGLE_AUTH_CODE" },
+                        { "key": "state", "value": "STATE" }
+                      ]
+                    }
+                  },
+                  "status": "Accepted",
+                  "code": 202,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"success\": true,\n  \"message\": \"An account with this email already exists. A confirmation link has been sent to verify the link request.\",\n  \"data\": {\n    \"status\": \"requires_link_confirmation\"\n  }\n}"
+                }
+              ]
             }
           ]
         }
@@ -1329,7 +3192,51 @@
               "path": ["auth", "admin", "api-tokens"]
             },
             "description": "Lists all API tokens across all users with owner info, abilities, expiry, and last-used timestamp."
-          }
+          },
+          "response": [
+            {
+              "name": "200 — All tokens",
+              "originalRequest": {
+                "method": "GET",
+                "header": [
+                  { "key": "Accept", "value": "application/json" },
+                  { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/auth/admin/api-tokens",
+                  "host": ["{{base_url}}"],
+                  "path": ["auth", "admin", "api-tokens"]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "cookie": [],
+              "body": "{\n  \"success\": true,\n  \"message\": \"OK.\",\n  \"data\": {\n    \"tokens\": [\n      {\n        \"id\": 12,\n        \"name\": \"CI Pipeline\",\n        \"owner\": {\n          \"id\": 1,\n          \"email\": \"joe@example.com\"\n        },\n        \"abilities\": [\"read\", \"deploy\"],\n        \"expires_at\": \"2027-05-09T12:00:00.000000Z\",\n        \"last_used_at\": \"2026-05-09T11:30:00.000000Z\"\n      },\n      {\n        \"id\": 14,\n        \"name\": \"Service Account Token\",\n        \"owner\": null,\n        \"abilities\": [\"*\"],\n        \"expires_at\": null,\n        \"last_used_at\": null\n      }\n    ]\n  }\n}"
+            },
+            {
+              "name": "403 — Forbidden",
+              "originalRequest": {
+                "method": "GET",
+                "header": [
+                  { "key": "Accept", "value": "application/json" },
+                  { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/auth/admin/api-tokens",
+                  "host": ["{{base_url}}"],
+                  "path": ["auth", "admin", "api-tokens"]
+                }
+              },
+              "status": "Forbidden",
+              "code": 403,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "cookie": [],
+              "body": "{\n  \"success\": false,\n  \"message\": \"This action requires the admin role.\",\n  \"errors\": {}\n}"
+            }
+          ]
         },
         {
           "name": "Create Unowned API Token",
@@ -1371,7 +3278,32 @@
               "path": ["auth", "admin", "api-tokens"]
             },
             "description": "Creates an API token not attached to any user — useful for service accounts or CI pipelines."
-          }
+          },
+          "response": [
+            {
+              "name": "201 — Token created",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "Accept", "value": "application/json" },
+                  { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+                ],
+                "body": { "mode": "raw", "raw": "{\n  \"name\": \"Service Account Token\",\n  \"abilities\": [\"*\"],\n  \"expires_in_days\": null\n}" },
+                "url": {
+                  "raw": "{{base_url}}/auth/admin/api-tokens",
+                  "host": ["{{base_url}}"],
+                  "path": ["auth", "admin", "api-tokens"]
+                }
+              },
+              "status": "Created",
+              "code": 201,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "cookie": [],
+              "body": "{\n  \"success\": true,\n  \"message\": \"API token created. Store the raw_token securely — it will not be shown again.\",\n  \"data\": {\n    \"token\": {\n      \"id\": 14,\n      \"name\": \"Service Account Token\",\n      \"abilities\": [\"*\"],\n      \"expires_at\": null\n    },\n    \"raw_token\": \"auth_at_serviceAccountRawTokenValue1234567890\"\n  }\n}"
+            }
+          ]
         },
         {
           "name": "Update API Token",
@@ -1392,7 +3324,32 @@
               "path": ["auth", "admin", "api-tokens", "{{api_token_id}}"]
             },
             "description": "Updates abilities and/or expiry of any API token.\n\n**Fields (all optional):**\n- `abilities` — replaces the current abilities array\n- `expires_in_days` — `null` clears expiry (never expires)"
-          }
+          },
+          "response": [
+            {
+              "name": "200 — Token updated",
+              "originalRequest": {
+                "method": "PATCH",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "Accept", "value": "application/json" },
+                  { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+                ],
+                "body": { "mode": "raw", "raw": "{\n  \"abilities\": [\"read\"],\n  \"expires_in_days\": 30\n}" },
+                "url": {
+                  "raw": "{{base_url}}/auth/admin/api-tokens/{{api_token_id}}",
+                  "host": ["{{base_url}}"],
+                  "path": ["auth", "admin", "api-tokens", "{{api_token_id}}"]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "cookie": [],
+              "body": "{\n  \"success\": true,\n  \"message\": \"API token updated.\",\n  \"data\": {\n    \"token\": {\n      \"id\": 14,\n      \"name\": \"Service Account Token\",\n      \"abilities\": [\"read\"],\n      \"expires_at\": \"2026-06-08T12:00:00.000000Z\"\n    }\n  }\n}"
+            }
+          ]
         },
         {
           "name": "Revoke Any API Token",
@@ -1408,7 +3365,30 @@
               "path": ["auth", "admin", "api-tokens", "{{api_token_id}}"]
             },
             "description": "Revokes any API token regardless of owner."
-          }
+          },
+          "response": [
+            {
+              "name": "200 — Token revoked",
+              "originalRequest": {
+                "method": "DELETE",
+                "header": [
+                  { "key": "Accept", "value": "application/json" },
+                  { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/auth/admin/api-tokens/{{api_token_id}}",
+                  "host": ["{{base_url}}"],
+                  "path": ["auth", "admin", "api-tokens", "{{api_token_id}}"]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "cookie": [],
+              "body": "{\n  \"success\": true,\n  \"message\": \"API token revoked.\",\n  \"data\": {}\n}"
+            }
+          ]
         }
       ]
     },
@@ -1431,7 +3411,30 @@
               "path": ["auth", "me"]
             },
             "description": "Every successful response follows this shape:\n```json\n{\n  \"success\": true,\n  \"message\": \"Human readable message.\",\n  \"data\": { }\n}\n```\n\nOverride with `ResponseFormatterContract` if your app needs a different envelope."
-          }
+          },
+          "response": [
+            {
+              "name": "200 — Success envelope",
+              "originalRequest": {
+                "method": "GET",
+                "header": [
+                  { "key": "Accept", "value": "application/json" },
+                  { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/auth/me",
+                  "host": ["{{base_url}}"],
+                  "path": ["auth", "me"]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "cookie": [],
+              "body": "{\n  \"success\": true,\n  \"message\": \"OK.\",\n  \"data\": {\n    \"user\": {\n      \"id\": 1,\n      \"email\": \"joe@example.com\"\n    },\n    \"roles\": [\"user\"],\n    \"permissions\": [],\n    \"active_sessions\": 1\n  }\n}"
+            }
+          ]
         },
         {
           "name": "Error Response Shape (wrong password)",
@@ -1451,7 +3454,53 @@
               "path": ["auth", "login"]
             },
             "description": "Every error response follows this shape:\n```json\n{\n  \"success\": false,\n  \"message\": \"Human readable error.\",\n  \"errors\": { }\n}\n```\n\n**HTTP status codes used:**\n- `200` OK\n- `201` Created\n- `400` Bad Request\n- `401` Unauthorized\n- `403` Forbidden\n- `404` Not Found\n- `409` Conflict (email already registered)\n- `422` Unprocessable Entity (validation)\n- `423` Locked (account lockout)\n- `429` Too Many Requests (rate limit)"
-          }
+          },
+          "response": [
+            {
+              "name": "401 — Error envelope",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "Accept", "value": "application/json" }
+                ],
+                "body": { "mode": "raw", "raw": "{\n  \"email\": \"joe@example.com\",\n  \"password\": \"wrong\"\n}" },
+                "url": {
+                  "raw": "{{base_url}}/auth/login",
+                  "host": ["{{base_url}}"],
+                  "path": ["auth", "login"]
+                }
+              },
+              "status": "Unauthorized",
+              "code": 401,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "cookie": [],
+              "body": "{\n  \"success\": false,\n  \"message\": \"Invalid credentials.\",\n  \"errors\": {}\n}"
+            },
+            {
+              "name": "422 — Validation envelope",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "Accept", "value": "application/json" }
+                ],
+                "body": { "mode": "raw", "raw": "{}" },
+                "url": {
+                  "raw": "{{base_url}}/auth/login",
+                  "host": ["{{base_url}}"],
+                  "path": ["auth", "login"]
+                }
+              },
+              "status": "Unprocessable Entity",
+              "code": 422,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "cookie": [],
+              "body": "{\n  \"success\": false,\n  \"message\": \"The given data was invalid.\",\n  \"errors\": {\n    \"email\": [\"The email field is required.\"],\n    \"password\": [\"The password field is required.\"]\n  }\n}"
+            }
+          ]
         }
       ]
     }
