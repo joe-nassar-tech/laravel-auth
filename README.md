@@ -1215,27 +1215,49 @@ You can mix — override only specific emails and let the library handle the res
 
 ## Events
 
+The package never reaches into your application code directly — it broadcasts every significant moment in the auth lifecycle as a Laravel event. Your host app subscribes to whichever ones it cares about and runs host-specific logic (seed a wallet, write an audit row, queue a welcome email, push to analytics, fan out to a webhook) **without forking the package**. Multiple listeners on the same event are supported out of the box.
+
 | Event | When fired | Payload |
 |---|---|---|
-| `UserRegistered` | Registration initiated | `$user` |
-| `EmailVerified` | Email verified and account created | `$user`, `$completionToken` |
-| `UserLoggedIn` | Successful login | `$user`, `$request` |
-| `UserLoggedOut` | Any logout | — |
-| `PasswordChanged` | Password reset or changed | `$user` |
-| `SuspiciousLoginDetected` | Login from unrecognised device | `$user`, `$ip`, `$browser`, `$os`, `$city`, `$country` |
+| `EmailVerified` | After `POST /auth/register/complete` succeeds — user row exists, role assigned, transaction committed | `$user`, `$tempToken` |
+| `UserLoggedIn` | Successful login (password or social) | `$user`, `$request` |
+| `UserLoggedOut` | Any logout (single session or `logout/all`) | — |
+| `PasswordChanged` | Password reset confirmation **or** authenticated password change | `$user` |
+| `SuspiciousLoginDetected` | Login from a device the package has not seen before for this user | `$user`, `$ip`, `$browser`, `$os`, `$city`, `$country` |
 
-**Example — send a welcome email after registration:**
+All events live under `Joe404\LaravelAuth\Events\`.
+
+### How your listener gets wired
+
+Laravel 11+ scans `app/Listeners/` at boot and reads each class's `handle()` signature — **the first parameter's type-hint is the event**. No service-provider edit needed:
 
 ```php
-use Joe404\LaravelAuth\Events\EmailVerified;
-use Illuminate\Support\Facades\Event;
-use App\Mail\WelcomeMail;
-use Illuminate\Support\Facades\Mail;
+<?php
 
-Event::listen(EmailVerified::class, function (EmailVerified $event): void {
-    Mail::to($event->user)->send(new WelcomeMail($event->user));
-});
+namespace App\Listeners;
+
+use Joe404\LaravelAuth\Events\EmailVerified;
+
+class SendBrandedWelcomeMail
+{
+    public function handle(EmailVerified $event): void
+    {
+        // $event->user is the freshly-created user; run your host-app logic here.
+    }
+}
 ```
+
+Drop more files into `app/Listeners/` for additional reactions on the same event — wallet seeding, audit logging, analytics, webhooks — each handled by its own listener, each editable / disable-able independently.
+
+Verify what's wired:
+
+```bash
+php artisan event:list --event="Joe404\LaravelAuth\Events\EmailVerified"
+```
+
+> **Pitfall**: auto-discovery already binds your listener via the type-hint. An *additional* `Event::listen(...)` call in a service provider registers it twice — `handle()` then runs on every dispatch twice (duplicate audit rows, duplicate emails, etc.). Pick one mechanism, not both.
+
+For the queueing pattern (`ShouldQueue`), opting out of auto-discovery, and the rationale for events vs config callbacks, see **[docs/events.md](docs/events.md)**.
 
 ---
 

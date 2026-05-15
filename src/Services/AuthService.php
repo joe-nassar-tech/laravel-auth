@@ -180,7 +180,10 @@ class AuthService
             now()->addMinutes(15),
         );
 
-        // Keep the pending entry alive briefly so re-sends still work.
+        // Verification succeeded — drop the pending entry. Subsequent calls
+        // to /auth/email/resend-verification for this email will silently
+        // no-op (200 with the same envelope, no mail sent), because there
+        // is nothing left to re-verify; the next step is /register/complete.
         Cache::forget("auth:pending:{$email}");
 
         return ['completion_token' => $completionToken];
