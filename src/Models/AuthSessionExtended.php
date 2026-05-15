@@ -50,7 +50,10 @@ class AuthSessionExtended extends Model
     public function isCurrent(Request $request): bool
     {
         if ($this->sanctum_token_id !== null) {
-            return $this->sanctum_token_id === $request->user()?->currentAccessToken()?->id;
+            $token = $request->user()?->currentAccessToken();
+
+            return $token instanceof \Laravel\Sanctum\PersonalAccessToken
+                && $this->sanctum_token_id === $token->id;
         }
 
         try {

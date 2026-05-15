@@ -79,52 +79,77 @@ A drop-in, config-driven authentication library for Laravel 13. Register, verify
 
 ## Installation
 
-### 1. Install via Composer
-
 ```bash
 composer require joe-404/laravel-auth
-```
-
-### 2. Run the installer
-
-```bash
 php artisan auth:install
 ```
 
-This command publishes the config file, migrations, and email views, and walks you through the minimal `.env` setup.
+That's it. The installer publishes the package config, publishes the
+Sanctum and Spatie Permission migration stubs, runs `migrate`, seeds the
+default roles, and appends the Reverb channel auth stub to
+`routes/channels.php`.
 
-### 3. Run migrations
+### What gets installed automatically
 
-```bash
-php artisan migrate
-```
+`composer require joe-404/laravel-auth` pulls these required dependencies
+transitively — **you do not need to install them separately**:
 
-Six tables are created:
+| Package | Purpose |
+|---------|---------|
+| `laravel/sanctum`           | Tokens + SPA session cookies |
+| `spatie/laravel-permission` | Roles / permissions (`HasRoles`, `assignRole`, `User::role('admin')`) |
+| `laravel/socialite`         | Optional Google OAuth flow |
+| `jenssegers/agent`          | User-Agent parsing for the session/device columns |
 
-| Table | Purpose |
-|---|---|
-| `auth_otp_codes` | OTP codes and magic-link tokens (stored as SHA-256 hashes) |
-| `auth_sessions_extended` | Device and session tracking per user |
-| `auth_refresh_tokens` | Refresh tokens (hashed, separate from Sanctum access tokens) |
-| `auth_social_accounts` | Linked OAuth provider accounts |
-| `auth_api_tokens` | Long-lived API tokens (when feature is enabled) |
-| `users` (altered) | Adds `last_login_at` and `is_active` columns |
+### Tables created
 
-### 4. Seed roles
+Eleven tables in total after `auth:install`:
 
-```bash
-php artisan db:seed --class="Joe404\LaravelAuth\Database\Seeders\AuthRolesSeeder"
-```
+| Table | Owner |
+|-------|-------|
+| `auth_otp_codes`, `auth_sessions_extended`, `auth_refresh_tokens`, `auth_social_accounts`, `auth_api_tokens` | `joe-404/laravel-auth` |
+| `users` (altered: `last_login_at`, `is_active`) | `joe-404/laravel-auth` |
+| `personal_access_tokens` | `laravel/sanctum` |
+| `roles`, `permissions`, `model_has_roles`, `role_has_permissions`, `model_has_permissions` | `spatie/laravel-permission` |
 
-Creates `super-admin`, `admin`, and `user` roles via Spatie Permission.
-
-### 5. Configure Sanctum
-
-In `config/sanctum.php`, make sure your frontend domain is in the `stateful` list:
+### What you still need to do manually
 
 ```php
+// app/Models/User.php
+use Laravel\Sanctum\HasApiTokens;
+use Spatie\Permission\Traits\HasRoles;
+
+class User extends Authenticatable
+{
+    use HasApiTokens, HasRoles, Notifiable;
+}
+```
+
+```php
+// config/sanctum.php  (SPA mode only)
 'stateful' => explode(',', env('SANCTUM_STATEFUL_DOMAINS', 'localhost,127.0.0.1')),
 ```
+
+```env
+AUTH_MODE=both
+AUTH_VERIFICATION_METHOD=both
+MAIL_MAILER=smtp
+MAIL_FROM_ADDRESS=hello@yourapp.com
+SANCTUM_STATEFUL_DOMAINS=app.example.com,localhost
+```
+
+### Installer flags
+
+| Flag | Effect |
+|------|--------|
+| `--force`           | Overwrite existing published files |
+| `--skip-migrations` | Publish only; run `migrate` later |
+| `--skip-seed`       | Skip `AuthRolesSeeder` (e.g. when seeding from your own seeder) |
+
+The command is **idempotent** — safe to re-run. For step-by-step detail,
+manual install steps, optional packages (Reverb, Horizon, Telescope), and
+common troubleshooting (`Table 'roles' doesn't exist`, role-not-found
+errors, etc.) see **[docs/installation.md](docs/installation.md)**.
 
 ---
 

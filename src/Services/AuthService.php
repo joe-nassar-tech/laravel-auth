@@ -21,6 +21,7 @@ use Joe404\LaravelAuth\Exceptions\EmailNotVerifiedException;
 use Illuminate\Support\Facades\DB;
 use Joe404\LaravelAuth\Models\AuthRefreshToken;
 use Joe404\LaravelAuth\Models\AuthSessionExtended;
+use Laravel\Sanctum\PersonalAccessToken;
 
 class AuthService
 {
@@ -431,21 +432,25 @@ class AuthService
 
     public function logout(Request $request): void
     {
-        if ($request->bearerToken() !== null) {
-            $tokenId = $request->user()?->currentAccessToken()?->id;
+        $accessToken = $request->user()?->currentAccessToken();
 
-            if ($tokenId !== null) {
-                // Revoke (don't hard-delete) the paired refresh token before
-                // deleting the access token. Keeping the row with revoked_at set
-                // means a leaked-and-replayed refresh token still trips reuse
-                // detection instead of looking like an unknown token.
-                AuthRefreshToken::where('access_token_id', $tokenId)
-                    ->whereNull('revoked_at')
-                    ->update(['revoked_at' => now(), 'revoked_reason' => 'logout']);
-                AuthSessionExtended::where('sanctum_token_id', $tokenId)->delete();
-            }
+        // Real Bearer token (PersonalAccessToken) — not a TransientToken from
+        // SPA cookie auth. Sanctum returns the latter when the user is
+        // authenticated via the session guard, and it has no `id` / no usable
+        // `delete()`, so we must guard with an instanceof check.
+        if ($accessToken instanceof PersonalAccessToken) {
+            $tokenId = $accessToken->id;
 
-            $request->user()?->currentAccessToken()?->delete();
+            // Revoke (don't hard-delete) the paired refresh token before
+            // deleting the access token. Keeping the row with revoked_at set
+            // means a leaked-and-replayed refresh token still trips reuse
+            // detection instead of looking like an unknown token.
+            AuthRefreshToken::where('access_token_id', $tokenId)
+                ->whereNull('revoked_at')
+                ->update(['revoked_at' => now(), 'revoked_reason' => 'logout']);
+            AuthSessionExtended::where('sanctum_token_id', $tokenId)->delete();
+
+            $accessToken->delete();
         } else {
             try {
                 AuthSessionExtended::where('session_id', $request->session()->getId())->delete();
@@ -464,13 +469,12 @@ class AuthService
         $currentTokenId   = null;
         $currentSessionId = null;
 
-        if ($request->bearerToken() !== null) {
-            $currentTokenId = $request->user()?->currentAccessToken()?->id;
+        $accessToken = $request->user()?->currentAccessToken();
 
-            if ($currentTokenId !== null) {
-                $currentSession   = AuthSessionExtended::where('sanctum_token_id', $currentTokenId)->first();
-                $currentSessionId = $currentSession?->id;
-            }
+        if ($accessToken instanceof PersonalAccessToken) {
+            $currentTokenId   = $accessToken->id;
+            $currentSession   = AuthSessionExtended::where('sanctum_token_id', $currentTokenId)->first();
+            $currentSessionId = $currentSession?->id;
         } else {
             try {
                 $currentSession   = AuthSessionExtended::where('session_id', $request->session()->getId())->first();
@@ -623,7 +627,8 @@ class AuthService
         $user->update(['password' => Hash::make($newPassword)]);
 
         if ($logoutAll) {
-            $currentTokenId = $user->currentAccessToken()?->id;
+            $accessToken    = $user->currentAccessToken();
+            $currentTokenId = $accessToken instanceof PersonalAccessToken ? $accessToken->id : null;
 
             // Revoke all OTHER Sanctum tokens
             $this->tokenService->revokeAll($user, $currentTokenId);

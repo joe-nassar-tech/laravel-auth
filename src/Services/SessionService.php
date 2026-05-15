@@ -122,14 +122,10 @@ class SessionService
 
         $query = AuthSessionExtended::where('user_id', $user->getKey());
 
-        if ($request->bearerToken() !== null) {
-            $tokenId = $user->currentAccessToken()?->id;
+        $accessToken = $user->currentAccessToken();
 
-            if ($tokenId === null) {
-                return;
-            }
-
-            $query->where('sanctum_token_id', $tokenId);
+        if ($accessToken instanceof \Laravel\Sanctum\PersonalAccessToken) {
+            $query->where('sanctum_token_id', $accessToken->id);
         } else {
             try {
                 $query->where('session_id', $request->session()->getId());
