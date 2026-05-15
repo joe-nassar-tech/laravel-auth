@@ -9,12 +9,13 @@ use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Joe404\LaravelAuth\Exceptions\AuthException;
 use Joe404\LaravelAuth\Exceptions\TokenExpiredException;
+use Joe404\LaravelAuth\Http\Concerns\ResolvesMessages;
 use Joe404\LaravelAuth\Http\Concerns\RespondsWithJson;
 use Joe404\LaravelAuth\Services\AuthService;
 
 class TokenRefreshController extends Controller
 {
-    use RespondsWithJson;
+    use ResolvesMessages, RespondsWithJson;
 
     public function __construct(
         private readonly AuthService $authService,
@@ -31,9 +32,9 @@ class TokenRefreshController extends Controller
         try {
             $result = $this->authService->refreshToken($refreshToken, $request);
         } catch (TokenExpiredException $e) {
-            return $this->failure($e->getMessage(), [], 401);
+            return $this->failure($this->err($e), [], 401);
         } catch (AuthException $e) {
-            return $this->failure($e->getMessage(), [], 401);
+            return $this->failure($this->err($e), [], 401);
         }
 
         return $this->success('Token refreshed successfully.', $result);

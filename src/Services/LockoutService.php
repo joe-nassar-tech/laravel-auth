@@ -54,6 +54,8 @@ class LockoutService
 
         throw new AuthException(
             "Account temporarily locked due to too many failed attempts. Try again in {$decay} minute(s).",
+            'account_locked',
+            ['seconds' => $decay * 60],
         );
     }
 

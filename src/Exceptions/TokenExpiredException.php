@@ -6,8 +6,17 @@ namespace Joe404\LaravelAuth\Exceptions;
 
 class TokenExpiredException extends AuthException
 {
-    public function __construct(string $message = 'The API token has expired.', int $code = 0, ?\Throwable $previous = null)
+    public function __construct(
+        string $message = 'The API token has expired.',
+        ?string $errorKey = null,
+        array $replacements = [],
+        ?\Throwable $previous = null,
+    ) {
+        parent::__construct($message, $errorKey, $replacements, $previous);
+    }
+
+    protected function defaultErrorKey(): ?string
     {
-        parent::__construct($message, $code, $previous);
+        return 'api_token_expired';
     }
 }

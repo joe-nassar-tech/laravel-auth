@@ -6,6 +6,94 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and 
 
 ---
 
+## [2.3.0] — 2026-05-15
+
+Localization pass. Every user-facing string the package returns — success
+messages **and** error messages — now flows through Laravel's translation
+system, with a static per-key config override still available for apps
+that prefer single-locale customization.
+
+### Added
+
+- **Translatable success messages.** Resolution order on every controller
+  response message is now:
+    1. `config('auth_system.messages.<key>')` — static override (unchanged).
+    2. `trans('auth_system::messages.<key>')` — per-locale via the host's
+       current `app()->getLocale()`.
+    3. The hardcoded English default in the controller call.
+- **Translatable error messages.** Exception classes (`AuthException` and
+  subtypes) now carry an `errorKey()` + `errorReplacements()` pair. The
+  controller boundary (`ResolvesMessages::err()`) resolves the message via
+  the same 3-step lookup against `auth_system::errors.<key>`. Placeholders
+  are interpolated using Laravel's standard `:name` syntax (e.g.
+  `:provider` in social errors, `:seconds` in the account-lockout error).
+- **English language files** ship with the package at
+  `resources/lang/en/{messages,errors,validation}.php` and load
+  automatically under the `auth_system` namespace.
+- **Arabic** sample translation (`resources/lang/ar/`) included as a
+  reference for RTL locales.
+- **New publish tag** `auth-lang`. Running
+  `php artisan vendor:publish --tag=auth-lang` copies the package's
+  language files into either `lang/vendor/auth_system/<locale>/` (Laravel
+  9+ skeleton) or `resources/lang/vendor/auth_system/<locale>/` (older
+  skeleton), automatically detecting which the host app uses.
+- **`config('auth_system.errors')` block** — 26 keys, each defaulting to
+  `null`. Set any key to a non-empty string to force a static, locale-
+  independent override.
+- **Renderable `AuthenticationException` handler** now consults the same
+  pipeline for `auth_system::errors.unauthenticated`, so 401 responses on
+  auth routes are also localizable.
+
+### Backward compatibility
+
+- All English wording is unchanged. Hosts that do not publish translations
+  and do not set `app()->setLocale()` see exactly the same JSON they did in
+  v2.2.0.
+- Exception constructors gained two optional parameters (`?string $errorKey`,
+  `array $replacements`) but the legacy two-arg `(string $message, int $code)`
+  signature on subtypes is removed; if a host app instantiated package
+  exceptions directly with the old positional `$code` argument, update to
+  the new signature. Internal package code is unaffected.
+
+---
+
+## [2.2.0] — 2026-05-15
+
+Customisation pass. Three fully-additive, opt-in features so host apps can
+configure 99% of registration needs without writing a custom controller.
+
+### Added
+
+- **Referral codes.** New `referral_code` config block. When
+  `auth_system.referral_code.enabled=true`, the package generates a unique
+  referral code per new user during `finalizeRegistration()` and writes it to
+  the configured column (default `referral_code`). The generator is
+  swappable via `auth_system.referral_code.generator` (FQCN of a class
+  implementing the new `ReferralCodeGeneratorContract`).
+- **Custom response messages.** New `messages` config block. Every hardcoded
+  English string the controllers return can now be overridden per-key (set
+  any value to `null` to keep the built-in default). Useful for
+  localisation, rebranding, or matching your app's tone of voice. Backed by
+  a new `Http\Concerns\ResolvesMessages` trait.
+- **Extra-field validation messages.** New
+  `auth_system.registration.extra_fields_messages` config — standard
+  Laravel `field.rule` → message map. Lets host apps customise validation
+  error wording for `extra_fields_rules` without reaching for
+  `request_class`.
+- **Extra-field transformers.** New
+  `auth_system.registration.extra_fields_transformers` config — maps a
+  target field name to a class implementing the new
+  `ExtraFieldTransformerContract`. Runs after validation, before the field
+  is persisted. Useful for derivation (`username_normalized = strtolower(username)`)
+  and normalisation without writing a controller.
+
+### Backward compatibility
+
+- All four features default to off / null. Existing apps see no behavioural
+  change after upgrading.
+
+---
+
 ## [2.0.0] — 2026-05-09
 
 Security hardening pass. Many fixes are breaking — review before upgrading.

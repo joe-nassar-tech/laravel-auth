@@ -36,7 +36,10 @@ class AuthService
     {
         $email = strtolower(trim($email));
 
-        $extraFields = $this->stripPrivilegedFields($extraFields);
+        $extraFields = $this->applyExtraFieldTransformers(
+            $this->stripPrivilegedFields($extraFields),
+            $email,
+        );
 
         /** @var class-string<User> $userModel */
         $userModel = config('auth.providers.users.model', \App\Models\User::class);
@@ -96,6 +99,47 @@ class AuthService
         return $fields;
     }
 
+    /**
+     * Run configured extra-field transformers and merge their output into the
+     * extra fields array. Each transformer receives the full validated input
+     * (extras + email) and returns the value to store under its target key.
+     *
+     * Configure via auth_system.registration.extra_fields_transformers:
+     *   'extra_fields_transformers' => [
+     *       'username_normalized' => \App\Transformers\UsernameNormalizer::class,
+     *   ],
+     *
+     * @param  array<string, mixed>  $extraFields
+     * @return array<string, mixed>
+     */
+    private function applyExtraFieldTransformers(array $extraFields, string $email): array
+    {
+        /** @var array<string, class-string> $transformers */
+        $transformers = (array) config('auth_system.registration.extra_fields_transformers', []);
+
+        if ($transformers === []) {
+            return $extraFields;
+        }
+
+        $input = array_merge($extraFields, ['email' => $email]);
+
+        foreach ($transformers as $targetField => $transformerClass) {
+            if (! is_string($transformerClass) || ! class_exists($transformerClass)) {
+                continue;
+            }
+
+            $instance = app($transformerClass);
+
+            if (! $instance instanceof \Joe404\LaravelAuth\Contracts\ExtraFieldTransformerContract) {
+                continue;
+            }
+
+            $extraFields[$targetField] = $instance->transform($input);
+        }
+
+        return $this->stripPrivilegedFields($extraFields);
+    }
+
     private function dispatchExistingAccountEmail(User $user): void
     {
         try {
@@ -124,7 +168,7 @@ class AuthService
         $pending = Cache::get("auth:pending:{$email}");
 
         if ($pending === null) {
-            throw new \RuntimeException('Registration session expired. Please start again.');
+            throw new AuthException('Registration session expired. Please start again.', 'registration_session_expired');
         }
 
         $completionToken = Str::uuid()->toString();
@@ -146,11 +190,22 @@ class AuthService
         $data = Cache::pull("auth:completion:{$completionToken}");
 
         if ($data === null) {
-            throw new AuthException('Invalid or expired completion token. Please verify your email again.');
+            throw new AuthException('Invalid or expired completion token. Please verify your email again.', 'completion_token_invalid');
         }
 
         $email       = (string) $data['email'];
         $extraFields = $this->stripPrivilegedFields((array) ($data['extra'] ?? []));
+
+        // Generate a referral code if the host app has opted in. The column
+        // name is configurable so this works regardless of the host's schema.
+        if ((bool) config('auth_system.referral_code.enabled', false)) {
+            $column = (string) config('auth_system.referral_code.column', 'referral_code');
+
+            // Don't overwrite if a transformer or caller already set it.
+            if (! array_key_exists($column, $extraFields) || $extraFields[$column] === null) {
+                $extraFields[$column] = app(\Joe404\LaravelAuth\Contracts\ReferralCodeGeneratorContract::class)->generate();
+            }
+        }
 
         /** @var class-string<User> $userModel */
         $userModel = config('auth.providers.users.model', \App\Models\User::class);
@@ -226,7 +281,7 @@ class AuthService
 
         if ($user === null || ! Hash::check($password, $user->password)) {
             $this->lockoutService->recordFailure($email);
-            throw new AuthException('Invalid credentials.');
+            throw new AuthException('Invalid credentials.', 'invalid_credentials');
         }
 
         if (isset($user->is_active) && ! $user->is_active) {
@@ -506,7 +561,7 @@ class AuthService
         $email = Cache::pull("auth:reset_token:{$resetToken}");
 
         if ($email === null) {
-            throw new AuthException('Invalid or expired reset token. Please request a new one.');
+            throw new AuthException('Invalid or expired reset token. Please request a new one.', 'reset_token_invalid');
         }
 
         $userModel = config('auth.providers.users.model', \App\Models\User::class);
@@ -562,7 +617,7 @@ class AuthService
     public function changePassword(User $user, string $currentPassword, string $newPassword, bool $logoutAll, Request $request): void
     {
         if (! Hash::check($currentPassword, (string) $user->password)) {
-            throw new AuthException('Current password is incorrect.');
+            throw new AuthException('Current password is incorrect.', 'current_password_invalid');
         }
 
         $user->update(['password' => Hash::make($newPassword)]);

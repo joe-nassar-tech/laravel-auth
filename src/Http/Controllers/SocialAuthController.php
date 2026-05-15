@@ -10,12 +10,13 @@ use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Joe404\LaravelAuth\Exceptions\AccountInactiveException;
 use Joe404\LaravelAuth\Exceptions\AuthException;
+use Joe404\LaravelAuth\Http\Concerns\ResolvesMessages;
 use Joe404\LaravelAuth\Http\Concerns\RespondsWithJson;
 use Joe404\LaravelAuth\Services\SocialAuthService;
 
 class SocialAuthController extends Controller
 {
-    use RespondsWithJson;
+    use ResolvesMessages, RespondsWithJson;
 
     public function __construct(
         private readonly SocialAuthService $socialAuthService,
@@ -26,7 +27,7 @@ class SocialAuthController extends Controller
         try {
             $url = $this->socialAuthService->redirectUrl('google', $request);
         } catch (AuthException $e) {
-            return $this->failure($e->getMessage(), [], 403);
+            return $this->failure($this->err($e), [], 403);
         }
 
         // SPA / mobile clients call this via JSON-XHR and want the URL string.
@@ -43,9 +44,9 @@ class SocialAuthController extends Controller
         try {
             $result = $this->socialAuthService->handleCallback('google', $request);
         } catch (AccountInactiveException $e) {
-            return $this->failure($e->getMessage(), [], 403);
+            return $this->failure($this->err($e), [], 403);
         } catch (AuthException $e) {
-            return $this->failure($e->getMessage(), [], 401);
+            return $this->failure($this->err($e), [], 401);
         }
 
         if (($result['status'] ?? null) === 'requires_link_confirmation') {
@@ -64,15 +65,15 @@ class SocialAuthController extends Controller
     public function confirmLink(string $provider, string $token, Request $request): JsonResponse|RedirectResponse
     {
         if (! $request->hasValidSignature()) {
-            return $this->failure('Invalid or expired confirmation link.', [], 422);
+            return $this->failure($this->errKey('social_link_token_invalid', 'Invalid or expired confirmation link.'), [], 422);
         }
 
         try {
             $result = $this->socialAuthService->confirmLink($token, $request);
         } catch (AccountInactiveException $e) {
-            return $this->failure($e->getMessage(), [], 403);
+            return $this->failure($this->err($e), [], 403);
         } catch (AuthException $e) {
-            return $this->failure($e->getMessage(), [], 401);
+            return $this->failure($this->err($e), [], 401);
         }
 
         $frontendUrl = (string) config('auth_system.social.frontend_url', '');

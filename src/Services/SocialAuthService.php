@@ -26,7 +26,7 @@ class SocialAuthService
     public function redirectUrl(string $provider, Request $request): string
     {
         if (! config("auth_system.social.{$provider}.enabled", false)) {
-            throw new AuthException(ucfirst($provider) . ' authentication is not enabled.');
+            throw new AuthException(ucfirst($provider) . ' authentication is not enabled.', 'social_provider_disabled', ['provider' => ucfirst($provider)]);
         }
 
         $driver = Socialite::driver($provider);
@@ -50,7 +50,7 @@ class SocialAuthService
     public function handleCallback(string $provider, Request $request): array
     {
         if (! config("auth_system.social.{$provider}.enabled", false)) {
-            throw new AuthException(ucfirst($provider) . ' authentication is not enabled.');
+            throw new AuthException(ucfirst($provider) . ' authentication is not enabled.', 'social_provider_disabled', ['provider' => ucfirst($provider)]);
         }
 
         try {
@@ -62,7 +62,7 @@ class SocialAuthService
 
             $socialUser = $driver->user();
         } catch (\Throwable) {
-            throw new AuthException('Unable to authenticate with ' . ucfirst($provider) . '. Please try again.');
+            throw new AuthException('Unable to authenticate with ' . ucfirst($provider) . '. Please try again.', 'social_authentication_failed', ['provider' => ucfirst($provider)]);
         }
 
         // 1. Existing social account → log in directly.
@@ -105,7 +105,7 @@ class SocialAuthService
         if (method_exists($socialUser, 'getRaw')) {
             $raw = $socialUser->getRaw();
             if (isset($raw['email_verified']) && $raw['email_verified'] === false) {
-                throw new AuthException('The email associated with your Google account is not verified.');
+                throw new AuthException('The email associated with your Google account is not verified.', 'social_email_unverified', ['provider' => 'Google']);
             }
         }
 
@@ -125,14 +125,14 @@ class SocialAuthService
         $payload = Cache::pull("auth:social_link:{$token}");
 
         if ($payload === null) {
-            throw new AuthException('Invalid or expired confirmation link.');
+            throw new AuthException('Invalid or expired confirmation link.', 'social_link_token_invalid');
         }
 
         $userModel = config('auth.providers.users.model', \App\Models\User::class);
         $user      = $userModel::find($payload['user_id']);
 
         if ($user === null) {
-            throw new AuthException('User not found.');
+            throw new AuthException('User not found.', 'social_user_not_found');
         }
 
         // Re-check no row was created between the email click and now.

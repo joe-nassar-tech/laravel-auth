@@ -6,8 +6,17 @@ namespace Joe404\LaravelAuth\Exceptions;
 
 class AccountInactiveException extends AuthException
 {
-    public function __construct(string $message = 'This account has been deactivated.', int $code = 0, ?\Throwable $previous = null)
+    public function __construct(
+        string $message = 'This account has been deactivated.',
+        ?string $errorKey = null,
+        array $replacements = [],
+        ?\Throwable $previous = null,
+    ) {
+        parent::__construct($message, $errorKey, $replacements, $previous);
+    }
+
+    protected function defaultErrorKey(): ?string
     {
-        parent::__construct($message, $code, $previous);
+        return 'account_inactive';
     }
 }

@@ -37,13 +37,13 @@ class ApiTokenService
     public function validate(string $bearerToken): AuthApiToken
     {
         if (!str_starts_with($bearerToken, 'auth_at_')) {
-            throw new TokenRevokedException('Invalid API token format.');
+            throw new TokenRevokedException('Invalid API token format.', 'api_token_invalid_format');
         }
 
         try {
             $raw = $this->parseRawToken($bearerToken);
         } catch (\Throwable) {
-            throw new TokenRevokedException('Invalid API token format.');
+            throw new TokenRevokedException('Invalid API token format.', 'api_token_invalid_format');
         }
 
         $hash  = $this->hash($raw);
@@ -96,7 +96,7 @@ class ApiTokenService
         $decoded = base64_decode($encoded, strict: true);
 
         if ($decoded === false) {
-            throw new TokenRevokedException('Invalid API token encoding.');
+            throw new TokenRevokedException('Invalid API token encoding.', 'api_token_invalid_encoding');
         }
 
         return $decoded;

@@ -21,6 +21,10 @@ return new class extends Migration
             $table->boolean('password_change_required')->default(false);
             $table->boolean('is_active')->default(true);
             $table->timestamp('last_login_at')->nullable();
+            // Optional columns used by v2.2 referral / transformer tests
+            $table->string('referral_code')->nullable()->unique();
+            $table->string('username')->nullable();
+            $table->string('username_normalized')->nullable();
             $table->timestamps();
         });
     }

@@ -8,13 +8,14 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
+use Joe404\LaravelAuth\Http\Concerns\ResolvesMessages;
 use Joe404\LaravelAuth\Http\Concerns\RespondsWithJson;
 use Joe404\LaravelAuth\Http\Requests\ResendVerificationRequest;
 use Joe404\LaravelAuth\Services\OtpService;
 
 class EmailVerificationController extends Controller
 {
-    use RespondsWithJson;
+    use ResolvesMessages, RespondsWithJson;
 
     public function __construct(
         private readonly OtpService $otpService,
@@ -38,7 +39,7 @@ class EmailVerificationController extends Controller
 
         // Always same response — prevents enumeration of pending registrations.
         return $this->success(
-            'If your email is pending verification, new instructions have been sent.',
+            $this->msg('verification_resent', 'If your email is pending verification, new instructions have been sent.'),
         );
     }
 }

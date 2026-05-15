@@ -2,6 +2,8 @@
 
 Full reference for every key in `config/auth_system.php`. All keys can be overridden via `.env`.
 
+> Looking for response-message overrides or multi-language support? See **[docs/customization.md](customization.md)** (per-key overrides, referral codes, transformers) and **[docs/localization.md](localization.md)** (translation files, locale switching, RTL).
+
 ---
 
 ## `mode`

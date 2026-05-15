@@ -11,6 +11,7 @@ use Illuminate\Routing\Controller;
 use Joe404\LaravelAuth\Exceptions\AuthException;
 use Joe404\LaravelAuth\Exceptions\OtpExpiredException;
 use Joe404\LaravelAuth\Exceptions\OtpInvalidException;
+use Joe404\LaravelAuth\Http\Concerns\ResolvesMessages;
 use Joe404\LaravelAuth\Http\Concerns\RespondsWithJson;
 use Joe404\LaravelAuth\Http\Requests\RegisterCompleteRequest;
 use Joe404\LaravelAuth\Http\Requests\RegisterRequest;
@@ -19,7 +20,7 @@ use Joe404\LaravelAuth\Services\AuthService;
 
 class RegisterController extends Controller
 {
-    use RespondsWithJson;
+    use ResolvesMessages, RespondsWithJson;
 
     public function __construct(
         private readonly AuthService $authService,
@@ -37,12 +38,12 @@ class RegisterController extends Controller
                 $extraFields,
             );
         } catch (\DomainException $e) {
-            return $this->failure($e->getMessage(), [], 409);
+            return $this->failure($this->err($e, 'email_already_registered'), [], 409);
         } catch (AuthException $e) {
-            return $this->failure($e->getMessage());
+            return $this->failure($this->err($e));
         }
 
-        return $this->success('Verification sent. Please check your email.', $result, 201);
+        return $this->success($this->msg('register_initiated', 'Verification sent. Please check your email.'), $result, 201);
     }
 
     public function verifyOtp(VerifyOtpRequest $request): JsonResponse
@@ -53,14 +54,14 @@ class RegisterController extends Controller
                 $request->string('otp')->toString(),
             );
         } catch (OtpInvalidException $e) {
-            return $this->failure($e->getMessage(), [], 422);
+            return $this->failure($this->err($e), [], 422);
         } catch (OtpExpiredException $e) {
-            return $this->failure($e->getMessage(), [], 422);
+            return $this->failure($this->err($e), [], 422);
         } catch (\RuntimeException $e) {
-            return $this->failure($e->getMessage(), [], 422);
+            return $this->failure($this->err($e, 'registration_session_expired'), [], 422);
         }
 
-        return $this->success('Email verified. Please set your password.', $result);
+        return $this->success($this->msg('register_verified', 'Email verified. Please set your password.'), $result);
     }
 
     public function verifyMagic(string $token, Request $request): JsonResponse|RedirectResponse
@@ -68,17 +69,21 @@ class RegisterController extends Controller
         $isFrontend = config('auth_system.verification.magic_link_target') === 'frontend';
 
         if (! $isFrontend && ! $request->hasValidSignature()) {
-            return $this->magicLinkFailure($request, 'Invalid or expired verification link.', 'invalid_link');
+            return $this->magicLinkFailure(
+                $request,
+                $this->errKey('magic_link_invalid', 'Invalid or expired verification link.'),
+                'invalid_link',
+            );
         }
 
         try {
             $result = $this->authService->completeRegistrationWithMagicLink($token);
         } catch (OtpInvalidException $e) {
-            return $this->magicLinkFailure($request, $e->getMessage(), 'invalid_link');
+            return $this->magicLinkFailure($request, $this->err($e), 'invalid_link');
         } catch (OtpExpiredException $e) {
-            return $this->magicLinkFailure($request, $e->getMessage(), 'expired_link');
+            return $this->magicLinkFailure($request, $this->err($e), 'expired_link');
         } catch (\RuntimeException $e) {
-            return $this->magicLinkFailure($request, $e->getMessage(), 'session_expired');
+            return $this->magicLinkFailure($request, $this->err($e, 'registration_session_expired'), 'session_expired');
         }
 
         // Browser hits get a 302 to the frontend with the completion_token in
@@ -92,7 +97,7 @@ class RegisterController extends Controller
             );
         }
 
-        return $this->success('Email verified. Please set your password.', $result);
+        return $this->success($this->msg('register_verified', 'Email verified. Please set your password.'), $result);
     }
 
     private function magicLinkFailure(Request $request, string $message, string $code): JsonResponse|RedirectResponse
@@ -117,11 +122,11 @@ class RegisterController extends Controller
                 $request,
             );
         } catch (AuthException $e) {
-            return $this->failure($e->getMessage(), [], 422);
+            return $this->failure($this->err($e), [], 422);
         } catch (\DomainException $e) {
-            return $this->failure($e->getMessage(), [], 409);
+            return $this->failure($this->err($e, 'email_already_registered'), [], 409);
         }
 
-        return $this->success('Registration complete.', $result, 201);
+        return $this->success($this->msg('register_complete', 'Registration complete.'), $result, 201);
     }
 }

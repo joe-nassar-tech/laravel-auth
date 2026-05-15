@@ -62,6 +62,17 @@ class AuthServiceProvider extends ServiceProvider
             return $this->app->make(EmailOtpChannel::class);
         });
 
+        // Bind referral code generator (lets host apps swap in their own format)
+        $this->app->bind(\Joe404\LaravelAuth\Contracts\ReferralCodeGeneratorContract::class, function () {
+            $custom = config('auth_system.referral_code.generator');
+
+            if (is_string($custom) && class_exists($custom)) {
+                return $this->app->make($custom);
+            }
+
+            return $this->app->make(\Joe404\LaravelAuth\Services\DefaultReferralCodeGenerator::class);
+        });
+
         // Bind response formatter contract
         $this->app->bind(ResponseFormatterContract::class, function (): ResponseFormatterContract {
             $formatterClass = config('auth_system.response.formatter');
@@ -81,6 +92,7 @@ class AuthServiceProvider extends ServiceProvider
         $this->publishAssets();
         $this->configureSocialite();
         $this->loadViewsFrom(__DIR__ . '/../resources/views', 'laravel-auth');
+        $this->loadTranslationsFrom(__DIR__ . '/../resources/lang', 'auth_system');
         $this->loadMigrationsFrom(__DIR__ . '/../database/migrations');
         $this->registerRoutes();
         $this->registerMiddleware();
@@ -138,6 +150,17 @@ class AuthServiceProvider extends ServiceProvider
             $this->publishes([
                 __DIR__ . '/../resources/views' => resource_path('views/vendor/laravel-auth'),
             ], 'auth-views');
+
+            // Laravel 9+ uses lang/ at the project root; older skeletons used
+            // resources/lang. Publish to whichever the host app has so the
+            // standard `lang/vendor/auth_system/<locale>` lookup works.
+            $langTarget = is_dir(base_path('lang'))
+                ? base_path('lang/vendor/auth_system')
+                : resource_path('lang/vendor/auth_system');
+
+            $this->publishes([
+                __DIR__ . '/../resources/lang' => $langTarget,
+            ], 'auth-lang');
         }
     }
 
@@ -269,8 +292,17 @@ class AuthServiceProvider extends ServiceProvider
             /** @var ResponseFormatterContract $formatter */
             $formatter = $this->app->make(ResponseFormatterContract::class);
 
+            $message = (string) config('auth_system.errors.unauthenticated')
+                ?: (function (): string {
+                    $t = trans('auth_system::errors.unauthenticated');
+
+                    return (is_string($t) && $t !== 'auth_system::errors.unauthenticated' && $t !== '')
+                        ? $t
+                        : 'Unauthenticated.';
+                })();
+
             return response()->json(
-                $formatter->format(false, 'Unauthenticated.', [], []),
+                $formatter->format(false, $message, [], []),
                 401,
             );
         });

@@ -7,6 +7,7 @@ namespace Joe404\LaravelAuth\Http\Controllers;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
+use Joe404\LaravelAuth\Http\Concerns\ResolvesMessages;
 use Joe404\LaravelAuth\Http\Concerns\RespondsWithJson;
 use Joe404\LaravelAuth\Http\Requests\ApiTokenRequest;
 use Joe404\LaravelAuth\Http\Requests\ApiTokenUpdateRequest;
@@ -15,7 +16,7 @@ use Joe404\LaravelAuth\Services\ApiTokenService;
 
 class ApiTokenController extends Controller
 {
-    use RespondsWithJson;
+    use ResolvesMessages, RespondsWithJson;
 
     public function __construct(
         private readonly ApiTokenService $apiTokenService,
@@ -28,7 +29,7 @@ class ApiTokenController extends Controller
             $request->user()->getKey(),
         );
 
-        return $this->success('API tokens retrieved.', ['tokens' => $tokens]);
+        return $this->success($this->msg('api_tokens_retrieved', 'API tokens retrieved.'), ['tokens' => $tokens]);
     }
 
     public function store(ApiTokenRequest $request): JsonResponse
@@ -43,7 +44,7 @@ class ApiTokenController extends Controller
         );
 
         return $this->success(
-            'API token created. Store it securely — it will not be shown again.',
+            $this->msg('api_token_created', 'API token created. Store it securely — it will not be shown again.'),
             ['raw_token' => $result['raw_token'], 'token' => $result['token']],
             201,
         );
@@ -62,14 +63,14 @@ class ApiTokenController extends Controller
 
         $this->apiTokenService->revoke($id);
 
-        return $this->success('API token revoked.');
+        return $this->success($this->msg('api_token_revoked', 'API token revoked.'));
     }
 
     public function adminIndex(Request $request): JsonResponse
     {
         $tokens = $this->apiTokenService->list();
 
-        return $this->success('API tokens retrieved.', ['tokens' => $tokens]);
+        return $this->success($this->msg('api_tokens_retrieved', 'API tokens retrieved.'), ['tokens' => $tokens]);
     }
 
     public function adminStore(ApiTokenRequest $request): JsonResponse
@@ -82,7 +83,7 @@ class ApiTokenController extends Controller
         );
 
         return $this->success(
-            'API token created. Store it securely — it will not be shown again.',
+            $this->msg('api_token_created', 'API token created. Store it securely — it will not be shown again.'),
             ['raw_token' => $result['raw_token'], 'token' => $result['token']],
             201,
         );
@@ -109,13 +110,13 @@ class ApiTokenController extends Controller
             'expires_at' => $expiresAt,
         ]);
 
-        return $this->success('API token updated.', ['token' => $token->fresh()]);
+        return $this->success($this->msg('api_token_updated', 'API token updated.'), ['token' => $token->fresh()]);
     }
 
     public function adminDestroy(Request $request, int $id): JsonResponse
     {
         $this->apiTokenService->revoke($id);
 
-        return $this->success('API token revoked.');
+        return $this->success($this->msg('api_token_revoked', 'API token revoked.'));
     }
 }

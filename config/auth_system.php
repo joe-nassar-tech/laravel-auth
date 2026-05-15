@@ -84,7 +84,171 @@ return [
             // 'birthday' => 'required|date',
             // 'phone'    => 'nullable|string|max:20',
         ],
+
+        /*
+        | Custom validation messages for extra fields. Standard Laravel
+        | "field.rule" → message format. Lets you override Laravel's defaults
+        | per field/rule combo without writing a custom request class.
+        |
+        | Example:
+        |   'extra_fields_messages' => [
+        |       'username.unique'         => 'This username is already taken.',
+        |       'username.regex'          => 'Letters, numbers, and underscores only.',
+        |       'date_of_birth.before'    => 'You must be 18+ to register.',
+        |   ],
+        */
+        'extra_fields_messages' => [
+            // 'username.unique' => 'This username is already taken.',
+        ],
+
+        /*
+        | Field transformers — derive new fields from validated input after
+        | validation passes, without writing a custom controller. Each entry
+        | maps a target field name → a class implementing
+        | ExtraFieldTransformerContract::transform(array $validated): mixed.
+        |
+        | Useful for normalization (lowercase, trim) or derivation
+        | (username_normalized = strtolower(username)).
+        |
+        | Example:
+        |   'extra_fields_transformers' => [
+        |       'username_normalized' => \App\Transformers\UsernameNormalizer::class,
+        |   ],
+        */
+        'extra_fields_transformers' => [
+            // 'username_normalized' => \App\Transformers\UsernameNormalizer::class,
+        ],
+
         'request_class' => null,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Referral Codes
+    |--------------------------------------------------------------------------
+    |
+    | When enabled, the package generates a unique referral code for every
+    | new user during finalizeRegistration() and writes it to the configured
+    | column. The host app gets a working referral system with zero code.
+    |
+    | enabled:
+    |   false → no code is generated (default; unchanged from older versions)
+    |   true  → generate and store a unique code per new user
+    |
+    | column:
+    |   The users-table column that stores the code. Must exist in your
+    |   schema and be in your User model's $fillable.
+    |
+    | length / uppercase:
+    |   Code shape. Default: 10 chars, uppercased (e.g. "A8F3K2P9LM").
+    |
+    | generator:
+    |   FQCN of a class implementing ReferralCodeGeneratorContract. When set,
+    |   the package uses your generator instead of the built-in random one.
+    |   Useful when you need deterministic codes, vanity prefixes, or
+    |   integration with an existing system.
+    |
+    | Example:
+    |   AUTH_REFERRAL_CODE_ENABLED=true
+    |   AUTH_REFERRAL_CODE_LENGTH=8
+    */
+    'referral_code' => [
+        'enabled'   => (bool) env('AUTH_REFERRAL_CODE_ENABLED', false),
+        'column'    => env('AUTH_REFERRAL_CODE_COLUMN', 'referral_code'),
+        'length'    => (int) env('AUTH_REFERRAL_CODE_LENGTH', 10),
+        'uppercase' => (bool) env('AUTH_REFERRAL_CODE_UPPERCASE', true),
+        'generator' => env('AUTH_REFERRAL_CODE_GENERATOR', null),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Response Messages
+    |--------------------------------------------------------------------------
+    |
+    | Override any of the package's hardcoded English response messages.
+    | Set a value to override; leave as null to use the built-in default.
+    |
+    | Useful for localization (point the values at translation strings),
+    | rebranding, or matching your app's tone of voice.
+    |
+    | Example:
+    |   'messages' => [
+    |       'register_initiated' => trans('auth.register_initiated'),
+    |       'login_success'      => 'Welcome back!',
+    |   ],
+    */
+    /*
+    |--------------------------------------------------------------------------
+    | Error / Exception Messages
+    |--------------------------------------------------------------------------
+    |
+    | Static per-key overrides for error messages thrown by package services.
+    | Resolution order at request time:
+    |
+    |   1. config('auth_system.errors.<key>')      → wins if set to non-empty
+    |   2. trans('auth_system::errors.<key>')      → per-locale, publish via
+    |                                                vendor:publish --tag=auth-lang
+    |   3. The exception's built-in English message
+    |
+    | Keys mirror the file resources/lang/en/errors.php. Set a value here to
+    | force a single global override regardless of locale; leave null to keep
+    | the translation pipeline active.
+    |
+    | Some keys accept placeholders (interpolated as :name):
+    |   account_locked              → :seconds
+    |   social_provider_disabled    → :provider
+    |   social_authentication_failed → :provider
+    |   social_email_unverified     → :provider
+    */
+    'errors' => [
+        'invalid_credentials'          => null,
+        'account_inactive'             => null,
+        'email_not_verified'           => null,
+        'otp_invalid'                  => null,
+        'otp_expired'                  => null,
+        'completion_token_invalid'     => null,
+        'registration_session_expired' => null,
+        'email_already_registered'     => null,
+        'reset_token_invalid'          => null,
+        'current_password_invalid'     => null,
+        'refresh_token_invalid'        => null,
+        'refresh_token_revoked'        => null,
+        'refresh_token_reused'         => null,
+        'refresh_token_expired'        => null,
+        'api_token_invalid_format'     => null,
+        'api_token_invalid_encoding'   => null,
+        'api_token_revoked'            => null,
+        'api_token_expired'            => null,
+        'social_provider_disabled'     => null,
+        'social_authentication_failed' => null,
+        'social_email_unverified'      => null,
+        'social_link_token_invalid'    => null,
+        'social_user_not_found'        => null,
+        'session_not_found'            => null,
+        'account_locked'               => null,
+        'unauthenticated'              => null,
+    ],
+
+    'messages' => [
+        'register_initiated'     => null,
+        'register_verified'      => null,
+        'register_complete'      => null,
+        'verification_resent'    => null,
+        'login_success'          => null,
+        'me_retrieved'           => null,
+        'logout_success'         => null,
+        'logout_all_success'     => null,
+        'password_reset_sent'    => null,
+        'password_reset_otp_ok'  => null,
+        'password_reset_link_ok' => null,
+        'password_reset_success' => null,
+        'password_changed'       => null,
+        'sessions_retrieved'     => null,
+        'session_terminated'     => null,
+        'api_tokens_retrieved'   => null,
+        'api_token_created'      => null,
+        'api_token_updated'      => null,
+        'api_token_revoked'      => null,
     ],
 
     /*

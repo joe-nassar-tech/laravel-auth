@@ -27,4 +27,20 @@ class RegisterRequest extends FormRequest
 
         return array_merge($base, $extra);
     }
+
+    /**
+     * Custom validation messages for extra fields.
+     *
+     * Host apps configure these via auth_system.registration.extra_fields_messages
+     * using standard Laravel "field.rule" → message syntax.
+     *
+     * @return array<string, string>
+     */
+    public function messages(): array
+    {
+        /** @var array<string, string> $messages */
+        $messages = config('auth_system.registration.extra_fields_messages', []);
+
+        return $messages;
+    }
 }

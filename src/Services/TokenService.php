@@ -83,11 +83,11 @@ class TokenService
         $record = AuthRefreshToken::where('token_hash', hash('sha256', $rawRefreshToken))->first();
 
         if ($record === null) {
-            throw new AuthException('Invalid refresh token.');
+            throw new AuthException('Invalid refresh token.', 'refresh_token_invalid');
         }
 
         if ($record->isRevoked()) {
-            throw new AuthException('Refresh token has been revoked. Please log in again.');
+            throw new AuthException('Refresh token has been revoked. Please log in again.', 'refresh_token_revoked');
         }
 
         if ($record->isConsumed()) {
@@ -96,12 +96,12 @@ class TokenService
             // most recent descendant either.
             $this->revokeFamily((string) $record->family_id, 'reuse_detected');
 
-            throw new AuthException('Refresh token reuse detected. All sessions for this family have been revoked.');
+            throw new AuthException('Refresh token reuse detected. All sessions for this family have been revoked.', 'refresh_token_reused');
         }
 
         if ($record->isExpired()) {
             $record->update(['revoked_at' => now(), 'revoked_reason' => 'expired']);
-            throw new TokenExpiredException('Refresh token has expired. Please log in again.');
+            throw new TokenExpiredException('Refresh token has expired. Please log in again.', 'refresh_token_expired');
         }
 
         // Now perform the rotation atomically. Re-select with FOR UPDATE so
@@ -111,7 +111,7 @@ class TokenService
             $locked = AuthRefreshToken::where('id', $record->getKey())->lockForUpdate()->first();
 
             if ($locked === null || $locked->isConsumed() || $locked->isRevoked()) {
-                throw new AuthException('Invalid refresh token.');
+                throw new AuthException('Invalid refresh token.', 'refresh_token_invalid');
             }
 
             $locked->update(['consumed_at' => now()]);
@@ -128,7 +128,7 @@ class TokenService
             $user = $userModel::find($locked->user_id);
 
             if ($user === null) {
-                throw new AuthException('Invalid refresh token.');
+                throw new AuthException('Invalid refresh token.', 'refresh_token_invalid');
             }
 
             $tokenData         = $this->issueInFamily($user, $clientType, (string) $locked->family_id, (int) $locked->getKey());

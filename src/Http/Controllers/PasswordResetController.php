@@ -11,6 +11,7 @@ use Illuminate\Routing\Controller;
 use Joe404\LaravelAuth\Exceptions\AuthException;
 use Joe404\LaravelAuth\Exceptions\OtpExpiredException;
 use Joe404\LaravelAuth\Exceptions\OtpInvalidException;
+use Joe404\LaravelAuth\Http\Concerns\ResolvesMessages;
 use Joe404\LaravelAuth\Http\Concerns\RespondsWithJson;
 use Joe404\LaravelAuth\Http\Requests\PasswordForgotRequest;
 use Joe404\LaravelAuth\Http\Requests\PasswordResetConfirmRequest;
@@ -19,7 +20,7 @@ use Joe404\LaravelAuth\Services\AuthService;
 
 class PasswordResetController extends Controller
 {
-    use RespondsWithJson;
+    use ResolvesMessages, RespondsWithJson;
 
     public function __construct(
         private readonly AuthService $authService,
@@ -31,7 +32,7 @@ class PasswordResetController extends Controller
         $this->authService->forgotPassword($request->validated('email'));
 
         return $this->success(
-            'If that email is registered, you will receive reset instructions shortly.',
+            $this->msg('password_reset_sent', 'If that email is registered, you will receive reset instructions shortly.'),
         );
     }
 
@@ -43,13 +44,13 @@ class PasswordResetController extends Controller
                 $request->validated('otp'),
             );
         } catch (OtpExpiredException $e) {
-            return $this->failure($e->getMessage(), [], 422);
+            return $this->failure($this->err($e), [], 422);
         } catch (OtpInvalidException $e) {
-            return $this->failure($e->getMessage(), [], 422);
+            return $this->failure($this->err($e), [], 422);
         }
 
         return $this->success(
-            'OTP verified. Submit your new password using the reset_token.',
+            $this->msg('password_reset_otp_ok', 'OTP verified. Submit your new password using the reset_token.'),
             ['reset_token' => $resetToken],
         );
     }
@@ -59,15 +60,19 @@ class PasswordResetController extends Controller
         $isFrontend = config('auth_system.verification.magic_link_target') === 'frontend';
 
         if (! $isFrontend && ! $request->hasValidSignature()) {
-            return $this->resetFailure($request, 'Invalid or expired reset link.', 'invalid_link');
+            return $this->resetFailure(
+                $request,
+                $this->errKey('reset_token_invalid', 'Invalid or expired reset link.'),
+                'invalid_link',
+            );
         }
 
         try {
             $resetToken = $this->authService->validateResetMagicLink($token);
         } catch (OtpExpiredException $e) {
-            return $this->resetFailure($request, $e->getMessage(), 'expired_link');
+            return $this->resetFailure($request, $this->err($e), 'expired_link');
         } catch (OtpInvalidException $e) {
-            return $this->resetFailure($request, $e->getMessage(), 'invalid_link');
+            return $this->resetFailure($request, $this->err($e), 'invalid_link');
         }
 
         $frontendUrl = (string) config('auth_system.verification.frontend_reset_url', '');
@@ -79,7 +84,7 @@ class PasswordResetController extends Controller
         }
 
         return $this->success(
-            'Link validated. Submit your new password using the reset_token.',
+            $this->msg('password_reset_link_ok', 'Link validated. Submit your new password using the reset_token.'),
             ['reset_token' => $resetToken],
         );
     }
@@ -107,9 +112,9 @@ class PasswordResetController extends Controller
                 $request,
             );
         } catch (AuthException $e) {
-            return $this->failure($e->getMessage(), [], 422);
+            return $this->failure($this->err($e), [], 422);
         }
 
-        return $this->success('Password reset successfully. You are now logged in.', $data);
+        return $this->success($this->msg('password_reset_success', 'Password reset successfully. You are now logged in.'), $data);
     }
 }

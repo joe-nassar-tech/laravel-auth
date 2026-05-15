@@ -2,6 +2,41 @@
 
 ---
 
+## Upgrading to 2.3.0 from 2.2.x
+
+**No behavioural change** for hosts that don't publish translations and don't set the request locale — the package still returns English JSON byte-for-byte identical to v2.2.x.
+
+### What's new
+
+- All success and error messages now flow through Laravel's translation system. Resolution order: `config('auth_system.messages.<key>')` / `config('auth_system.errors.<key>')` → `trans('auth_system::messages.<key>')` / `trans('auth_system::errors.<key>')` → built-in English. See `docs/localization.md` for the full guide.
+- New `config('auth_system.errors')` block with 26 keys, each defaulting to `null`. Existing `config('auth_system.messages')` block is unchanged.
+- New publish tag: `php artisan vendor:publish --tag=auth-lang`.
+- English and Arabic translations ship with the package.
+
+### Breaking change (only if you instantiated exceptions directly)
+
+The constructor signature of `AuthException` and its subtypes changed:
+
+```php
+// Before (v2.2.x)
+new AuthException(string $message, int $code = 0, ?Throwable $previous = null);
+new OtpInvalidException(string $message, int $code = 0, ?Throwable $previous = null);
+
+// After (v2.3)
+new AuthException(string $message, ?string $errorKey = null, array $replacements = [], ?Throwable $previous = null);
+new OtpInvalidException(string $message, ?string $errorKey = null, array $replacements = [], ?Throwable $previous = null);
+```
+
+If you previously passed a non-zero `int $code` to a package exception, change it to the new positional `?string $errorKey` (look up the canonical key in `docs/localization.md` or `resources/lang/en/errors.php`). No change needed if you only caught package exceptions — `$e->getMessage()` still works.
+
+---
+
+## Upgrading to 2.2.0 from 2.1.x
+
+Fully additive. Four new opt-in features (referral codes, custom messages, extra-field validation messages, extra-field transformers). All default to off. No migration required unless you enable referral codes — then add the `referral_code` column to your users table. See `docs/customization.md`.
+
+---
+
 ## Upgrading to 1.x from pre-release
 
 ### Registration flow changed — breaking

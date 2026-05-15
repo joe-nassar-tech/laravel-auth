@@ -28,6 +28,11 @@ A drop-in, config-driven authentication library for Laravel 13. Register, verify
 - [Configuration](#configuration)
 - [Customization](#customization)
   - [Extra Registration Fields](#extra-registration-fields)
+  - [Referral Codes (v2.2)](#referral-codes-v22)
+  - [Custom Response Messages (v2.2)](#custom-response-messages-v22)
+  - [Extra-field Validation Messages (v2.2)](#extra-field-validation-messages-v22)
+  - [Extra-field Transformers (v2.2)](#extra-field-transformers-v22)
+  - [Multi-language Support (v2.3)](#multi-language-support-v23)
   - [Custom OTP Channel (SMS, WhatsApp…)](#custom-otp-channel-sms-whatsapp)
   - [Custom Response Format](#custom-response-format)
   - [Custom Email Templates](#custom-email-templates)
@@ -907,6 +912,159 @@ class MyRegisterRequest extends RegisterRequest
     'request_class' => \App\Http\Requests\MyRegisterRequest::class,
 ],
 ```
+
+---
+
+### Referral Codes (v2.2)
+
+Generate a unique referral code per user during finalize-registration and persist it on the configured column.
+
+```php
+'referral_code' => [
+    'enabled'   => env('AUTH_REFERRAL_CODE_ENABLED', true),
+    'column'    => 'referral_code',
+    'length'    => 8,
+    'uppercase' => true,
+    'generator' => null,            // FQCN of a ReferralCodeGeneratorContract impl
+],
+```
+
+- Disabled by default. Enable per-app via env or config.
+- Won't overwrite a value the user already supplied via `extra_fields_rules`.
+- Swap the generator class to control formatting (human-friendly slugs, prefixed codes, etc.).
+
+See `docs/customization.md` for the contract, custom-generator example, and the required migration column.
+
+---
+
+### Custom Response Messages (v2.2)
+
+Every controller success message is overridable per key:
+
+```php
+'messages' => [
+    'register_initiated' => 'Check your inbox for a verification code.',
+    'login_success'      => 'Welcome back!',
+    'logout_success'     => null,  // keep built-in default
+],
+```
+
+- `null` (default) keeps the package's built-in English.
+- Resolution order: config → `trans('auth_system::messages.*')` → built-in fallback.
+- Full key list and worked examples in `docs/customization.md` and `docs/localization.md`.
+
+---
+
+### Extra-field Validation Messages (v2.2)
+
+Pair custom rules with Laravel-style per-rule messages without subclassing the request:
+
+```php
+'registration' => [
+    'extra_fields_rules' => [
+        'username'      => 'required|string|min:3|alpha_dash',
+        'date_of_birth' => 'required|date|before:18 years ago',
+    ],
+    'extra_fields_messages' => [
+        'username.required'    => 'Pick a username before you continue.',
+        'date_of_birth.before' => 'You must be at least 18 years old to register.',
+    ],
+],
+```
+
+Errors come back in the standard 422 envelope under `errors.<field>`.
+
+---
+
+### Extra-field Transformers (v2.2)
+
+Derive a target field from validated input — `username` → `username_normalized`, for example — without writing a controller:
+
+```php
+use Joe404\LaravelAuth\Contracts\ExtraFieldTransformerContract;
+
+final class UsernameLowercaseTransformer implements ExtraFieldTransformerContract
+{
+    public function transform(array $validated): mixed
+    {
+        return strtolower(trim((string) ($validated['username'] ?? '')));
+    }
+}
+```
+
+```php
+'registration' => [
+    'extra_fields_transformers' => [
+        'username_normalized' => \App\Auth\UsernameLowercaseTransformer::class,
+    ],
+],
+```
+
+The transformer runs after validation and before user creation. Output still goes through the same privileged-field denylist that protects raw input — transformers cannot set `role`, `password`, `is_admin`, etc.
+
+---
+
+### Multi-language Support (v2.3)
+
+Every user-facing string the package returns — **success messages and error messages alike** — now flows through Laravel's translation system, on top of the same per-key config override.
+
+**Resolution order** (success and errors both):
+
+1. `config('auth_system.messages.<key>')` / `config('auth_system.errors.<key>')` — static override (wins if set).
+2. `trans('auth_system::messages.<key>')` / `trans('auth_system::errors.<key>')` — per-locale.
+3. The built-in English fallback.
+
+**Quick start:**
+
+```bash
+# Publish the package's English/Arabic language files
+php artisan vendor:publish --tag=auth-lang
+```
+
+This drops the files at `lang/vendor/auth_system/<locale>/...` (Laravel 9+) or `resources/lang/vendor/auth_system/<locale>/...` (older).
+
+Add a new locale (e.g. French):
+
+```php
+// lang/vendor/auth_system/fr/messages.php
+return [
+    'register_initiated' => 'Vérification envoyée. Veuillez vérifier vos e-mails.',
+    'login_success'      => 'Connecté avec succès.',
+    // … rest of the 19 keys …
+];
+```
+
+```php
+// lang/vendor/auth_system/fr/errors.php
+return [
+    'invalid_credentials' => 'Identifiants invalides.',
+    'account_inactive'    => 'Votre compte est désactivé.',
+    // … rest of the 26 keys …
+];
+```
+
+Switch locale however your app already does (`app()->setLocale('fr')`, an `Accept-Language` middleware, route prefix, etc.) — the package reads `app()->getLocale()` at response time.
+
+**Placeholders** use Laravel's standard `:name` syntax:
+
+| Key | Placeholder |
+|-----|-------------|
+| `account_locked` | `:seconds` |
+| `social_provider_disabled` | `:provider` |
+| `social_authentication_failed` | `:provider` |
+| `social_email_unverified` | `:provider` |
+
+**Sample request** (same code, two locales):
+
+```bash
+curl -X POST /auth/login -H 'Accept-Language: en' -d '{...wrong...}'
+# {"success":false,"message":"Invalid credentials.","data":{},"errors":{}}
+
+curl -X POST /auth/login -H 'Accept-Language: ar' -d '{...wrong...}'
+# {"success":false,"message":"بيانات الاعتماد غير صحيحة.","data":{},"errors":{}}
+```
+
+Full key reference, RTL example, and end-to-end walkthrough: **[docs/localization.md](docs/localization.md)**.
 
 ---
 

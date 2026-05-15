@@ -26,6 +26,10 @@ class User extends Authenticatable
         'password_change_required',
         'is_active',
         'last_login_at',
+        // v2.2 — opt-in features
+        'referral_code',
+        'username',
+        'username_normalized',
     ];
 
     protected $hidden = [

@@ -6,8 +6,17 @@ namespace Joe404\LaravelAuth\Exceptions;
 
 class TokenRevokedException extends AuthException
 {
-    public function __construct(string $message = 'The token has been revoked.', int $code = 0, ?\Throwable $previous = null)
+    public function __construct(
+        string $message = 'The token has been revoked.',
+        ?string $errorKey = null,
+        array $replacements = [],
+        ?\Throwable $previous = null,
+    ) {
+        parent::__construct($message, $errorKey, $replacements, $previous);
+    }
+
+    protected function defaultErrorKey(): ?string
     {
-        parent::__construct($message, $code, $previous);
+        return 'api_token_revoked';
     }
 }
