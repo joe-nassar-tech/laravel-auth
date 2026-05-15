@@ -35,23 +35,23 @@ class PasswordResetController extends Controller
         );
     }
 
-    public function resetWithOtp(PasswordResetOtpRequest $request): JsonResponse
+    public function verifyOtp(PasswordResetOtpRequest $request): JsonResponse
     {
         try {
-            $this->authService->resetPasswordWithOtp(
+            $resetToken = $this->authService->verifyResetOtp(
                 $request->validated('email'),
                 $request->validated('otp'),
-                $request->validated('password'),
             );
         } catch (OtpExpiredException $e) {
             return $this->failure($e->getMessage(), [], 422);
         } catch (OtpInvalidException $e) {
             return $this->failure($e->getMessage(), [], 422);
-        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException) {
-            return $this->failure('User not found.', [], 422);
         }
 
-        return $this->success('Password reset successfully. Please log in with your new password.');
+        return $this->success(
+            'OTP verified. Submit your new password using the reset_token.',
+            ['reset_token' => $resetToken],
+        );
     }
 
     public function magicRedirect(string $token, Request $request): JsonResponse|RedirectResponse
@@ -100,14 +100,16 @@ class PasswordResetController extends Controller
     public function confirm(PasswordResetConfirmRequest $request): JsonResponse
     {
         try {
-            $this->authService->resetPasswordWithToken(
+            $data = $this->authService->resetPasswordWithToken(
                 $request->validated('reset_token'),
                 $request->validated('password'),
+                (bool) $request->validated('logout_all', true),
+                $request,
             );
         } catch (AuthException $e) {
             return $this->failure($e->getMessage(), [], 422);
         }
 
-        return $this->success('Password reset successfully. Please log in with your new password.');
+        return $this->success('Password reset successfully. You are now logged in.', $data);
     }
 }

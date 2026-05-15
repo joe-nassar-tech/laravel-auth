@@ -23,6 +23,7 @@ class PasswordResetConfirmRequest extends FormRequest
             'reset_token'           => ['required', 'string', 'uuid'],
             'password'              => ['required', 'confirmed', $this->passwordRule()],
             'password_confirmation' => ['required', 'string'],
+            'logout_all'            => ['boolean'],
         ];
     }
 

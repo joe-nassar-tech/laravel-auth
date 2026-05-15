@@ -53,7 +53,7 @@ Route::middleware(['auth.device', 'throttle:api'])->group(function (): void {
     // M4: Password reset
     Route::post('password/forgot', [PasswordResetController::class, 'forgot'])
         ->middleware('auth.ratelimit:password_reset');
-    Route::post('password/reset/otp', [PasswordResetController::class, 'resetWithOtp'])
+    Route::post('password/reset/verify-otp', [PasswordResetController::class, 'verifyOtp'])
         ->middleware('auth.ratelimit:otp_verify');
     Route::get('password/reset/magic/{token}', [PasswordResetController::class, 'magicRedirect'])
         ->name('auth.password.reset.magic');

@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Joe404\LaravelAuth\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Validation\Rules\Password;
 
 class PasswordResetOtpRequest extends FormRequest
 {
@@ -22,29 +21,8 @@ class PasswordResetOtpRequest extends FormRequest
         $otpLength = (int) config('auth_system.verification.otp_length', 6);
 
         return [
-            'email'                 => ['required', 'string', 'email', 'max:255'],
-            'otp'                   => ['required', 'string', "size:{$otpLength}"],
-            'password'              => ['required', 'confirmed', $this->passwordRule()],
-            'password_confirmation' => ['required', 'string'],
+            'email' => ['required', 'string', 'email', 'max:255'],
+            'otp'   => ['required', 'string', "size:{$otpLength}"],
         ];
-    }
-
-    private function passwordRule(): Password
-    {
-        $rule = Password::min((int) config('auth_system.password.min_length', 8));
-
-        if ((bool) config('auth_system.password.require_uppercase', false)) {
-            $rule = $rule->mixedCase();
-        }
-
-        if ((bool) config('auth_system.password.require_number', false)) {
-            $rule = $rule->numbers();
-        }
-
-        if ((bool) config('auth_system.password.require_special', false)) {
-            $rule = $rule->symbols();
-        }
-
-        return $rule;
     }
 }

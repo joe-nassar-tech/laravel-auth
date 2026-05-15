@@ -447,7 +447,9 @@ class AuthService
         $userModel = config('auth.providers.users.model', \App\Models\User::class);
         $user      = $userModel::where('email', $email)->first();
 
-        $method = (string) config('auth_system.password_reset.method', config('auth_system.verification.method', 'both'));
+        // config() returns the stored null (not the fallback) when the key exists with a null value,
+        // so we use ?? to explicitly fall back to the verification method when reset method is unset.
+        $method = (string) (config('auth_system.password_reset.method') ?? config('auth_system.verification.method', 'both'));
 
         if ($user !== null) {
             $tempToken = Str::uuid()->toString();
@@ -469,20 +471,20 @@ class AuthService
         Hash::make(Str::random(16));
     }
 
-    public function resetPasswordWithOtp(string $email, string $otp, string $newPassword): void
+    public function verifyResetOtp(string $email, string $otp): string
     {
         $email = strtolower(trim($email));
         $this->otpService->validateOtp($email, $otp, 'password_reset');
 
-        $userModel = config('auth.providers.users.model', \App\Models\User::class);
-        $user      = $userModel::where('email', $email)->firstOrFail();
+        $resetToken = Str::uuid()->toString();
 
-        $user->update(['password' => Hash::make($newPassword)]);
+        Cache::put(
+            "auth:reset_token:{$resetToken}",
+            $email,
+            now()->addMinutes(15),
+        );
 
-        $this->tokenService->revokeAll($user);
-        $this->sessionService->deleteAll($user);
-
-        PasswordChanged::dispatch($user);
+        return $resetToken;
     }
 
     public function validateResetMagicLink(string $token): string
@@ -499,7 +501,7 @@ class AuthService
         return $resetToken;
     }
 
-    public function resetPasswordWithToken(string $resetToken, string $newPassword): void
+    public function resetPasswordWithToken(string $resetToken, string $newPassword, bool $logoutAll, Request $request): array
     {
         $email = Cache::pull("auth:reset_token:{$resetToken}");
 
@@ -512,10 +514,49 @@ class AuthService
 
         $user->update(['password' => Hash::make($newPassword)]);
 
-        $this->tokenService->revokeAll($user);
-        $this->sessionService->deleteAll($user);
+        if ($logoutAll) {
+            $this->tokenService->revokeAll($user);
+            $this->sessionService->deleteAll($user);
+        }
 
         PasswordChanged::dispatch($user);
+
+        // Auto-login after successful reset using the same client-type detection as login.
+        $user->update(['last_login_at' => now()]);
+        UserLoggedIn::dispatch($user, $request);
+
+        $isNewDevice = $this->isNewDevice($user, $request);
+        $clientType  = $this->resolveClientType($request);
+
+        if ($clientType !== null) {
+            $tokenData      = $this->tokenService->issue($user, $clientType);
+            $sanctumTokenId = $tokenData['token']->id;
+            $this->sessionService->create($user, $request, $sanctumTokenId);
+
+            if ($isNewDevice) {
+                $this->dispatchSuspiciousLogin($user, $request);
+            }
+
+            return [
+                'user'          => $user->toArray(),
+                'token'         => $tokenData['plain_text_token'],
+                'refresh_token' => $tokenData['plain_refresh_token'],
+            ];
+        }
+
+        Auth::login($user);
+        $request->session()->regenerate();
+        $this->sessionService->create($user, $request, null);
+
+        if ($isNewDevice) {
+            $this->dispatchSuspiciousLogin($user, $request);
+        }
+
+        return [
+            'user'          => $user->toArray(),
+            'token'         => null,
+            'refresh_token' => null,
+        ];
     }
 
     public function changePassword(User $user, string $currentPassword, string $newPassword, bool $logoutAll, Request $request): void

@@ -476,10 +476,10 @@ Always returns success (prevents enumeration). Sends OTP or magic link per `AUTH
 
 ---
 
-#### Step 2a — Reset with OTP
+#### Step 2a — Verify OTP
 
 ```
-POST /auth/password/reset/otp
+POST /auth/password/reset/verify-otp
 ```
 
 **Request**
@@ -487,17 +487,34 @@ POST /auth/password/reset/otp
 ```json
 {
   "email": "user@example.com",
-  "otp": "719283",
-  "password": "NewSecret123!",
-  "password_confirmation": "NewSecret123!"
+  "otp": "719283"
 }
 ```
 
+**Response** `200`
+
+```json
+{
+  "success": true,
+  "message": "OTP verified. Submit your new password using the reset_token.",
+  "data": { "reset_token": "a7f3d9c2-1234-5678-abcd-ef0123456789" }
+}
+```
+
+The `reset_token` is valid for **15 minutes** and is consumed once by Step 3.
+
+**Error codes**
+
+| HTTP | Reason |
+|---|---|
+| `422` | OTP invalid or wrong code |
+| `422` | OTP expired — request a new reset email |
+
 ---
 
-#### Step 2b — Reset with magic link
+#### Step 2b — Verify with magic link
 
-User clicks the link → library validates it → issues a short-lived `reset_token` (15 min).
+User clicks the link in their email. The library validates the signature and issues a `reset_token`.
 
 ```
 GET /auth/password/reset/magic/{token}
@@ -508,11 +525,18 @@ GET /auth/password/reset/magic/{token}
 ```json
 {
   "success": true,
-  "data": { "reset_token": "uuid" }
+  "message": "Link validated. Submit your new password using the reset_token.",
+  "data": { "reset_token": "a7f3d9c2-1234-5678-abcd-ef0123456789" }
 }
 ```
 
-Then submit the new password:
+> **Frontend target mode**: when `AUTH_MAGIC_LINK_TARGET=frontend`, the email link points to `AUTH_FRONTEND_RESET_URL?token=xxx`. Your frontend extracts the token and calls `GET /auth/password/reset/magic/{token}` itself.
+
+---
+
+#### Step 3 — Confirm reset
+
+Both Step 2a (OTP) and Step 2b (magic link) produce the same `reset_token`. Use it here to set the new password. The user is **automatically logged in** on success — the response mirrors the login response.
 
 ```
 POST /auth/password/reset/confirm
@@ -522,13 +546,51 @@ POST /auth/password/reset/confirm
 
 ```json
 {
-  "reset_token": "uuid",
+  "reset_token": "a7f3d9c2-1234-5678-abcd-ef0123456789",
   "password": "NewSecret123!",
-  "password_confirmation": "NewSecret123!"
+  "password_confirmation": "NewSecret123!",
+  "logout_all": true
 }
 ```
 
-All sessions and tokens are revoked on successful reset.
+- `logout_all` (default `true`) — when `true`, all existing sessions and tokens are revoked before the new session is created; when `false`, existing sessions are preserved and only the password is changed
+
+**Response** `200` — mobile / API client (`X-Client-Type: mobile`)
+
+```json
+{
+  "success": true,
+  "message": "Password reset successfully. You are now logged in.",
+  "data": {
+    "user": { "id": 1, "email": "user@example.com" },
+    "token": "3|xYzAbC...",
+    "refresh_token": "ghi012..."
+  }
+}
+```
+
+**Response** `200` — web / SPA client (session cookie mode)
+
+```json
+{
+  "success": true,
+  "message": "Password reset successfully. You are now logged in.",
+  "data": {
+    "user": { "id": 1, "email": "user@example.com" },
+    "token": null,
+    "refresh_token": null
+  }
+}
+```
+
+Session cookie is set automatically in web/SPA mode. Client-type detection follows the same rules as the login endpoint (`AUTH_MODE`, `X-Client-Type` header, `AUTH_SPA_TOKEN`).
+
+**Error codes**
+
+| HTTP | Reason |
+|---|---|
+| `422` | `reset_token` invalid or expired |
+| `422` | Password does not meet policy |
 
 ---
 

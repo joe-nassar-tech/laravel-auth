@@ -29,12 +29,11 @@ class EmailVerificationController extends Controller
             $method    = (string) config('auth_system.verification.method', 'both');
             $tempToken = Str::uuid()->toString();
 
-            if ($method === 'otp' || $method === 'both') {
-                $this->otpService->sendOtp($email, 'email_verify', $tempToken);
-            }
-            if ($method === 'magic_link' || $method === 'both') {
-                $this->otpService->sendMagicLink($email, 'magic_link_verify', $tempToken);
-            }
+            match ($method) {
+                'both'       => $this->otpService->sendCombined($email, 'email_verify', 'magic_link_verify', $tempToken),
+                'magic_link' => $this->otpService->sendMagicLink($email, 'magic_link_verify', $tempToken),
+                default      => $this->otpService->sendOtp($email, 'email_verify', $tempToken),
+            };
         }
 
         // Always same response — prevents enumeration of pending registrations.
