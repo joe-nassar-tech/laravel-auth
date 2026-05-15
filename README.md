@@ -108,7 +108,7 @@ Six tables are created:
 ### 4. Seed roles
 
 ```bash
-php artisan db:seed --class=AuthRolesSeeder
+php artisan db:seed --class="Joe404\LaravelAuth\Database\Seeders\AuthRolesSeeder"
 ```
 
 Creates `super-admin`, `admin`, and `user` roles via Spatie Permission.
