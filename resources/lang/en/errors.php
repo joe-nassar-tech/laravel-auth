@@ -60,4 +60,12 @@ return [
 
     // Generic
     'unauthenticated' => 'Unauthenticated.',
+
+    // v2.4 — Account status / deletion
+    'account_disabled'           => 'This account has been disabled. Please contact support.',
+    'account_suspended'          => 'This account has been suspended. Please contact support.',
+    'account_deletion_disabled'     => 'Account deletion is currently disabled.',
+    'account_deactivation_disabled' => 'Account deactivation is currently disabled.',
+    'account_status_invalid'        => 'The provided account status is not valid.',
+    'account_password_mismatch'     => 'The provided password is incorrect.',
 ];

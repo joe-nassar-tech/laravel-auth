@@ -31,4 +31,11 @@ return [
     'api_token_created'    => 'تم إنشاء رمز الـ API.',
     'api_token_updated'    => 'تم تحديث رمز الـ API.',
     'api_token_revoked'    => 'تم إلغاء رمز الـ API.',
+
+    // v2.4 — دورة حياة الحساب
+    'account_deleted'        => 'تم جدولة حذف الحساب.',
+    'account_restored'       => 'تم استعادة الحساب.',
+    'account_status_updated' => 'تم تحديث حالة الحساب.',
+    'account_deactivated'    => 'تم تعطيل الحساب. سجّل الدخول في أي وقت لإعادة تفعيله.',
+    'account_reactivated'    => 'مرحباً بعودتك — تم إعادة تفعيل حسابك.',
 ];

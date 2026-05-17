@@ -58,6 +58,10 @@ A drop-in, config-driven authentication library for Laravel 13. Register, verify
 | **API tokens** | Long-lived, scoped tokens for third-party integrations (opt-in feature) |
 | **Rate limiting** | Per-IP + per-email; independently configurable per endpoint |
 | **Account lockout** | Temporary lockout after repeated failed login attempts |
+| **Account status (v2.4)** | Active / disabled / suspended (extensible). Blocks login + per-request middleware. Admin endpoint. See [docs/account-status.md](docs/account-status.md) |
+| **Timed bans (v2.4)** | Suspend for a duration (`duration_minutes`) or until a moment (`expires_at`); auto-unban via lazy revert on login + scheduled sweep. Whitelist which statuses can carry an expiry. See [docs/account-status.md#timed-bans-auto-unban](docs/account-status.md#timed-bans-auto-unban) |
+| **Account deletion (v2.4)** | Self-service delete with 30-day grace period. A normal login during grace auto-restores. Worker anonymises unique columns after. See [docs/account-deletion.md](docs/account-deletion.md) |
+| **Account deactivation (v2.4)** | Instagram-style self-pause via `POST /auth/account/deactivate`. Auto-reactivates the instant the user logs in again. No deadline. `disabled` remains the Meta-style admin violation ban (permanent until manual reactivation). See [docs/account-status.md](docs/account-status.md) |
 | **New device alerts** | Email notification when a user logs in from an unrecognised browser/OS |
 | **Reverb WebSocket** | Optional real-time verification status push |
 | **Response envelope** | Uniform `{ success, message, data }` / `{ success, message, errors }` on every response |

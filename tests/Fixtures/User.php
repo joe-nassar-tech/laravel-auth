@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Joe404\LaravelAuth\Tests\Fixtures;
 
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
@@ -14,6 +15,7 @@ class User extends Authenticatable
     use HasApiTokens;
     use HasRoles;
     use Notifiable;
+    use SoftDeletes;
 
     protected $table = 'users';
 
@@ -30,6 +32,11 @@ class User extends Authenticatable
         'referral_code',
         'username',
         'username_normalized',
+        // v2.4 — account status / deletion
+        'account_status',
+        'status_changed_at',
+        'status_reason',
+        'status_expires_at',
     ];
 
     protected $hidden = [
@@ -42,6 +49,8 @@ class User extends Authenticatable
         'last_login_at'            => 'datetime',
         'password_change_required' => 'boolean',
         'is_active'                => 'boolean',
+        'status_changed_at'        => 'datetime',
+        'status_expires_at'        => 'datetime',
     ];
 
     public function hasVerifiedEmail(): bool

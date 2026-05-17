@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "joe-404/laravel-auth",
-    "description": "Complete API collection for the joe-404/laravel-auth Laravel library.\n\n**Two ready-to-use folders:**\n- **Web & SPA — Session / Cookie** — for browser/SPA clients. Uses Laravel session cookies + CSRF token. No Authorization header needed on authenticated requests. A folder-level pre-request script automatically fetches `/sanctum/csrf-cookie` before every request in this folder.\n- **Mobile — Bearer Token** — for mobile apps and API clients. Uses `Authorization: Bearer {{auth_token}}` on every authenticated request. Sends `X-Client-Type: mobile` on login to get a token + refresh token.\n\n**Quick start (Web/SPA mode):**\n1. Set `base_url` variable to your app URL\n2. Run **Setup → Get CSRF Cookie** once\n3. Call **Web & SPA / Registration / 1. Initiate Registration** (email only — no password)\n4. Verify email via **2a. Verify OTP** or **2b. Verify Magic Link** — this saves a `completion_token`\n5. Call **3. Complete Registration** with the password to finalize the account\n6. Then **Login** — session cookie is stored automatically by Postman's cookie jar\n\n**Quick start (Mobile mode):**\n1. Set `base_url` variable\n2. Call **Mobile / Registration / 1. Initiate Registration** (email only)\n3. Verify email — saves `completion_token`\n4. Call **3. Complete Registration** — `auth_token` and `refresh_token` are saved automatically\n5. Use `POST /auth/token/refresh` before token expires\n\n**Three-step registration:**\nThe library now uses a 3-step registration flow. The user's password is NEVER sent to `POST /auth/register`. Instead:\n1. `POST /auth/register` with `{email}` only → returns `temp_token`\n2. Verify email (OTP or magic link) → returns `completion_token` (UUID, 15 min TTL)\n3. `POST /auth/register/complete` with `{completion_token, password, password_confirmation}` → creates the user, fires `EmailVerified`, logs them in\n\n**Variables:**\n- `base_url` — your Laravel app URL (e.g. `http://localhost:8000`)\n- `auth_token` — auto-saved on login / register-complete (mobile) / Google OAuth\n- `refresh_token` — auto-saved on login / register-complete (mobile) / token refresh\n- `xsrf_token` — auto-saved by SPA folder pre-request script\n- `temp_token` — auto-saved after registration initiation\n- `completion_token` — auto-saved after email verification (step 2); consumed in step 3\n- `reset_token` — auto-saved after magic link password reset step\n- `api_token_id` — auto-saved after creating an API token\n- `api_token_raw` — auto-saved after creating an API token\n- `session_id` — auto-saved after listing sessions\n- `locale` — value of the `Accept-Language` header (v2.3+). Default `en`. Change to `ar`, `fr`, etc. for localized messages.\n\n**v2.2 customization (opt-in, no endpoint changes):** `auth_system.referral_code.*` generates referral codes on register-complete; `auth_system.messages.*` overrides individual response strings; `auth_system.registration.extra_fields_messages` overrides validation wording; `auth_system.registration.extra_fields_transformers` derives fields post-validation.\n\n**v2.3 multi-language (opt-in, no endpoint changes):** Publish translations via `php artisan vendor:publish --tag=auth-lang`, then translate `lang/vendor/auth_system/<locale>/{messages,errors}.php`. The package reads `app()->getLocale()` at response time, so the `Accept-Language` header on each request (or your own locale middleware) localizes every success and error message. See `docs/localization.md`.",
+    "description": "Complete API collection for the joe-404/laravel-auth Laravel library.\n\n**Two ready-to-use folders:**\n- **Web & SPA — Session / Cookie** — for browser/SPA clients. Uses Laravel session cookies + CSRF token. No Authorization header needed on authenticated requests. A folder-level pre-request script automatically fetches `/sanctum/csrf-cookie` before every request in this folder.\n- **Mobile — Bearer Token** — for mobile apps and API clients. Uses `Authorization: Bearer {{auth_token}}` on every authenticated request. Sends `X-Client-Type: mobile` on login to get a token + refresh token.\n\n**Quick start (Web/SPA mode):**\n1. Set `base_url` variable to your app URL\n2. Run **Setup → Get CSRF Cookie** once\n3. Call **Web & SPA / Registration / 1. Initiate Registration** (email only — no password)\n4. Verify email via **2a. Verify OTP** or **2b. Verify Magic Link** — this saves a `completion_token`\n5. Call **3. Complete Registration** with the password to finalize the account\n6. Then **Login** — session cookie is stored automatically by Postman's cookie jar\n\n**Quick start (Mobile mode):**\n1. Set `base_url` variable\n2. Call **Mobile / Registration / 1. Initiate Registration** (email only)\n3. Verify email — saves `completion_token`\n4. Call **3. Complete Registration** — `auth_token` and `refresh_token` are saved automatically\n5. Use `POST /auth/token/refresh` before token expires\n\n**Three-step registration:**\nThe library now uses a 3-step registration flow. The user's password is NEVER sent to `POST /auth/register`. Instead:\n1. `POST /auth/register` with `{email}` only → returns `temp_token`\n2. Verify email (OTP or magic link) → returns `completion_token` (UUID, 15 min TTL)\n3. `POST /auth/register/complete` with `{completion_token, password, password_confirmation}` → creates the user, fires `EmailVerified`, logs them in\n\n**Variables:**\n- `base_url` — your Laravel app URL (e.g. `http://localhost:8000`)\n- `auth_token` — auto-saved on login / register-complete (mobile) / Google OAuth\n- `refresh_token` — auto-saved on login / register-complete (mobile) / token refresh\n- `xsrf_token` — auto-saved by SPA folder pre-request script\n- `temp_token` — auto-saved after registration initiation\n- `completion_token` — auto-saved after email verification (step 2); consumed in step 3\n- `reset_token` — auto-saved after magic link password reset step\n- `api_token_id` — auto-saved after creating an API token\n- `api_token_raw` — auto-saved after creating an API token\n- `session_id` — auto-saved after listing sessions\n- `locale` — value of the `Accept-Language` header (v2.3+). Default `en`. Change to `ar`, `fr`, etc. for localized messages.\n\n**v2.2 customization (opt-in, no endpoint changes):** `auth_system.referral_code.*` generates referral codes on register-complete; `auth_system.messages.*` overrides individual response strings; `auth_system.registration.extra_fields_messages` overrides validation wording; `auth_system.registration.extra_fields_transformers` derives fields post-validation.\n\n**v2.4 account lifecycle (new endpoints):** `DELETE /auth/account` self-service deletes the user with a 30-day grace window. Logging in again during grace silently restores the account — no separate restore endpoint. After grace, the hourly `PurgeExpiredAccountDeletions` job nulls every unique column on the users row so the email/username can be reclaimed.\n\n**v2.4 admin status + timed bans:** `GET|POST /auth/admin/users/{id}/status` reads and changes a user's `account_status` (`active`/`disabled`/`suspended`). The update endpoint accepts an optional `expires_at` (ISO 8601) OR `duration_minutes` for **timed bans** — when the moment passes the package auto-flips the user back to `active` via a lazy revert on the next login and a scheduled `RevertExpiredAccountStatuses` sweep (every 5 min by default). The `account.status.auto_unban.temporary_statuses` config whitelists which statuses can carry an expiry (default `['suspended']`); other statuses are permanent-only and reject expiry inputs with 422. Null expiry on a banned account = permanent ban.\n\nSee the **Account (v2.4)** subfolder under each of Web/SPA + Mobile, and the **Admin — Account Status (v2.4)** folder at the bottom. Full docs at `docs/account-status.md` and `docs/account-deletion.md`.\n\n**v2.3 multi-language (opt-in, no endpoint changes):** Publish translations via `php artisan vendor:publish --tag=auth-lang`, then translate `lang/vendor/auth_system/<locale>/{messages,errors}.php`. The package reads `app()->getLocale()` at response time, so the `Accept-Language` header on each request (or your own locale middleware) localizes every success and error message. See `docs/localization.md`.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -3089,6 +3089,608 @@
               ]
             }
           ]
+        },
+        {
+          "name": "Account (v2.4)",
+          "description": "Self-service lifecycle endpoints. Two distinct flows:\n\n**Delete (heavy, with grace period)** — `DELETE /auth/account` soft-deletes the user, snapshots the row into `deleted_accounts`, schedules a 30-day purge. Logging in during grace silently restores. After grace, the worker nulls unique columns so the email can be reclaimed.\n\n**Deactivate (Instagram-style pause)** — `POST /auth/account/deactivate` flips the user to `deactivated` and revokes every session. No countdown, no anonymisation. The user can come back any time by logging in normally — the login flow auto-reactivates silently.\n\n**Pick based on intent:**\n- User wants to leave but might change their mind → **Delete** (30-day window)\n- User wants to take a break and come back → **Deactivate** (no deadline)",
+          "item": [
+            {
+              "name": "Delete My Account",
+              "request": {
+                "method": "DELETE",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-XSRF-TOKEN",
+                    "value": "{{xsrf_token}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"password\": \"Password123!\",\n  \"reason\": \"I no longer need this account.\"\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/auth/account",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "auth",
+                    "account"
+                  ]
+                },
+                "description": "Soft-deletes the authenticated user. Body:\n\n- `password` (required when `account.deletion.require_password=true`, default true)\n- `reason` (optional free text, stored in `deleted_accounts.delete_reason`)\n\n**Side effects:**\n- snapshots the user row into `deleted_accounts`\n- sets `account_status = deleted`, `deleted_at = now()`, `scheduled_purge_at = now() + grace_days`\n- revokes all sanctum tokens + sessions (you are logged out)\n- sends `AccountDeletedNotification`\n- fires the `AccountDeleted` event\n\n**To restore:** simply log in again with the same credentials during the grace window. Auto-restore is silent.\n\n**Errors:**\n- 403 — self-service deletion disabled (`account.deletion.self_service=false`)\n- 422 — wrong password\n- 401 — unauthenticated"
+              },
+              "response": [
+                {
+                  "name": "200 — Account scheduled for deletion",
+                  "originalRequest": {
+                    "method": "DELETE",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "X-XSRF-TOKEN",
+                        "value": "{{xsrf_token}}"
+                      }
+                    ],
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"password\": \"Password123!\",\n  \"reason\": \"I no longer need this account.\"\n}"
+                    },
+                    "url": {
+                      "raw": "{{base_url}}/auth/account",
+                      "host": [
+                        "{{base_url}}"
+                      ],
+                      "path": [
+                        "auth",
+                        "account"
+                      ]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "cookie": [],
+                  "body": "{\n  \"success\": true,\n  \"message\": \"Account scheduled for deletion.\",\n  \"data\": {\n    \"scheduled_purge_at\": \"2026-06-16T10:34:21+00:00\",\n    \"grace_days\": 30,\n    \"auto_restore\": true\n  }\n}"
+                },
+                {
+                  "name": "422 — Wrong password",
+                  "originalRequest": {
+                    "method": "DELETE",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "X-XSRF-TOKEN",
+                        "value": "{{xsrf_token}}"
+                      }
+                    ],
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"password\": \"wrong\",\n  \"reason\": \"oops\"\n}"
+                    },
+                    "url": {
+                      "raw": "{{base_url}}/auth/account",
+                      "host": [
+                        "{{base_url}}"
+                      ],
+                      "path": [
+                        "auth",
+                        "account"
+                      ]
+                    }
+                  },
+                  "status": "Unprocessable Entity",
+                  "code": 422,
+                  "_postman_previewlanguage": "json",
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "cookie": [],
+                  "body": "{\n  \"success\": false,\n  \"message\": \"The provided password is incorrect.\",\n  \"errors\": {\n    \"password\": [\"The provided password is incorrect.\"]\n  }\n}"
+                },
+                {
+                  "name": "403 — Self-service deletion disabled",
+                  "originalRequest": {
+                    "method": "DELETE",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "X-XSRF-TOKEN",
+                        "value": "{{xsrf_token}}"
+                      }
+                    ],
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"password\": \"Password123!\"\n}"
+                    },
+                    "url": {
+                      "raw": "{{base_url}}/auth/account",
+                      "host": [
+                        "{{base_url}}"
+                      ],
+                      "path": [
+                        "auth",
+                        "account"
+                      ]
+                    }
+                  },
+                  "status": "Forbidden",
+                  "code": 403,
+                  "_postman_previewlanguage": "json",
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "cookie": [],
+                  "body": "{\n  \"success\": false,\n  \"message\": \"Account deletion is currently disabled.\",\n  \"errors\": {}\n}"
+                },
+                {
+                  "name": "401 — Unauthenticated",
+                  "originalRequest": {
+                    "method": "DELETE",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{base_url}}/auth/account",
+                      "host": [
+                        "{{base_url}}"
+                      ],
+                      "path": [
+                        "auth",
+                        "account"
+                      ]
+                    }
+                  },
+                  "status": "Unauthorized",
+                  "code": 401,
+                  "_postman_previewlanguage": "json",
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "cookie": [],
+                  "body": "{\n  \"success\": false,\n  \"message\": \"Unauthenticated.\",\n  \"errors\": {}\n}"
+                }
+              ]
+            },
+            {
+              "name": "Restore by Logging In (during grace)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-XSRF-TOKEN",
+                    "value": "{{xsrf_token}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"deleted-user@example.com\",\n  \"password\": \"Password123!\"\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/auth/login",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "auth",
+                    "login"
+                  ]
+                },
+                "description": "**Not a new endpoint — just a normal login.** When `account.deletion.auto_restore_on_login=true` (default) and the credentials match a `status=deleted` user inside the grace window, the package:\n\n1. Restores the user (`deleted_at = null`, `account_status = active`)\n2. Drops the `deleted_accounts` row\n3. Sends `AccountRestoredNotification`\n4. Issues the session/token as if nothing happened\n\nIf the grace has expired, the login fails with the usual 401 invalid credentials response (the row's unique columns may have been nulled by the worker)."
+              },
+              "response": [
+                {
+                  "name": "200 — Restored and logged in",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "X-XSRF-TOKEN",
+                        "value": "{{xsrf_token}}"
+                      }
+                    ],
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"email\": \"deleted-user@example.com\",\n  \"password\": \"Password123!\"\n}"
+                    },
+                    "url": {
+                      "raw": "{{base_url}}/auth/login",
+                      "host": [
+                        "{{base_url}}"
+                      ],
+                      "path": [
+                        "auth",
+                        "login"
+                      ]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "cookie": [],
+                  "body": "{\n  \"success\": true,\n  \"message\": \"Logged in successfully.\",\n  \"data\": {\n    \"user\": {\n      \"id\": 42,\n      \"email\": \"deleted-user@example.com\",\n      \"account_status\": \"active\",\n      \"deleted_at\": null\n    },\n    \"token\": null,\n    \"refresh_token\": null\n  }\n}"
+                },
+                {
+                  "name": "401 — Grace expired (treated as invalid credentials)",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "X-XSRF-TOKEN",
+                        "value": "{{xsrf_token}}"
+                      }
+                    ],
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"email\": \"deleted-user@example.com\",\n  \"password\": \"Password123!\"\n}"
+                    },
+                    "url": {
+                      "raw": "{{base_url}}/auth/login",
+                      "host": [
+                        "{{base_url}}"
+                      ],
+                      "path": [
+                        "auth",
+                        "login"
+                      ]
+                    }
+                  },
+                  "status": "Unauthorized",
+                  "code": 401,
+                  "_postman_previewlanguage": "json",
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "cookie": [],
+                  "body": "{\n  \"success\": false,\n  \"message\": \"Invalid credentials.\",\n  \"errors\": {}\n}"
+                },
+                {
+                  "name": "401 — Login blocked (disabled / suspended)",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "X-XSRF-TOKEN",
+                        "value": "{{xsrf_token}}"
+                      }
+                    ],
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"email\": \"banned@example.com\",\n  \"password\": \"Password123!\"\n}"
+                    },
+                    "url": {
+                      "raw": "{{base_url}}/auth/login",
+                      "host": [
+                        "{{base_url}}"
+                      ],
+                      "path": [
+                        "auth",
+                        "login"
+                      ]
+                    }
+                  },
+                  "status": "Unauthorized",
+                  "code": 401,
+                  "_postman_previewlanguage": "json",
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "cookie": [],
+                  "body": "{\n  \"success\": false,\n  \"message\": \"This account has been suspended. Please contact support.\",\n  \"errors\": {}\n}"
+                }
+              ]
+            },
+            {
+              "name": "Deactivate My Account",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-XSRF-TOKEN",
+                    "value": "{{xsrf_token}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"password\": \"Password123!\",\n  \"reason\": \"Taking a break.\"\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/auth/account/deactivate",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "auth",
+                    "account",
+                    "deactivate"
+                  ]
+                },
+                "description": "Instagram-style self-pause. Flips the user to `deactivated`, revokes every session/token, sends `AccountDeactivatedNotification`.\n\n**Distinct from delete:** no soft-delete, no purge worker, no countdown. The user simply hits a paused state and stays there until they choose to come back.\n\n**Returning is automatic** — the next time the user logs in with valid credentials the package silently flips them to `active` and sends `AccountReactivatedNotification`. No separate reactivate endpoint, no time limit.\n\n**Errors:**\n- 403 — deactivation disabled (`account.deactivation.enabled=false`) or self-service disabled\n- 422 — wrong password\n- 401 — unauthenticated"
+              },
+              "response": [
+                {
+                  "name": "200 — Deactivated, log in to reactivate",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "X-XSRF-TOKEN",
+                        "value": "{{xsrf_token}}"
+                      }
+                    ],
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"password\": \"Password123!\",\n  \"reason\": \"Taking a break.\"\n}"
+                    },
+                    "url": {
+                      "raw": "{{base_url}}/auth/account/deactivate",
+                      "host": [
+                        "{{base_url}}"
+                      ],
+                      "path": [
+                        "auth",
+                        "account",
+                        "deactivate"
+                      ]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "cookie": [],
+                  "body": "{\n  \"success\": true,\n  \"message\": \"Account deactivated. Log in any time to reactivate.\",\n  \"data\": {\n    \"status\": \"deactivated\",\n    \"auto_reactivate_on_login\": true\n  }\n}"
+                },
+                {
+                  "name": "422 — Wrong password",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [],
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"password\": \"wrong\"\n}"
+                    },
+                    "url": {
+                      "raw": "{{base_url}}/auth/account/deactivate",
+                      "host": [
+                        "{{base_url}}"
+                      ],
+                      "path": [
+                        "auth",
+                        "account",
+                        "deactivate"
+                      ]
+                    }
+                  },
+                  "status": "Unprocessable Entity",
+                  "code": 422,
+                  "_postman_previewlanguage": "json",
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "cookie": [],
+                  "body": "{\n  \"success\": false,\n  \"message\": \"The provided password is incorrect.\",\n  \"errors\": {\n    \"password\": [\"The provided password is incorrect.\"]\n  }\n}"
+                },
+                {
+                  "name": "403 — Deactivation disabled",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [],
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"password\": \"Password123!\"\n}"
+                    },
+                    "url": {
+                      "raw": "{{base_url}}/auth/account/deactivate",
+                      "host": [
+                        "{{base_url}}"
+                      ],
+                      "path": [
+                        "auth",
+                        "account",
+                        "deactivate"
+                      ]
+                    }
+                  },
+                  "status": "Forbidden",
+                  "code": 403,
+                  "_postman_previewlanguage": "json",
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "cookie": [],
+                  "body": "{\n  \"success\": false,\n  \"message\": \"Account deactivation is currently disabled.\",\n  \"errors\": {}\n}"
+                }
+              ]
+            },
+            {
+              "name": "Reactivate by Logging In (after deactivation)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-XSRF-TOKEN",
+                    "value": "{{xsrf_token}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"deactivated-user@example.com\",\n  \"password\": \"Password123!\"\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/auth/login",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "auth",
+                    "login"
+                  ]
+                },
+                "description": "**Not a new endpoint — just a normal login.** When `account.deactivation.auto_reactivate_on_login=true` (default) and the credentials match a `status=deactivated` user, the package:\n\n1. Flips `account_status` back to `active`\n2. Sends `AccountReactivatedNotification`\n3. Fires `AccountStatusChanged`\n4. Issues the session/token as if nothing happened\n\nNo time limit applies (unlike the delete grace flow). The user can come back days or years later."
+              },
+              "response": [
+                {
+                  "name": "200 — Reactivated and logged in",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [],
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"email\": \"deactivated-user@example.com\",\n  \"password\": \"Password123!\"\n}"
+                    },
+                    "url": {
+                      "raw": "{{base_url}}/auth/login",
+                      "host": [
+                        "{{base_url}}"
+                      ],
+                      "path": [
+                        "auth",
+                        "login"
+                      ]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "cookie": [],
+                  "body": "{\n  \"success\": true,\n  \"message\": \"Logged in successfully.\",\n  \"data\": {\n    \"user\": {\n      \"id\": 42,\n      \"email\": \"deactivated-user@example.com\",\n      \"account_status\": \"active\"\n    },\n    \"token\": null,\n    \"refresh_token\": null\n  }\n}"
+                }
+              ]
+            }
+          ]
         }
       ]
     },
@@ -6058,6 +6660,540 @@
               ]
             }
           ]
+        },
+        {
+          "name": "Account (v2.4)",
+          "description": "Self-service account deletion + auto-restore-on-login (mobile/Bearer flavor). See the Web/SPA copy of this folder for the full flow notes — the only difference is auth uses `Authorization: Bearer {{auth_token}}` instead of cookie + XSRF.",
+          "item": [
+            {
+              "name": "Delete My Account",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 200) {",
+                      "    // Token is revoked server-side — clear locally too.",
+                      "    pm.collectionVariables.set('auth_token', '');",
+                      "    pm.collectionVariables.set('refresh_token', '');",
+                      "    console.log('auth_token + refresh_token cleared (account deleted)');",
+                      "}"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "DELETE",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{auth_token}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"password\": \"Password123!\",\n  \"reason\": \"I no longer need this account.\"\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/auth/account",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "auth",
+                    "account"
+                  ]
+                },
+                "description": "Soft-deletes the authenticated mobile user. Same payload + side effects as the Web/SPA version. All sanctum tokens (including the current Bearer) are revoked server-side; the test script clears `auth_token` and `refresh_token` locally as well."
+              },
+              "response": [
+                {
+                  "name": "200 — Account scheduled for deletion",
+                  "originalRequest": {
+                    "method": "DELETE",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Authorization",
+                        "value": "Bearer {{auth_token}}"
+                      }
+                    ],
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"password\": \"Password123!\",\n  \"reason\": \"I no longer need this account.\"\n}"
+                    },
+                    "url": {
+                      "raw": "{{base_url}}/auth/account",
+                      "host": [
+                        "{{base_url}}"
+                      ],
+                      "path": [
+                        "auth",
+                        "account"
+                      ]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "cookie": [],
+                  "body": "{\n  \"success\": true,\n  \"message\": \"Account scheduled for deletion.\",\n  \"data\": {\n    \"scheduled_purge_at\": \"2026-06-16T10:34:21+00:00\",\n    \"grace_days\": 30,\n    \"auto_restore\": true\n  }\n}"
+                },
+                {
+                  "name": "422 — Wrong password",
+                  "originalRequest": {
+                    "method": "DELETE",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Authorization",
+                        "value": "Bearer {{auth_token}}"
+                      }
+                    ],
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"password\": \"wrong\"\n}"
+                    },
+                    "url": {
+                      "raw": "{{base_url}}/auth/account",
+                      "host": [
+                        "{{base_url}}"
+                      ],
+                      "path": [
+                        "auth",
+                        "account"
+                      ]
+                    }
+                  },
+                  "status": "Unprocessable Entity",
+                  "code": 422,
+                  "_postman_previewlanguage": "json",
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "cookie": [],
+                  "body": "{\n  \"success\": false,\n  \"message\": \"The provided password is incorrect.\",\n  \"errors\": {\n    \"password\": [\"The provided password is incorrect.\"]\n  }\n}"
+                },
+                {
+                  "name": "403 — Self-service deletion disabled",
+                  "originalRequest": {
+                    "method": "DELETE",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Authorization",
+                        "value": "Bearer {{auth_token}}"
+                      }
+                    ],
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"password\": \"Password123!\"\n}"
+                    },
+                    "url": {
+                      "raw": "{{base_url}}/auth/account",
+                      "host": [
+                        "{{base_url}}"
+                      ],
+                      "path": [
+                        "auth",
+                        "account"
+                      ]
+                    }
+                  },
+                  "status": "Forbidden",
+                  "code": 403,
+                  "_postman_previewlanguage": "json",
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "cookie": [],
+                  "body": "{\n  \"success\": false,\n  \"message\": \"Account deletion is currently disabled.\",\n  \"errors\": {}\n}"
+                }
+              ]
+            },
+            {
+              "name": "Restore by Logging In (during grace)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 200) {",
+                      "    const data = pm.response.json().data || {};",
+                      "    if (data.token) pm.collectionVariables.set('auth_token', data.token);",
+                      "    if (data.refresh_token) pm.collectionVariables.set('refresh_token', data.refresh_token);",
+                      "    console.log('auth_token + refresh_token restored');",
+                      "}"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-Client-Type",
+                    "value": "mobile"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"deleted-user@example.com\",\n  \"password\": \"Password123!\"\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/auth/login",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "auth",
+                    "login"
+                  ]
+                },
+                "description": "**Not a new endpoint — just the normal mobile login.** When the credentials match a `status=deleted` user inside the grace window the package silently restores the account, sends `AccountRestoredNotification`, and issues a fresh access + refresh token pair. The test script saves both for follow-up requests."
+              },
+              "response": [
+                {
+                  "name": "200 — Restored and re-authenticated",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "X-Client-Type",
+                        "value": "mobile"
+                      }
+                    ],
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"email\": \"deleted-user@example.com\",\n  \"password\": \"Password123!\"\n}"
+                    },
+                    "url": {
+                      "raw": "{{base_url}}/auth/login",
+                      "host": [
+                        "{{base_url}}"
+                      ],
+                      "path": [
+                        "auth",
+                        "login"
+                      ]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "cookie": [],
+                  "body": "{\n  \"success\": true,\n  \"message\": \"Logged in successfully.\",\n  \"data\": {\n    \"user\": {\n      \"id\": 42,\n      \"email\": \"deleted-user@example.com\",\n      \"account_status\": \"active\",\n      \"deleted_at\": null\n    },\n    \"token\": \"1|abcDEF...\",\n    \"refresh_token\": \"rt_...\"\n  }\n}"
+                },
+                {
+                  "name": "401 — Grace expired",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "X-Client-Type",
+                        "value": "mobile"
+                      }
+                    ],
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"email\": \"deleted-user@example.com\",\n  \"password\": \"Password123!\"\n}"
+                    },
+                    "url": {
+                      "raw": "{{base_url}}/auth/login",
+                      "host": [
+                        "{{base_url}}"
+                      ],
+                      "path": [
+                        "auth",
+                        "login"
+                      ]
+                    }
+                  },
+                  "status": "Unauthorized",
+                  "code": 401,
+                  "_postman_previewlanguage": "json",
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "cookie": [],
+                  "body": "{\n  \"success\": false,\n  \"message\": \"Invalid credentials.\",\n  \"errors\": {}\n}"
+                }
+              ]
+            },
+            {
+              "name": "Deactivate My Account",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 200) {",
+                      "    pm.collectionVariables.set('auth_token', '');",
+                      "    pm.collectionVariables.set('refresh_token', '');",
+                      "    console.log('auth_token + refresh_token cleared (account deactivated)');",
+                      "}"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{auth_token}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"password\": \"Password123!\",\n  \"reason\": \"Taking a break.\"\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/auth/account/deactivate",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "auth",
+                    "account",
+                    "deactivate"
+                  ]
+                },
+                "description": "Mobile/Bearer flavor of Instagram-style self-pause. Same payload + side effects as the Web/SPA version. All sanctum tokens (including the current Bearer) are revoked server-side; the test script clears `auth_token` + `refresh_token` locally as well so the next request is unauthenticated until the user logs back in to reactivate."
+              },
+              "response": [
+                {
+                  "name": "200 — Deactivated, log in to reactivate",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Authorization",
+                        "value": "Bearer {{auth_token}}"
+                      }
+                    ],
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"password\": \"Password123!\",\n  \"reason\": \"Taking a break.\"\n}"
+                    },
+                    "url": {
+                      "raw": "{{base_url}}/auth/account/deactivate",
+                      "host": [
+                        "{{base_url}}"
+                      ],
+                      "path": [
+                        "auth",
+                        "account",
+                        "deactivate"
+                      ]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "cookie": [],
+                  "body": "{\n  \"success\": true,\n  \"message\": \"Account deactivated. Log in any time to reactivate.\",\n  \"data\": {\n    \"status\": \"deactivated\",\n    \"auto_reactivate_on_login\": true\n  }\n}"
+                }
+              ]
+            },
+            {
+              "name": "Reactivate by Logging In (after deactivation)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 200) {",
+                      "    const data = pm.response.json().data || {};",
+                      "    if (data.token) pm.collectionVariables.set('auth_token', data.token);",
+                      "    if (data.refresh_token) pm.collectionVariables.set('refresh_token', data.refresh_token);",
+                      "    console.log('auth_token + refresh_token restored');",
+                      "}"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-Client-Type",
+                    "value": "mobile"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"deactivated-user@example.com\",\n  \"password\": \"Password123!\"\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/auth/login",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "auth",
+                    "login"
+                  ]
+                },
+                "description": "Same as the Web/SPA Reactivate-by-login but issues a Bearer token pair. The test script saves the new `auth_token` + `refresh_token` for follow-up requests.\n\nNo time limit applies — a deactivated user can come back at any point in the future."
+              },
+              "response": [
+                {
+                  "name": "200 — Reactivated and re-authenticated",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "X-Client-Type",
+                        "value": "mobile"
+                      }
+                    ],
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"email\": \"deactivated-user@example.com\",\n  \"password\": \"Password123!\"\n}"
+                    },
+                    "url": {
+                      "raw": "{{base_url}}/auth/login",
+                      "host": [
+                        "{{base_url}}"
+                      ],
+                      "path": [
+                        "auth",
+                        "login"
+                      ]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "cookie": [],
+                  "body": "{\n  \"success\": true,\n  \"message\": \"Logged in successfully.\",\n  \"data\": {\n    \"user\": {\n      \"id\": 42,\n      \"email\": \"deactivated-user@example.com\",\n      \"account_status\": \"active\"\n    },\n    \"token\": \"1|abcDEF...\",\n    \"refresh_token\": \"rt_...\"\n  }\n}"
+                }
+              ]
+            }
+          ]
         }
       ]
     },
@@ -7498,6 +8634,951 @@
                   }
                 }
               ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Admin — Account Status (v2.4)",
+      "description": "Admin endpoints for reading and changing a user's `account_status` + the multi-admin **audit log** (status history + free-form notes).\n\n**Auth:** standard sanctum Bearer (`auth_token`). The caller's role must match `config('auth_system.account.status.admin_ability')` (default `super-admin|admin`).\n\n**Statuses:** `active`, `disabled`, `suspended`, `deleted`, `deactivated` (or whatever you add to `account.status.allowed`).\n\n**Timed bans:** the update endpoint accepts an optional `expires_at` (ISO 8601 absolute) OR `duration_minutes` (relative integer). When the moment arrives the package auto-flips the user back to `active` through two paths: a lazy revert on the next status read (login, middleware) AND a scheduled `RevertExpiredAccountStatuses` sweep every `auto_unban.sweep_minutes` minutes (default 5). Omit both fields for a permanent ban.\n\n**Which statuses can be timed:** controlled by `account.status.auto_unban.temporary_statuses` (default `['suspended']`). Statuses NOT in this list are permanent-only — sending an expiry alongside them returns 422. A null expiry on a temporary-capable status is still a permanent ban (forever).\n\n**Side effects of a status change:**\n- writes `account_status`, `status_changed_at`, `status_reason`, `status_expires_at`\n- when leaving `active`, revokes all sanctum tokens + `auth_sessions_extended` rows for the user (toggle with `revoke_sessions_on_change`)\n- when returning to `active`, clears `status_expires_at` (a pardon is a pardon)\n- fires `AccountStatusChanged`\n- optionally sends `AccountStatusChangedNotification` (off by default — toggle with `mail.account_notifications_enabled.status_changed`)",
+      "item": [
+        {
+          "name": "Get User Status",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/auth/admin/users/42/status",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "admin",
+                "users",
+                "42",
+                "status"
+              ]
+            },
+            "description": "Returns the user's current status plus when/why it last changed and the list of statuses your config allows. Useful for admin UIs.\n\n**Errors:** 403 missing role; 404 user not found."
+          },
+          "response": [
+            {
+              "name": "200 — Status retrieved",
+              "originalRequest": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{auth_token}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/auth/admin/users/42/status",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "auth",
+                    "admin",
+                    "users",
+                    "42",
+                    "status"
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n  \"success\": true,\n  \"message\": \"User status retrieved.\",\n  \"data\": {\n    \"user_id\": 42,\n    \"status\": \"suspended\",\n    \"status_changed_at\": \"2026-05-17T10:00:00.000000Z\",\n    \"status_reason\": \"Cooling off.\",\n    \"status_expires_at\": \"2026-05-17T12:00:00+00:00\",\n    \"allowed\": [\"active\", \"disabled\", \"suspended\", \"deleted\"]\n  }\n}"
+            },
+            {
+              "name": "403 — Missing admin role",
+              "originalRequest": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{auth_token}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/auth/admin/users/42/status",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "auth",
+                    "admin",
+                    "users",
+                    "42",
+                    "status"
+                  ]
+                }
+              },
+              "status": "Forbidden",
+              "code": 403,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n  \"message\": \"User does not have any of the necessary access rights.\"\n}"
+            },
+            {
+              "name": "404 — User not found",
+              "originalRequest": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{auth_token}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/auth/admin/users/9999/status",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "auth",
+                    "admin",
+                    "users",
+                    "9999",
+                    "status"
+                  ]
+                }
+              },
+              "status": "Not Found",
+              "code": 404,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n  \"success\": false,\n  \"message\": \"User not found.\",\n  \"errors\": {}\n}"
+            }
+          ]
+        },
+        {
+          "name": "Suspend User (permanent)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"suspended\",\n  \"reason\": \"spam-reports\",\n  \"comment\": \"Third strike across the last 60 days. See ticket #4711 for context. Reviewed with @sara today.\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/admin/users/42/status",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "admin",
+                "users",
+                "42",
+                "status"
+              ]
+            },
+            "description": "Marks the user as suspended. All of their sanctum tokens and tracked sessions are revoked, so they are logged out everywhere immediately. They will get a 401 with the localized `account_suspended` message on their next login attempt.\n\n**`reason` vs `comment`:** keep `reason` short and tag-ish (it goes in `status_reason` and shows up in any quick listing). Put the longer multi-admin context — the \"why\", tickets, names — in `comment`. The audit log records both, so the next admin opening this user's history can understand the chain without pinging you."
+          },
+          "response": [
+            {
+              "name": "200 — Status updated",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{auth_token}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"status\": \"suspended\",\n  \"reason\": \"Spam reports above threshold.\"\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/auth/admin/users/42/status",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "auth",
+                    "admin",
+                    "users",
+                    "42",
+                    "status"
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n  \"success\": true,\n  \"message\": \"Account status updated.\",\n  \"data\": {\n    \"user_id\": 42,\n    \"status\": \"suspended\",\n    \"status_expires_at\": null\n  }\n}"
+            },
+            {
+              "name": "422 — Invalid status",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{auth_token}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"status\": \"banished\"\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/auth/admin/users/42/status",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "auth",
+                    "admin",
+                    "users",
+                    "42",
+                    "status"
+                  ]
+                }
+              },
+              "status": "Unprocessable Entity",
+              "code": 422,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n  \"success\": false,\n  \"message\": \"The selected status is invalid.\",\n  \"errors\": {\n    \"status\": [\"The selected status is invalid.\"]\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Suspend User for 2 hours (duration_minutes)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"suspended\",\n  \"reason\": \"24h cooling-off window.\",\n  \"duration_minutes\": 120\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/admin/users/42/status",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "admin",
+                "users",
+                "42",
+                "status"
+              ]
+            },
+            "description": "Timed ban via relative duration. `duration_minutes` is converted to an absolute `status_expires_at = now() + minutes`. When the moment arrives the package flips the user back to `active` automatically — two layers cooperate:\n\n1. **Lazy revert** on the very next login or authenticated request that hits the user — they can log back in the instant their ban expires.\n2. **Sweep worker** (`RevertExpiredAccountStatuses`) runs every `auto_unban.sweep_minutes` minutes (default 5) and reverts anything the lazy path missed.\n\nBoth paths fire `AccountStatusChanged` exactly once per user per revert.\n\nHandy values:\n- `60` → 1 hour\n- `120` → 2 hours\n- `1440` → 24 hours\n- `10080` → 1 week\n- `43200` → 30 days\n- `525600` → 1 year"
+          },
+          "response": [
+            {
+              "name": "200 — Suspended until status_expires_at",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{auth_token}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"status\": \"suspended\",\n  \"reason\": \"24h cooling-off window.\",\n  \"duration_minutes\": 120\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/auth/admin/users/42/status",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "auth",
+                    "admin",
+                    "users",
+                    "42",
+                    "status"
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n  \"success\": true,\n  \"message\": \"Account status updated.\",\n  \"data\": {\n    \"user_id\": 42,\n    \"status\": \"suspended\",\n    \"status_expires_at\": \"2026-05-17T12:00:00+00:00\"\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Suspend User until Specific Time (expires_at)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"suspended\",\n  \"reason\": \"Suspension lifts at end of week.\",\n  \"expires_at\": \"2026-07-17T12:00:00Z\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/admin/users/42/status",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "admin",
+                "users",
+                "42",
+                "status"
+              ]
+            },
+            "description": "Timed ban via absolute ISO 8601 timestamp. Useful for an admin UI that lets the operator pick a date/time. If both `expires_at` and `duration_minutes` are sent, `expires_at` wins.\n\nValidation: must parse as a date AND be in the future. Past timestamps return 422.\n\n**Errors:** 422 expires_at is in the past or malformed."
+          },
+          "response": [
+            {
+              "name": "200 — Suspended until 2026-07-17T12:00:00Z",
+              "originalRequest": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/auth/admin/users/42/status",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "auth",
+                    "admin",
+                    "users",
+                    "42",
+                    "status"
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n  \"success\": true,\n  \"message\": \"Account status updated.\",\n  \"data\": {\n    \"user_id\": 42,\n    \"status\": \"suspended\",\n    \"status_expires_at\": \"2026-07-17T12:00:00+00:00\"\n  }\n}"
+            },
+            {
+              "name": "422 — expires_at in the past",
+              "originalRequest": {
+                "method": "POST",
+                "header": [],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"status\": \"suspended\",\n  \"expires_at\": \"2020-01-01T00:00:00Z\"\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/auth/admin/users/42/status",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "auth",
+                    "admin",
+                    "users",
+                    "42",
+                    "status"
+                  ]
+                }
+              },
+              "status": "Unprocessable Entity",
+              "code": 422,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n  \"success\": false,\n  \"message\": \"The expires at field must be a date after now.\",\n  \"errors\": {\n    \"expires_at\": [\"The expires at field must be a date after now.\"]\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Disable User with duration_minutes (rejected by default config)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"disabled\",\n  \"reason\": \"Trying to apply a timed ban.\",\n  \"duration_minutes\": 60\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/admin/users/42/status",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "admin",
+                "users",
+                "42",
+                "status"
+              ]
+            },
+            "description": "Demonstrates the `temporary_statuses` gate. Default config only marks `suspended` as timed-capable, so passing `duration_minutes` (or `expires_at`) alongside `status: disabled` returns 422.\n\nTo allow timed disables in your app:\n```php\n// config/auth_system.php\n'account.status.auto_unban.temporary_statuses' => ['suspended', 'disabled'],\n```"
+          },
+          "response": [
+            {
+              "name": "422 — Status does not support timed bans",
+              "originalRequest": {
+                "method": "POST",
+                "header": [],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"status\": \"disabled\",\n  \"duration_minutes\": 60\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/auth/admin/users/42/status",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "auth",
+                    "admin",
+                    "users",
+                    "42",
+                    "status"
+                  ]
+                }
+              },
+              "status": "Unprocessable Entity",
+              "code": 422,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n  \"success\": false,\n  \"message\": \"The given data was invalid.\",\n  \"errors\": {\n    \"status\": [\"Status \\\"disabled\\\" does not support timed bans. Remove expires_at / duration_minutes, or use one of: suspended.\"]\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Disable User",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"disabled\",\n  \"reason\": \"Disabled by support per user request.\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/admin/users/42/status",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "admin",
+                "users",
+                "42",
+                "status"
+              ]
+            },
+            "description": "Marks the user as disabled. Same revocation side effects as Suspend; the only difference is the message key returned to the user on their next login attempt (`account_disabled` instead of `account_suspended`)."
+          },
+          "response": [
+            {
+              "name": "200 — Status updated",
+              "originalRequest": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/auth/admin/users/42/status",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "auth",
+                    "admin",
+                    "users",
+                    "42",
+                    "status"
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n  \"success\": true,\n  \"message\": \"Account status updated.\",\n  \"data\": {\n    \"user_id\": 42,\n    \"status\": \"disabled\",\n    \"status_expires_at\": null\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Reactivate User",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"active\",\n  \"reason\": \"Appeal accepted.\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/admin/users/42/status",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "admin",
+                "users",
+                "42",
+                "status"
+              ]
+            },
+            "description": "Flips the user back to `active`. They can log in normally again. Does not re-issue tokens — the user must log in from scratch.\n\nThis also **clears `status_expires_at`** unconditionally — a manual pardon overrides any pending auto-unban schedule."
+          },
+          "response": [
+            {
+              "name": "200 — Status updated",
+              "originalRequest": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/auth/admin/users/42/status",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "auth",
+                    "admin",
+                    "users",
+                    "42",
+                    "status"
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n  \"success\": true,\n  \"message\": \"Account status updated.\",\n  \"data\": {\n    \"user_id\": 42,\n    \"status\": \"active\",\n    \"status_expires_at\": null\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Get Account Status History",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/auth/admin/users/42/status/history?per_page=20",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "admin",
+                "users",
+                "42",
+                "status",
+                "history"
+              ],
+              "query": [
+                {
+                  "key": "per_page",
+                  "value": "20"
+                },
+                {
+                  "key": "actor_type",
+                  "value": "admin",
+                  "disabled": true,
+                  "description": "Filter: 'admin' | 'user' | 'system'"
+                },
+                {
+                  "key": "action",
+                  "value": "status_change",
+                  "disabled": true,
+                  "description": "Filter: 'status_change' | 'note'"
+                },
+                {
+                  "key": "from",
+                  "value": "2026-01-01T00:00:00Z",
+                  "disabled": true,
+                  "description": "ISO 8601 lower bound on created_at"
+                },
+                {
+                  "key": "to",
+                  "value": "2026-12-31T23:59:59Z",
+                  "disabled": true,
+                  "description": "ISO 8601 upper bound on created_at"
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Returns the **full audit history** for a user — every status transition (admin, user-initiated, automatic) plus any standalone admin notes — paginated, newest first.\n\nWhy: in a multi-admin team this is the answer to \"why is this account disabled?\" without pinging anyone. Each row shows who acted (admin id, the user themselves, or `system`), what changed, the `reason` (short tag) and `comment` (long admin note), the `source` context tag (`admin_endpoint`, `self_deactivate`, `auto_unban_lazy`, `login_auto_restore`, `purge_worker`, `admin_note`, etc.), `expires_at` if any, and the request IP/UA when applicable.\n\n**Filters (query string):** `actor_type` (admin|user|system), `action` (status_change|note), `from` + `to` (ISO 8601), `page`, `per_page` (capped at `account.audit.history.max_per_page`, default 100).\n\n**Errors:** 403 missing role; 404 audit or history endpoint disabled in config."
+          },
+          "response": [
+            {
+              "name": "200 — Paginated history",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/auth/admin/users/42/status/history?per_page=20",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "auth",
+                    "admin",
+                    "users",
+                    "42",
+                    "status",
+                    "history"
+                  ],
+                  "query": [
+                    {
+                      "key": "per_page",
+                      "value": "20"
+                    }
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n  \"success\": true,\n  \"message\": \"Audit history retrieved.\",\n  \"data\": {\n    \"items\": [\n      {\n        \"id\": 87,\n        \"user_id\": 42,\n        \"actor_type\": \"system\",\n        \"actor_id\": null,\n        \"action\": \"status_change\",\n        \"from_status\": \"suspended\",\n        \"to_status\": \"active\",\n        \"reason\": \"Auto-unban: ban period elapsed.\",\n        \"comment\": null,\n        \"expires_at\": null,\n        \"source\": \"auto_unban_sweep\",\n        \"ip_address\": null,\n        \"user_agent\": null,\n        \"created_at\": \"2026-05-17T12:00:03.000000Z\"\n      },\n      {\n        \"id\": 86,\n        \"user_id\": 42,\n        \"actor_type\": \"admin\",\n        \"actor_id\": 1,\n        \"action\": \"note\",\n        \"from_status\": null,\n        \"to_status\": null,\n        \"reason\": null,\n        \"comment\": \"User emailed support apologising. Watching for repeat behavior.\",\n        \"expires_at\": null,\n        \"source\": \"admin_note\",\n        \"ip_address\": \"10.0.0.5\",\n        \"user_agent\": \"Mozilla/5.0 …\",\n        \"created_at\": \"2026-05-17T11:30:00.000000Z\"\n      },\n      {\n        \"id\": 85,\n        \"user_id\": 42,\n        \"actor_type\": \"admin\",\n        \"actor_id\": 1,\n        \"action\": \"status_change\",\n        \"from_status\": \"active\",\n        \"to_status\": \"suspended\",\n        \"reason\": \"spam-reports\",\n        \"comment\": \"Third strike across the last 60 days. See ticket #4711. Reviewed with @sara today.\",\n        \"expires_at\": \"2026-05-17T12:00:00+00:00\",\n        \"source\": \"admin_endpoint\",\n        \"ip_address\": \"10.0.0.5\",\n        \"user_agent\": \"Mozilla/5.0 …\",\n        \"created_at\": \"2026-05-17T10:00:00.000000Z\"\n      }\n    ],\n    \"page\": 1,\n    \"per_page\": 20,\n    \"total\": 3,\n    \"last_page\": 1\n  }\n}"
+            },
+            {
+              "name": "404 — History disabled",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/auth/admin/users/42/status/history",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "auth",
+                    "admin",
+                    "users",
+                    "42",
+                    "status",
+                    "history"
+                  ]
+                }
+              },
+              "status": "Not Found",
+              "code": 404,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n  \"success\": false,\n  \"message\": \"History endpoint is disabled.\",\n  \"errors\": {}\n}"
+            }
+          ]
+        },
+        {
+          "name": "Add Admin Note (no status change)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"comment\": \"User emailed support twice asking about feature X. Waiting on product reply, don't suspend.\",\n  \"reason\": \"support-followup\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/admin/users/42/notes",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "admin",
+                "users",
+                "42",
+                "notes"
+              ]
+            },
+            "description": "Adds a free-form admin note about a user **without changing their status**. The note shows up in the user's audit history (`GET .../status/history`) and is visible to every admin with access.\n\nUse this when you want the next admin to know something — \"don't ban them, I'm waiting for product\" — without pinging them in Slack.\n\n**Fields:**\n- `comment` (required, max 5000) — the note itself.\n- `reason` (optional, max 1000) — short tag.\n\n**Errors:** 403 missing role; 404 user not found OR notes endpoint disabled in config; 422 validation."
+          },
+          "response": [
+            {
+              "name": "201 — Note recorded",
+              "originalRequest": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/auth/admin/users/42/notes",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "auth",
+                    "admin",
+                    "users",
+                    "42",
+                    "notes"
+                  ]
+                }
+              },
+              "status": "Created",
+              "code": 201,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n  \"success\": true,\n  \"message\": \"Note recorded.\",\n  \"data\": {\n    \"id\": 88\n  }\n}"
+            },
+            {
+              "name": "404 — Notes disabled",
+              "originalRequest": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/auth/admin/users/42/notes",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "auth",
+                    "admin",
+                    "users",
+                    "42",
+                    "notes"
+                  ]
+                }
+              },
+              "status": "Not Found",
+              "code": 404,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n  \"success\": false,\n  \"message\": \"Notes endpoint is disabled.\",\n  \"errors\": {}\n}"
             }
           ]
         }

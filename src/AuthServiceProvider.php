@@ -26,10 +26,13 @@ use Joe404\LaravelAuth\Http\Middleware\DeviceFingerprint;
 use Joe404\LaravelAuth\Http\Middleware\FeatureFlag;
 use Joe404\LaravelAuth\Http\Middleware\RejectRefreshToken;
 use Joe404\LaravelAuth\Http\Middleware\RateLimitAuth;
+use Joe404\LaravelAuth\Http\Middleware\RequireActiveAccount;
 use Joe404\LaravelAuth\Http\Middleware\RequireEmailVerified;
 use Joe404\LaravelAuth\Jobs\CleanExpiredApiTokens;
 use Joe404\LaravelAuth\Jobs\CleanExpiredOtpRecords;
 use Joe404\LaravelAuth\Jobs\CleanExpiredRefreshTokens;
+use Joe404\LaravelAuth\Jobs\PurgeExpiredAccountDeletions;
+use Joe404\LaravelAuth\Jobs\RevertExpiredAccountStatuses;
 use Joe404\LaravelAuth\Listeners\NotifySuspiciousLogin;
 use Joe404\LaravelAuth\Listeners\SendVerificationNotification;
 
@@ -201,6 +204,7 @@ class AuthServiceProvider extends ServiceProvider
         $router->aliasMiddleware('auth.device', DeviceFingerprint::class);
         $router->aliasMiddleware('auth.api-token', ApiTokenAuth::class);
         $router->aliasMiddleware('auth.feature', FeatureFlag::class);
+        $router->aliasMiddleware('auth.active', RequireActiveAccount::class);
 
         // Spatie's PermissionServiceProvider stopped auto-registering middleware
         // aliases in Laravel 11. We register them here so package routes
@@ -247,6 +251,22 @@ class AuthServiceProvider extends ServiceProvider
                 $schedule->job(CleanExpiredApiTokens::class, $queue)
                     ->hourly()
                     ->name('auth-clean-expired-api-tokens')
+                    ->withoutOverlapping();
+            }
+
+            if ((bool) config('auth_system.account.deletion.enabled', true)) {
+                $schedule->job(PurgeExpiredAccountDeletions::class, $queue)
+                    ->hourly()
+                    ->name('auth-purge-expired-account-deletions')
+                    ->withoutOverlapping();
+            }
+
+            if ((bool) config('auth_system.account.status.auto_unban.enabled', true)) {
+                $sweepMinutes = max(1, (int) config('auth_system.account.status.auto_unban.sweep_minutes', 5));
+
+                $schedule->job(RevertExpiredAccountStatuses::class, $queue)
+                    ->cron("*/{$sweepMinutes} * * * *")
+                    ->name('auth-revert-expired-account-statuses')
                     ->withoutOverlapping();
             }
         });

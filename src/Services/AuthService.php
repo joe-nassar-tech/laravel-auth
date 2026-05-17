@@ -18,9 +18,12 @@ use Joe404\LaravelAuth\Events\UserLoggedOut;
 use Joe404\LaravelAuth\Exceptions\AccountInactiveException;
 use Joe404\LaravelAuth\Exceptions\AuthException;
 use Joe404\LaravelAuth\Exceptions\EmailNotVerifiedException;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\DB;
 use Joe404\LaravelAuth\Models\AuthRefreshToken;
 use Joe404\LaravelAuth\Models\AuthSessionExtended;
+use Joe404\LaravelAuth\Models\DeletedAccount;
+use Joe404\LaravelAuth\Support\AccountStatus;
 use Laravel\Sanctum\PersonalAccessToken;
 
 class AuthService
@@ -31,6 +34,8 @@ class AuthService
         private readonly SessionService $sessionService,
         private readonly LockoutService $lockoutService,
         private readonly RateLimitService $rateLimitService,
+        private readonly AccountStatusService $accountStatusService,
+        private readonly AccountDeletionService $accountDeletionService,
     ) {}
 
     public function initiateRegistration(string $email, array $extraFields = []): array
@@ -280,12 +285,74 @@ class AuthService
         /** @var class-string<User> $userModel */
         $userModel = config('auth.providers.users.model', \App\Models\User::class);
 
+        // Include soft-deleted users so we can auto-restore within the grace
+        // window. Without this, a user who deleted their account would see
+        // "invalid credentials" instead of being silently restored.
+        $query = $userModel::query();
+        if (in_array(SoftDeletes::class, class_uses_recursive($userModel), true)) {
+            /** @phpstan-ignore-next-line */
+            $query = $query->withTrashed();
+        }
+
         /** @var User|null $user */
-        $user = $userModel::where('email', $email)->first();
+        $user = $query->where('email', $email)->first();
 
         if ($user === null || ! Hash::check($password, $user->password)) {
             $this->lockoutService->recordFailure($email);
             throw new AuthException('Invalid credentials.', 'invalid_credentials');
+        }
+
+        // v2.4 — Auto-restore on login during grace period. Credentials match,
+        // status is "deleted", and the audit row says we're still within grace
+        // → restore silently and continue the normal login flow.
+        $statusEnabled = (bool) config('auth_system.account.status.enabled', true);
+        $autoRestore   = (bool) config('auth_system.account.deletion.auto_restore_on_login', true);
+
+        if ($statusEnabled
+            && $autoRestore
+            && $this->accountStatusService->current($user) === AccountStatus::DELETED
+        ) {
+            $entry = DeletedAccount::where('original_user_id', $user->getKey())
+                ->whereNull('purged_at')
+                ->latest('id')
+                ->first();
+
+            if ($entry !== null && $entry->isWithinGrace()) {
+                $this->accountDeletionService->restore($user, 'login');
+                $user->refresh();
+            } else {
+                // Grace expired (or no audit row) — treat as gone.
+                $this->lockoutService->recordFailure($email);
+                throw new AuthException('Invalid credentials.', 'invalid_credentials');
+            }
+        }
+
+        // v2.4 — Auto-reactivate "deactivated" (Instagram-style pause).
+        // Distinct from the deleted-grace branch above: no audit row to drop,
+        // no SoftDeletes to clear, no deadline. The user simply comes back.
+        if ($statusEnabled
+            && (bool) config('auth_system.account.deactivation.auto_reactivate_on_login', true)
+            && $this->accountStatusService->current($user) === AccountStatus::DEACTIVATED
+        ) {
+            $this->accountStatusService->changeStatus(
+                $user,
+                AccountStatus::ACTIVE,
+                'Auto-reactivate on login.',
+                null,
+                ['actor_type' => 'system', 'source' => 'login_auto_reactivate'],
+            );
+
+            if ((bool) config('auth_system.mail.account_notifications_enabled.reactivated', true)) {
+                $this->dispatchReactivatedNotification($user);
+            }
+
+            $user->refresh();
+        }
+
+        // Status gate (disabled/suspended). Throws AuthException with a
+        // per-status error key resolved through the same translation pipeline.
+        if ($statusEnabled) {
+            $this->accountStatusService->assertCanLogin($user);
         }
 
         if (isset($user->is_active) && ! $user->is_active) {
@@ -392,6 +459,22 @@ class AuthService
             ->where('browser', $browser)
             ->where('os', $os)
             ->exists();
+    }
+
+    private function dispatchReactivatedNotification(User $user): void
+    {
+        $class = (string) (config('auth_system.mail.account_reactivated_notification')
+            ?: \Joe404\LaravelAuth\Notifications\AccountReactivatedNotification::class);
+
+        if (! class_exists($class)) {
+            return;
+        }
+
+        try {
+            \Illuminate\Support\Facades\Notification::send($user, new $class());
+        } catch (\Throwable) {
+            // Reactivation must not block login if the mailer is misconfigured.
+        }
     }
 
     private function dispatchSuspiciousLogin(User $user, Request $request): void

@@ -3,6 +3,9 @@
 declare(strict_types=1);
 
 use Illuminate\Support\Facades\Route;
+use Joe404\LaravelAuth\Http\Controllers\AccountController;
+use Joe404\LaravelAuth\Http\Controllers\Admin\UserAuditController;
+use Joe404\LaravelAuth\Http\Controllers\Admin\UserStatusController;
 use Joe404\LaravelAuth\Http\Controllers\ApiTokenController;
 use Joe404\LaravelAuth\Http\Controllers\LoginController;
 use Joe404\LaravelAuth\Http\Controllers\LogoutController;
@@ -86,6 +89,14 @@ Route::middleware(['auth:sanctum', 'auth.no-refresh', 'auth.verified', 'auth.dev
     // M4: Password change
     Route::post('password/change', [PasswordChangeController::class, 'change']);
 
+    // v2.4: Self-service account deletion. Grace-period auto-restore is handled
+    // by the login flow — no explicit restore endpoint needed.
+    Route::delete('account', [AccountController::class, 'destroy']);
+
+    // v2.4: Self-service deactivation (Instagram-style pause). Login
+    // auto-reactivates the user — no separate reactivate endpoint needed.
+    Route::post('account/deactivate', [AccountController::class, 'deactivate']);
+
     // M3: API token management (gated at request time by `auth.feature` middleware
     // so `php artisan route:cache` is safe regardless of the feature flag's
     // value at cache time).
@@ -108,4 +119,22 @@ Route::middleware([
     Route::post('api-tokens', [ApiTokenController::class, 'adminStore']);
     Route::patch('api-tokens/{id}', [ApiTokenController::class, 'adminUpdate']);
     Route::delete('api-tokens/{id}', [ApiTokenController::class, 'adminDestroy']);
+});
+
+// v2.4: Admin account status management. Gated by the role declared in
+// config('auth_system.account.status.admin_ability') so hosts can switch
+// to a permission name (e.g. "users.manage-status") without editing the
+// package.
+Route::middleware([
+    'auth:sanctum',
+    'auth.no-refresh',
+    'auth.verified',
+    'role:' . (string) config('auth_system.account.status.admin_ability', 'super-admin|admin'),
+])->prefix('admin')->group(function (): void {
+    Route::get('users/{id}/status', [UserStatusController::class, 'show']);
+    Route::post('users/{id}/status', [UserStatusController::class, 'update']);
+
+    // v2.4 audit log — paginated status history + free-form admin notes.
+    Route::get('users/{id}/status/history', [UserAuditController::class, 'history']);
+    Route::post('users/{id}/notes', [UserAuditController::class, 'addNote']);
 });

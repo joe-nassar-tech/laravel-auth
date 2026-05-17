@@ -47,4 +47,12 @@ return [
 
     // Generic
     'unauthenticated' => 'غير مصرّح.',
+
+    // v2.4 — حالة الحساب / الحذف
+    'account_disabled'           => 'تم تعطيل هذا الحساب. يرجى التواصل مع الدعم.',
+    'account_suspended'          => 'تم إيقاف هذا الحساب. يرجى التواصل مع الدعم.',
+    'account_deletion_disabled'     => 'حذف الحساب معطل حالياً.',
+    'account_deactivation_disabled' => 'تعطيل الحساب معطل حالياً.',
+    'account_status_invalid'        => 'حالة الحساب المقدمة غير صالحة.',
+    'account_password_mismatch'     => 'كلمة المرور المقدمة غير صحيحة.',
 ];

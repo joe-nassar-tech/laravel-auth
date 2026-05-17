@@ -25,13 +25,6 @@ class EmailVerificationController extends Controller
     {
         $email = strtolower(trim($request->validated('email')));
 
-        \Illuminate\Support\Facades\Log::info('[resend-debug]', [
-            'email'        => $email,
-            'cache_store'  => config('cache.default'),
-            'cache_prefix' => config('cache.prefix'),
-            'has_pending'  => \Illuminate\Support\Facades\Cache::has("auth:pending:{$email}"),
-        ]);
-
         // Only resend if there is a pending pre-registration in cache
         if (Cache::has("auth:pending:{$email}")) {
             $method    = (string) config('auth_system.verification.method', 'both');

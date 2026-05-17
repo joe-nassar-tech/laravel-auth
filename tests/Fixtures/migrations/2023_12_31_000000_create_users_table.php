@@ -14,7 +14,10 @@ return new class extends Migration
             $table->id();
             $table->string('google_id')->nullable();
             $table->string('name');
-            $table->string('email')->unique();
+            // Nullable so the v2.4 purge worker can null the unique column
+            // post-grace to free the address for reuse. Real host apps should
+            // do the same on their users.email column.
+            $table->string('email')->nullable()->unique();
             $table->timestamp('email_verified_at')->nullable();
             $table->string('password')->nullable();
             $table->rememberToken();

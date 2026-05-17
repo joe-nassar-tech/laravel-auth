@@ -50,4 +50,11 @@ return [
     'api_token_created'    => 'API token created.',
     'api_token_updated'    => 'API token updated.',
     'api_token_revoked'    => 'API token revoked.',
+
+    // v2.4 — Account lifecycle
+    'account_deleted'        => 'Account scheduled for deletion.',
+    'account_restored'       => 'Account restored.',
+    'account_status_updated' => 'Account status updated.',
+    'account_deactivated'    => 'Account deactivated. Log in any time to reactivate.',
+    'account_reactivated'    => 'Welcome back — your account has been reactivated.',
 ];

@@ -227,6 +227,13 @@ return [
         'session_not_found'            => null,
         'account_locked'               => null,
         'unauthenticated'              => null,
+        // v2.4 account status / deletion
+        'account_disabled'             => null,
+        'account_suspended'            => null,
+        'account_deletion_disabled'    => null,
+        'account_deactivation_disabled' => null,
+        'account_status_invalid'       => null,
+        'account_password_mismatch'    => null,
     ],
 
     'messages' => [
@@ -249,6 +256,12 @@ return [
         'api_token_created'      => null,
         'api_token_updated'      => null,
         'api_token_revoked'      => null,
+        // v2.4 account lifecycle
+        'account_deleted'        => null,
+        'account_restored'       => null,
+        'account_status_updated' => null,
+        'account_deactivated'    => null,
+        'account_reactivated'    => null,
     ],
 
     /*
@@ -531,6 +544,30 @@ return [
         'magic_link_reset_notification'    => null,
         'otp_verify_combined_notification' => null,
         'otp_reset_combined_notification'  => null,
+
+        /*
+        | Account lifecycle notifications (v2.4). Same override pattern as the
+        | OTP/magic-link entries above — set any key to your own Notification
+        | FQCN to replace the bundled one. Leave as null to use the default.
+        |
+        | The "enabled" map toggles individual notifications without removing
+        | the listener wiring. Set false to silence a specific event.
+        */
+        'account_deleted_notification'         => null,
+        'account_restored_notification'        => null,
+        'account_purged_notification'          => null,
+        'account_status_changed_notification'  => null,
+        'account_deactivated_notification'     => null,
+        'account_reactivated_notification'     => null,
+
+        'account_notifications_enabled' => [
+            'deleted'        => true,
+            'restored'       => true,
+            'purged'         => false,
+            'status_changed' => false,
+            'deactivated'    => true,
+            'reactivated'    => true,
+        ],
     ],
 
     /*
@@ -731,6 +768,210 @@ return [
     |   AUTH_LOCKOUT_MAX=5
     |   AUTH_LOCKOUT_DECAY=30
     */
+    /*
+    |--------------------------------------------------------------------------
+    | Account Status + Deletion (v2.4)
+    |--------------------------------------------------------------------------
+    |
+    | Adds account lifecycle management: status gating at login + self-service
+    | deletion with a grace period during which a regular login auto-restores
+    | the account. After the grace period a scheduled worker nulls unique
+    | columns (so the email/username can be reused) and optionally hard-deletes
+    | the users row. A `deleted_accounts` table keeps a permanent audit
+    | snapshot so foreign keys in app tables (orders, transactions, …) still
+    | resolve to a meaningful record.
+    |
+    | --- status ---
+    |   enabled:              Master switch for the status feature.
+    |   column:               Column on users that stores the status string.
+    |   default:              Status applied to brand-new users.
+    |   allowed:              List of accepted statuses. Add custom ones here.
+    |   login_blocked:        Statuses that reject login with the configured
+    |                         message. ("deleted" is handled separately — the
+    |                         login flow auto-restores within grace.)
+    |   revoke_sessions_on_change:
+    |                         When status leaves "active", drop all sanctum
+    |                         tokens and AuthSessionExtended rows for the user.
+    |   admin_ability:        Spatie permission/role name required to call the
+    |                         admin status endpoints. Use any string your
+    |                         host app already exposes.
+    |
+    | --- deletion ---
+    |   enabled:              Master switch for the delete feature.
+    |   self_service:         If true, expose DELETE /auth/account for users
+    |                         to delete themselves. If false, only admins can
+    |                         trigger deletion via the status endpoint.
+    |   require_password:     Force the user to supply their password on the
+    |                         delete call. Strongly recommended.
+    |   grace_days:           How many days the account stays soft-deleted
+    |                         before the worker purges it. Login during this
+    |                         window auto-restores the account.
+    |   auto_restore_on_login:
+    |                         When true (recommended), a successful credential
+    |                         check on a status=deleted account inside the
+    |                         grace window restores it transparently. The
+    |                         deleted_accounts row is dropped, status flips
+    |                         back to "active" and the user is logged in.
+    |   null_uniques_after_grace:
+    |                         Worker nulls unique columns on the users row
+    |                         after grace expires so the email/username can be
+    |                         reclaimed by a new sign-up.
+    |   hard_delete_after_grace:
+    |                         Worker hard-deletes the users row after grace
+    |                         expires. The deleted_accounts snapshot is kept
+    |                         regardless so audit/FK targets survive.
+    |   move_to_deleted_table:
+    |                         Snapshot the full users row into deleted_accounts
+    |                         on delete. Disable only if you have your own
+    |                         audit table.
+    |   unique_columns:       "auto" → introspect users-table indexes via
+    |                         Schema::getIndexes() and null every single-column
+    |                         unique index. Or pass an explicit array of column
+    |                         names (e.g. ['email', 'username']).
+    |   unique_exclude:       Columns the resolver must never null even if they
+    |                         have a unique index (typically primary keys).
+    */
+    'account' => [
+        'status' => [
+            'enabled'                   => (bool) env('AUTH_ACCOUNT_STATUS_ENABLED', true),
+            'column'                    => env('AUTH_ACCOUNT_STATUS_COLUMN', 'account_status'),
+            'default'                   => env('AUTH_ACCOUNT_STATUS_DEFAULT', 'active'),
+            'allowed'                   => ['active', 'disabled', 'suspended', 'deleted', 'deactivated'],
+            'login_blocked'             => ['disabled', 'suspended'],
+            // Statuses where a successful login silently flips the user back
+            // to "active". `deleted` is also recognised here but is bounded
+            // by the deletion grace window (handled separately in
+            // account.deletion.auto_restore_on_login).
+            'login_auto_restorable'     => ['deactivated'],
+            'revoke_sessions_on_change' => (bool) env('AUTH_ACCOUNT_STATUS_REVOKE_ON_CHANGE', true),
+            'admin_ability'             => env('AUTH_ACCOUNT_STATUS_ABILITY', 'super-admin|admin'),
+
+            /*
+            | Timed bans — admins can suspend / disable a user "until X" by
+            | passing `expires_at` (ISO 8601) or `duration_minutes` to the
+            | status endpoint. When the moment arrives the package flips the
+            | user back to `active` automatically through two complementary
+            | paths:
+            |
+            |   1. Lazy revert: every status read (login, middleware, /me)
+            |      reverts on the spot if the expiry is in the past, so an
+            |      unbanned user can log in the *instant* their ban expires.
+            |   2. Scheduled sweep: every `sweep_minutes` minutes the
+            |      RevertExpiredAccountStatuses worker reverts any rows the
+            |      lazy path hasn't touched and fires AccountStatusChanged.
+            |
+            | Set enabled=false to disable the feature entirely — admins can
+            | still set `status_expires_at` but nothing acts on it.
+            */
+            'auto_unban' => [
+                'enabled'       => (bool) env('AUTH_ACCOUNT_AUTO_UNBAN', true),
+                'sweep_minutes' => (int) env('AUTH_ACCOUNT_AUTO_UNBAN_SWEEP', 5),
+
+                /*
+                | Which statuses are "temporary ban" capable — i.e. the admin
+                | endpoint will accept `expires_at` / `duration_minutes` for
+                | them. Statuses NOT in this list are permanent-only: passing
+                | an expiry alongside one returns 422.
+                |
+                | Omitting expires_at / duration_minutes on a temporary status
+                | is still allowed and means a permanent ban (forever).
+                |
+                | Default: only "suspended" is timed-capable. "disabled" is
+                | treated as a manual-action-required ban — admin must
+                | explicitly reactivate.
+                */
+                'temporary_statuses' => ['suspended'],
+            ],
+        ],
+
+        'deletion' => [
+            'enabled'                  => (bool) env('AUTH_ACCOUNT_DELETE_ENABLED', true),
+            'self_service'             => (bool) env('AUTH_ACCOUNT_DELETE_SELF', true),
+            'require_password'         => (bool) env('AUTH_ACCOUNT_DELETE_REQUIRE_PASSWORD', true),
+            'grace_days'               => (int) env('AUTH_ACCOUNT_DELETE_GRACE_DAYS', 30),
+            'auto_restore_on_login'    => (bool) env('AUTH_ACCOUNT_AUTO_RESTORE', true),
+            'null_uniques_after_grace' => (bool) env('AUTH_ACCOUNT_NULL_UNIQUES', true),
+            'hard_delete_after_grace'  => (bool) env('AUTH_ACCOUNT_HARD_DELETE', false),
+            'move_to_deleted_table'    => (bool) env('AUTH_ACCOUNT_AUDIT_TABLE', true),
+            'unique_columns'           => env('AUTH_ACCOUNT_UNIQUE_COLUMNS', 'auto'),
+            'unique_exclude'           => ['id'],
+        ],
+
+        /*
+        | Self-service deactivation (Instagram-style "pause my account").
+        |
+        | When enabled, the user can POST /auth/account/deactivate to flip
+        | their status to `deactivated`. All their tokens and sessions are
+        | revoked so they appear logged out everywhere. The next time they
+        | log in with the correct credentials the package silently flips
+        | them back to `active` — there is no deadline, they can come back
+        | months later. Distinct from `deleted` (which has a 30-day grace
+        | and then permanently anonymises the row).
+        |
+        | Distinct from `disabled` too: `disabled` is an admin-only ban
+        | (Meta-style for violations) and requires manual reactivation. The
+        | appeal workflow that goes with `disabled` is a future release.
+        */
+        'deactivation' => [
+            'enabled'                  => (bool) env('AUTH_ACCOUNT_DEACTIVATE_ENABLED', true),
+            'self_service'             => (bool) env('AUTH_ACCOUNT_DEACTIVATE_SELF', true),
+            'require_password'         => (bool) env('AUTH_ACCOUNT_DEACTIVATE_REQUIRE_PASSWORD', true),
+            'auto_reactivate_on_login' => (bool) env('AUTH_ACCOUNT_AUTO_REACTIVATE', true),
+        ],
+
+        /*
+        |----------------------------------------------------------------------
+        | Audit log (multi-admin context)
+        |----------------------------------------------------------------------
+        |
+        | Persists every status change + free-form admin notes so multiple
+        | admins can see the full history of why an account is in its current
+        | state and who touched it last. Like inline code comments for user
+        | rows: "Sara disabled this 2026-05-17, comment: third strike, see
+        | ticket #4711".
+        |
+        | Every flag below is opt-out — flip to false to silence that part of
+        | the system. Disabling the master `enabled` flag makes the package
+        | behave exactly like pre-audit v2.4 (no writes, endpoints return 404).
+        |
+        | log_system_actions:
+        |   When false, only admin-initiated and user-initiated transitions
+        |   are logged. Lazy auto-unban, sweep worker, login auto-restore /
+        |   auto-reactivate, purge worker all stay silent. Useful if you want
+        |   a smaller log focused on human actions.
+        |
+        | capture_request_meta:
+        |   Capture ip_address + user_agent when there is an HTTP request in
+        |   scope. CLI/queue/system actions never populate these.
+        |
+        | retention_days:
+        |   null  → keep entries forever (default).
+        |   N>0   → enable a daily cleanup that drops entries older than N
+        |           days. Useful for GDPR-style data minimisation when your
+        |           policy says you do not need indefinite admin history.
+        */
+        'audit' => [
+            'enabled'              => (bool) env('AUTH_ACCOUNT_AUDIT_ENABLED', true),
+            'table'                => env('AUTH_ACCOUNT_AUDIT_TABLE_NAME', 'account_status_logs'),
+            'log_status_changes'   => (bool) env('AUTH_ACCOUNT_AUDIT_LOG_STATUS', true),
+            'log_system_actions'   => (bool) env('AUTH_ACCOUNT_AUDIT_LOG_SYSTEM', true),
+            'capture_request_meta' => (bool) env('AUTH_ACCOUNT_AUDIT_CAPTURE_META', true),
+            'retention_days'       => env('AUTH_ACCOUNT_AUDIT_RETENTION_DAYS') !== null
+                ? (int) env('AUTH_ACCOUNT_AUDIT_RETENTION_DAYS')
+                : null,
+
+            'notes' => [
+                'enabled' => (bool) env('AUTH_ACCOUNT_AUDIT_NOTES_ENABLED', true),
+            ],
+
+            'history' => [
+                'enabled'         => (bool) env('AUTH_ACCOUNT_AUDIT_HISTORY_ENABLED', true),
+                'default_per_page' => (int) env('AUTH_ACCOUNT_AUDIT_HISTORY_PER_PAGE', 20),
+                'max_per_page'     => (int) env('AUTH_ACCOUNT_AUDIT_HISTORY_MAX_PER_PAGE', 100),
+            ],
+        ],
+    ],
+
     'security' => [
         'notify_new_device_login' => (bool) env('AUTH_NOTIFY_NEW_DEVICE', true),
         'lockout' => [

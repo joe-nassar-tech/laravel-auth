@@ -200,7 +200,8 @@ class InstallCommand extends Command
         $this->components->info('joe-404/laravel-auth installed.');
         $this->newLine();
         $this->line('Next steps:');
-        $this->line('  1. Add `HasRoles` (Spatie Permission) and `HasApiTokens` (Sanctum) traits to your User model.');
+        $this->line('  1. Add `HasRoles` (Spatie Permission), `HasApiTokens` (Sanctum) and `SoftDeletes` traits to your User model.');
+        $this->line('     (SoftDeletes enables the v2.4 grace-period deletion + auto-restore-on-login feature.)');
         $this->line('  2. Set `AUTH_MODE` in .env  → api | web | both');
         $this->line('  3. Configure your mail driver — OTP and magic links are delivered by email.');
         $this->line('  4. Add your frontend domain to `config/sanctum.php` stateful list (SPA mode).');

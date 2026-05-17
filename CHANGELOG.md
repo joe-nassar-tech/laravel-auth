@@ -6,6 +6,120 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and 
 
 ---
 
+## [2.4.0] — 2026-05-17
+
+Account lifecycle: configurable status workflow + self-service deletion with
+grace-period auto-restore on login.
+
+### Added
+
+- **Account status.** New `account_status` column on users (`active`,
+  `disabled`, `suspended`, `deleted`; extensible via config). Login is
+  rejected when status is in `account.status.login_blocked`. A new
+  `auth.active` middleware enforces the status on every authenticated
+  request so a mid-session ban is immediate.
+- **Admin status endpoints.** `GET|POST /auth/admin/users/{id}/status`,
+  gated by the role(s) in `account.status.admin_ability`. Status changes
+  optionally revoke all of the user's sanctum tokens and sessions.
+- **Self-service account deletion.** `DELETE /auth/account` snapshots the
+  user row into a new `deleted_accounts` table (JSON snapshot +
+  queryable email/username), soft-deletes the user, sets a configurable
+  grace window (default 30 days).
+- **Auto-restore on login.** A normal credential check on a
+  `status=deleted` user inside the grace window transparently restores the
+  account — no separate restore endpoint, no signed links. The
+  `deleted_accounts` row is dropped, status flips back to `active`, the
+  user is logged in.
+- **Purge worker.** `PurgeExpiredAccountDeletions` runs hourly. After the
+  grace expires it nulls every single-column unique index on the users
+  row (configurable; auto-discovered via `Schema::getIndexes()`) so the
+  email/username can be reclaimed, optionally hard-deletes the users row,
+  and keeps the `deleted_accounts` row forever for foreign-key audit.
+- **Timed bans (auto-unban).** The admin status endpoint now accepts an
+  optional `expires_at` (ISO 8601 absolute) **or** `duration_minutes`
+  (relative integer). When the moment arrives the package flips the user
+  back to `active` automatically through two cooperating paths:
+    1. **Lazy revert** inside `AccountStatusService::current()` — every
+       login, every middleware check synchronously reverts an expired ban
+       before reading the status, so users can log in the instant their
+       ban expires.
+    2. **Scheduled sweep** — new `RevertExpiredAccountStatuses` job runs
+       every `auto_unban.sweep_minutes` minutes (default 5), reverts
+       anything the lazy path missed, and fires `AccountStatusChanged`
+       exactly once per user per revert.
+  Returning to `active` always clears `status_expires_at` (a pardon is a
+  pardon). Null expiry on a banned account is a permanent ban (forever).
+  Toggle via `account.status.auto_unban.enabled`.
+- **Temporary-status gate.** New `account.status.auto_unban.temporary_statuses`
+  config (default `['suspended']`) whitelists which statuses can carry an
+  expiry. Statuses NOT in the list are permanent-only — sending an expiry
+  alongside them returns 422 with a clear error. Default policy: `suspended`
+  may be timed; `disabled` requires manual reactivation.
+- **`status_expires_at` column** on users (idempotent migration).
+- **`deactivated` status — Instagram-style self-pause.** New
+  `POST /auth/account/deactivate` endpoint (password required) flips the
+  user to `deactivated` and revokes every session/token. The user can come
+  back any time by logging in — the login flow auto-reactivates them
+  silently (no deadline, no separate reactivate endpoint). Distinct from
+  `deleted` (which has a 30-day grace + permanent purge). Toggle via
+  `account.deactivation.{enabled, self_service, require_password,
+  auto_reactivate_on_login}`.
+- **`disabled` framed as Meta-style violation ban.** The default config
+  keeps `disabled` out of `temporary_statuses` — it is permanent-only and
+  requires admin action to lift. The intended escape hatch is an appeal
+  workflow that will ship in a later release; for now host apps can build
+  it on top of `AccountStatusService::changeStatus()`.
+- `AccountDeactivatedNotification` + `AccountReactivatedNotification` with
+  publishable Blade views + FQCN overrides. Both default on.
+- **Audit log (multi-admin context).** New `account_status_logs` table
+  persists every status transition + free-form admin notes so multi-admin
+  teams can see who did what and why without coordinating out of band.
+  Each row records actor (`admin` / `user` / `system` + id), action,
+  from/to status, reason, comment, source tag (`admin_endpoint`,
+  `self_deactivate`, `auto_unban_lazy`, `login_auto_restore`,
+  `purge_worker`, etc.), expiry, IP, user agent. New admin endpoints:
+  `GET /auth/admin/users/{id}/status/history` (paginated, filterable by
+  actor_type / action / date range) and `POST /auth/admin/users/{id}/notes`
+  for standalone notes. Status endpoint now accepts an optional `comment`
+  field alongside `reason`. Configurable via `account.audit.*` — every
+  part is opt-out: master switch, system-action toggle, request-meta
+  capture, per-endpoint enable flags, custom table name, retention.
+- **Account notifications.** `AccountDeletedNotification`,
+  `AccountRestoredNotification`, `AccountPurgedNotification`,
+  `AccountStatusChangedNotification`. Each has a publishable Blade view
+  and a config-driven FQCN override, same pattern as the OTP / magic-link
+  notifications.
+- **Events.** `AccountStatusChanged`, `AccountDeleted`, `AccountRestored`,
+  `AccountPurged` for host-side integration.
+- **HasAccountStatus trait** for the User model (optional sugar).
+- **Translation keys.** `account_disabled`, `account_suspended`,
+  `account_deletion_disabled`, `account_status_invalid`,
+  `account_password_mismatch`, `account_deleted`, `account_restored`,
+  `account_status_updated`. English + Arabic shipped.
+- **Docs.** `docs/account-status.md`, `docs/account-deletion.md`.
+
+### Changed
+
+- **Login flow** now includes soft-deleted users in the email lookup when
+  the User model uses `SoftDeletes`, so auto-restore can kick in. Without
+  the trait the behavior is unchanged.
+- **`InstallCommand`** next-steps note recommends adding the `SoftDeletes`
+  trait to the host User model.
+
+### Migration notes
+
+- Two new idempotent migrations are loaded by the package
+  (`add_account_status_to_users_table`, `create_deleted_accounts_table`).
+- Existing host columns named `account_status` are preserved.
+- For the purge worker to be able to null unique columns post-grace, those
+  columns on the users table must be `nullable`. See
+  [docs/account-deletion.md](docs/account-deletion.md#why-null-the-unique-columns)
+  for the rationale.
+- The feature is **opt-out**: set `account.status.enabled=false` and
+  `account.deletion.enabled=false` to keep pre-v2.4 behavior.
+
+---
+
 ## [2.3.0] — 2026-05-15
 
 Localization pass. Every user-facing string the package returns — success
