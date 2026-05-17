@@ -169,16 +169,24 @@ class AuthServiceProvider extends ServiceProvider
 
     private function registerRoutes(): void
     {
+        // Host apps that mount the package routes manually (e.g. inside a
+        // versioned API group like /api/v1/auth) can flip this to false and
+        // require __DIR__.'/../routes/auth.php' themselves with whatever
+        // prefix/middleware they want.
+        if (! (bool) config('auth_system.routes.register', true)) {
+            return;
+        }
+
         $mode = (string) config('auth_system.mode', 'both');
 
         if ($mode === 'api') {
-            $middleware = ['api'];
+            $defaultMiddleware = ['api'];
         } else {
             // Session middleware without the full 'web' group so we can swap
             // VerifyCsrfToken for ConditionalCsrf, which skips CSRF for Bearer
             // token requests (mobile / API clients) while still protecting
             // session-based (SPA) requests.
-            $middleware = [
+            $defaultMiddleware = [
                 \Illuminate\Cookie\Middleware\EncryptCookies::class,
                 \Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse::class,
                 \Illuminate\Session\Middleware\StartSession::class,
@@ -188,7 +196,10 @@ class AuthServiceProvider extends ServiceProvider
             ];
         }
 
-        Route::prefix('auth')
+        $prefix     = (string) config('auth_system.routes.prefix', 'auth');
+        $middleware = config('auth_system.routes.middleware') ?: $defaultMiddleware;
+
+        Route::prefix($prefix)
             ->middleware($middleware)
             ->group(__DIR__ . '/../routes/auth.php');
     }

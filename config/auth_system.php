@@ -49,6 +49,48 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Route registration
+    |--------------------------------------------------------------------------
+    |
+    | Controls how (and whether) the package mounts its HTTP routes.
+    |
+    | register:
+    |   true  → Auto-mount under the configured prefix + middleware (default).
+    |   false → Don't mount automatically. The host app must require the route
+    |           file itself, e.g.:
+    |
+    |               Route::prefix('api/v1/auth')->middleware([...])->group(
+    |                   base_path('vendor/joe-404/laravel-auth/routes/auth.php')
+    |               );
+    |
+    |           Useful when you want the package endpoints inside a versioned
+    |           API group with project-specific middleware ordering.
+    |
+    | prefix:
+    |   The URL prefix the routes are mounted under when register=true.
+    |   Default 'auth' → /auth/login, /auth/register, etc. Set to 'api/v1/auth'
+    |   for versioned API hosts that prefer one global group instead of the
+    |   manual mount above.
+    |
+    | middleware:
+    |   When null (default), the package picks a middleware stack based on
+    |   `mode` (api → ['api']; web/both → cookie+session+ConditionalCsrf+api).
+    |   Set to an array to override completely.
+    |
+    | Example (Creator-Platform style — versioned auto-mount):
+    |   AUTH_ROUTES_PREFIX=api/v1/auth
+    |
+    | Example (full manual control):
+    |   AUTH_ROUTES_REGISTER=false
+    */
+    'routes' => [
+        'register'   => (bool) env('AUTH_ROUTES_REGISTER', true),
+        'prefix'     => env('AUTH_ROUTES_PREFIX', 'auth'),
+        'middleware' => null,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Registration
     |--------------------------------------------------------------------------
     |
