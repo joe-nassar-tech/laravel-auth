@@ -23,8 +23,11 @@ return new class extends Migration
             $table->string('username')->nullable()->index();
             $table->text('delete_reason')->nullable();
             $table->json('snapshot');
-            $table->timestamp('deleted_at');
-            $table->timestamp('scheduled_purge_at')->index();
+            // Nullable so MySQL strict mode does not reject inserts that
+            // construct the row in two passes. The service code always
+            // populates both before the row becomes user-visible.
+            $table->timestamp('deleted_at')->nullable();
+            $table->timestamp('scheduled_purge_at')->nullable()->index();
             $table->timestamp('purged_at')->nullable();
             $table->timestamps();
         });
