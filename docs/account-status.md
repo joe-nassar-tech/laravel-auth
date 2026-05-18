@@ -1,293 +1,291 @@
 # Account Status
 
-Since v2.4 the package ships a configurable status workflow for every user. A
-status decides whether a user can log in at all and is checked on every
-authenticated request, so flipping a status takes effect immediately — no
-waiting for tokens to expire.
+Added in v2.4. A configurable status workflow for every user. Changing a status takes effect immediately — no waiting for tokens to expire.
 
-## Statuses
+---
 
-The bundled statuses are `active`, `disabled`, `suspended`, `deleted` and
-`deactivated`. Each has a distinct intended use:
+## Table of Contents
 
-| Status        | Who sets it      | Behavior                                                                                  |
-| ------------- | ---------------- | ----------------------------------------------------------------------------------------- |
-| `active`      | Default          | Normal user. Can log in.                                                                  |
-| `suspended`   | Admin            | Temporary admin ban. Can carry an `expires_at` for auto-unban. Default temporary-capable. |
-| `disabled`    | Admin            | **Meta-style violation ban** — permanent, requires manual admin reactivation. No expiry.  |
-| `deleted`     | User (self)      | Soft-deleted with 30-day grace; auto-restores on login during grace, purged after.        |
-| `deactivated` | User (self)      | Instagram-style pause. Auto-reactivates the instant the user logs in again. No deadline.  |
+1. [The five statuses](#1-the-five-statuses)
+2. [Schema columns added](#2-schema-columns-added)
+3. [Login enforcement](#3-login-enforcement)
+4. [Per-request enforcement — auth.active middleware](#4-per-request-enforcement--authactive-middleware)
+5. [Changing status from code](#5-changing-status-from-code)
+6. [Admin endpoints](#6-admin-endpoints)
+7. [Timed bans (auto-unban)](#7-timed-bans-auto-unban)
+8. [deactivated — user self-pause](#8-deactivated--user-self-pause)
+9. [disabled — admin violation ban](#9-disabled--admin-violation-ban)
+10. [Custom statuses](#10-custom-statuses)
+11. [Audit log](#11-audit-log)
+12. [Disabling the feature](#12-disabling-the-feature)
+13. [Cheat sheet](#13-cheat-sheet)
 
-The list lives in config so you can add custom ones (e.g. `pending_review`)
-without forking the package.
+---
+
+## 1. The five statuses
+
+| Status | Who sets it | Behaviour |
+|---|---|---|
+| `active` | Default | Normal user. Can log in. |
+| `suspended` | Admin | Temporary ban. Can carry an `expires_at` for auto-unban. Default timed-capable status. |
+| `disabled` | Admin | **Meta-style violation ban.** Permanent; requires manual admin reactivation. No expiry by default. |
+| `deactivated` | User (self) | Instagram-style pause. Auto-reactivates the instant the user logs in again. No deadline. |
+| `deleted` | User (self) | Soft-deleted with 30-day grace. Auto-restores on login within grace, permanently anonymised after. |
+
+The list lives in config so you can add custom statuses (e.g. `pending_review`) without forking the package.
+
+---
+
+## 2. Schema columns added
+
+`php artisan auth:install` (or `php artisan migrate`) adds these columns to your `users` table:
+
+| Column | Type | Purpose |
+|---|---|---|
+| `account_status` | `varchar(32)` | Current status. Defaults to `active`. |
+| `status_changed_at` | `timestamp` | When the status last changed. |
+| `status_reason` | `text` | Optional admin/user-supplied reason. |
+| `status_expires_at` | `timestamp` | When a timed ban automatically lifts. `null` = permanent. |
+| `deleted_at` | `timestamp` | SoftDeletes column (for the deletion grace flow). |
+
+**Required User model traits:**
+
+```php
+use Illuminate\Database\Eloquent\SoftDeletes;
+use Joe404\LaravelAuth\Concerns\HasAccountStatus;
+
+class User extends Authenticatable
+{
+    use HasApiTokens, HasRoles, Notifiable, SoftDeletes, HasAccountStatus;
+}
+```
+
+`SoftDeletes` is required for account deletion auto-restore. `HasAccountStatus` is optional — it adds convenience methods (`$user->isActive()`, `$user->isSuspended()`, `$user->isBanned()`, etc.).
+
+---
+
+## 3. Login enforcement
+
+`AuthService::login()` calls `AccountStatusService::assertCanLogin($user)` after a successful credential check. If the user's status is in `login_blocked`, login is rejected with an HTTP 403 and a per-status translatable error message.
+
+**Default `login_blocked` statuses:**
+
+| Status | Error key | Default English message |
+|---|---|---|
+| `disabled` | `account_disabled` | This account has been disabled. |
+| `suspended` | `account_suspended` | This account has been suspended. |
+
+The `deleted` status is **not** in `login_blocked` — the login flow detects it and auto-restores the account if within the grace period. See [account-deletion.md](account-deletion.md).
+
+The `deactivated` status is also not in `login_blocked` — it is listed in `login_auto_restorable`, so a successful login silently flips the user back to `active`.
+
+**Override messages:**
 
 ```php
 // config/auth_system.php
-'account' => [
-    'status' => [
-        'enabled'       => true,
-        'column'        => 'account_status',
-        'default'       => 'active',
-        'allowed'       => ['active', 'disabled', 'suspended', 'deleted', 'pending_review'],
-        'login_blocked' => ['disabled', 'suspended', 'pending_review'],
-        'revoke_sessions_on_change' => true,
-        'admin_ability' => 'super-admin|admin',
-    ],
+'errors' => [
+    'account_disabled'  => 'Your account was disabled. Contact support to appeal.',
+    'account_suspended' => 'Your account has been temporarily suspended.',
 ],
 ```
 
-`deleted` is **not** in `login_blocked` — it is handled by the deletion
-auto-restore flow, see [account-deletion.md](account-deletion.md).
+Or via translation files: `lang/vendor/auth_system/<locale>/errors.php`.
 
-## Schema
+---
 
-`php artisan auth:install` runs an idempotent migration that adds:
+## 4. Per-request enforcement — auth.active middleware
 
-| Column              | Type          | Purpose                                   |
-| ------------------- | ------------- | ----------------------------------------- |
-| `account_status`    | `varchar(32)` | Current status. Defaults to `active`.     |
-| `status_changed_at` | `timestamp`   | When the status last changed.             |
-| `status_reason`     | `text`        | Optional admin/user-supplied explanation. |
-| `deleted_at`        | `timestamp`   | SoftDeletes column (used by deletion).    |
+Without additional middleware, a status change only blocks the **next login** — existing tokens continue working until they expire or are revoked.
 
-Add the `SoftDeletes` trait to your `User` model so the deletion + restore
-flow works.
-
-## Login enforcement
-
-`AuthService::login()` calls `AccountStatusService::assertCanLogin($user)`
-after a successful credential check. If the user's status is in
-`login_blocked`, the login is rejected with a per-status error key:
-
-| Status      | Error key           | Default English message          |
-| ----------- | ------------------- | -------------------------------- |
-| `disabled`  | `account_disabled`  | This account has been disabled.  |
-| `suspended` | `account_suspended` | This account has been suspended. |
-
-These run through the same translation pipeline as every other auth message —
-override per locale via `lang/vendor/auth_system/<locale>/errors.php` or
-globally via `config('auth_system.errors.account_disabled', '…')`.
-
-## Per-request enforcement (mid-session bans)
-
-Apply the `auth.active` middleware to any route group that should reject users
-whose status changed _after_ they logged in:
+Apply the `auth.active` middleware to any route group that should immediately reject users whose status changed after they logged in:
 
 ```php
-Route::middleware(['auth:sanctum', 'auth.active'])->group(function () {
-    // …
+// routes/api.php
+Route::middleware(['auth:sanctum', 'auth.active'])->group(function (): void {
+    Route::get('/feed', FeedController::class);
+    Route::post('/posts', PostController::class);
+    // ...
 });
 ```
 
-Without this middleware, a suspension only blocks the _next_ login — existing
-tokens continue to work until they expire or are revoked. With it, the very
-next request returns 403.
+With `auth.active`, the very next request from a suspended/disabled user returns HTTP 403 — even if their token has not expired.
 
-The middleware is registered automatically by the package's service provider.
+**How it works:** the middleware calls `AccountStatusService::current($user)`, which runs the lazy auto-unban check first, then returns the current status. If the status is in `login_blocked`, a 403 is returned.
 
-## Changing status from code
+The middleware is registered automatically by the package service provider under the alias `auth.active`.
+
+---
+
+## 5. Changing status from code
 
 ```php
 use Joe404\LaravelAuth\Services\AccountStatusService;
 
-app(AccountStatusService::class)->changeStatus(
-    $user,
-    'suspended',
-    'Spam reports above threshold.',
-);
+$service = app(AccountStatusService::class);
+
+// Suspend permanently
+$service->changeStatus($user, 'suspended', 'Spam reports above threshold.');
+
+// Suspend for 24 hours
+$service->changeStatus($user, 'suspended', 'Cooling-off period.', [
+    'expires_at' => now()->addHours(24),
+]);
+
+// Disable permanently
+$service->changeStatus($user, 'disabled', 'Policy violation — third strike.');
+
+// Restore
+$service->changeStatus($user, 'active', 'Appeal approved.');
 ```
 
-Side effects:
+**Side effects of `changeStatus()`:**
 
-- writes `account_status`, `status_changed_at`, `status_reason`
-- if the user was `active` and the new status isn't, revokes all sanctum
-  tokens + `AuthSessionExtended` rows (toggle with
-  `revoke_sessions_on_change`)
-- fires `AccountStatusChanged` event
-- sends `AccountStatusChangedNotification` if
-  `mail.account_notifications_enabled.status_changed` is true (off by default)
+1. Writes `account_status`, `status_changed_at`, `status_reason`, `status_expires_at` to the users row
+2. If `revoke_sessions_on_change=true` and status is no longer `active`, revokes all Sanctum tokens and `AuthSessionExtended` rows
+3. Fires `AccountStatusChanged` event
+4. Sends `AccountStatusChangedNotification` if `mail.account_notifications_enabled.status_changed=true` (off by default)
+5. Writes an audit row to `account_status_logs` if the audit feature is enabled
 
-## Admin endpoints
+---
+
+## 6. Admin endpoints
+
+All require the role/permission configured in `account.status.admin_ability` (default: `super-admin` or `admin`).
+
+### Get current status
 
 ```
-GET  /auth/admin/users/{id}/status
-POST /auth/admin/users/{id}/status   { "status": "...", "reason": "...", "expires_at": "...", "duration_minutes": ... }
+GET /auth/admin/users/{id}/status
 ```
 
-Gated by the role(s) in `config('auth_system.account.status.admin_ability')`
-(default `super-admin|admin`).
-
-## Timed bans (auto-unban)
-
-The admin endpoint accepts an optional expiry — the system flips the user
-back to `active` automatically when it elapses.
-
-Two equivalent ways to express the expiry; if both are sent, `expires_at`
-wins:
+**Response:**
 
 ```json
-// Suspend until a specific moment
-{ "status": "suspended", "reason": "Cooling off", "expires_at": "2026-07-17T12:00:00Z" }
-
-// Suspend for a duration
-{ "status": "suspended", "reason": "Cooling off", "duration_minutes": 120 }   // 2 hours
-{ "status": "disabled",  "duration_minutes": 43200 }                          // 30 days
+{
+  "success": true,
+  "data": {
+    "user_id": 42,
+    "status": "suspended",
+    "status_expires_at": "2026-07-17T12:00:00+00:00",
+    "status_changed_at": "2026-05-17T10:00:00.000000Z",
+    "status_reason": "Cooling off period.",
+    "allowed": ["active", "disabled", "suspended", "deleted", "deactivated"]
+  }
+}
 ```
 
-Omit both for a **permanent** ban (the pre-existing behavior).
+### Change status
 
-### How auto-unban actually fires
-
-Two layers, both default on:
-
-1. **Lazy revert.** Every status read goes through
-   `AccountStatusService::current($user)`. If `status_expires_at <= now()`
-   and the user isn't already `active`, the package flips them on the spot
-   before returning. Means a user can log in the *instant* their ban
-   expires — no waiting for the worker.
-2. **Scheduled sweep.** Every `auto_unban.sweep_minutes` minutes (default
-   5) the `RevertExpiredAccountStatuses` job sweeps every row with an
-   elapsed expiry that the lazy path hasn't touched yet and reverts them.
-
-Both paths flow through `changeStatus()`, so `AccountStatusChanged` fires
-exactly once per revert (the job is idempotent — if the lazy path already
-ran, the worker no-ops).
-
-### Which statuses can be timed?
-
-You whitelist them via `temporary_statuses`. Anything not in the list is
-**permanent-only** — passing `expires_at` / `duration_minutes` alongside it
-returns 422 with a clear error.
-
-```php
-'auto_unban' => [
-    // ...
-    'temporary_statuses' => ['suspended'],   // default
-],
+```
+POST /auth/admin/users/{id}/status
 ```
 
-Default policy:
-- `suspended` → timed-capable. Expiry optional; null expiry = permanent.
-- `disabled` → permanent-only. Expiry rejected; admin must manually
-  reactivate. Useful when "disabled" carries a heavier connotation in your
-  product (e.g. policy violation that requires human review).
+**Request body:**
 
-Add `disabled` to `temporary_statuses` if you want both kinds of bans to
-support expiries.
+```json
+{
+  "status": "suspended",
+  "reason": "Short reason tag — shown in UI",
+  "comment": "Optional long admin note attached to this change in the audit log.",
+  "expires_at": "2026-07-17T12:00:00Z",
+  "duration_minutes": 120
+}
+```
 
-**Null expiry on a temporary-capable status still means a forever ban** —
-the worker only acts when `status_expires_at` is set, so the absence of an
-expiry is a permanent suspension by definition. The lazy revert and sweep
-both bail out on null.
+| Field | Required | Description |
+|---|---|---|
+| `status` | Yes | The new status. Must be in `account.status.allowed`. |
+| `reason` | No | Short human-readable reason (e.g. `"spam"`, `"policy_violation"`). |
+| `comment` | No | Long free-form admin note stored in the audit log. |
+| `expires_at` | No | ISO 8601 datetime when the ban auto-lifts. Requires the status to be in `auto_unban.temporary_statuses`. |
+| `duration_minutes` | No | Alternative to `expires_at`. If both are sent, `expires_at` wins. |
 
-### Configuration
+Passing `expires_at` or `duration_minutes` for a status not in `temporary_statuses` returns HTTP 422.
+
+---
+
+## 7. Timed bans (auto-unban)
+
+When an admin sets `expires_at` or `duration_minutes`, the system flips the user back to `active` automatically when the expiry elapses.
+
+**Two complementary mechanisms:**
+
+### Lazy revert
+
+Every status read — login, `auth.active` middleware, `GET /me`, `GET /auth/admin/users/{id}/status` — passes through `AccountStatusService::current($user)`. If `status_expires_at <= now()` and the user is not already `active`, the package flips them on the spot before returning. This means a user can log in the **instant** their ban expires — no waiting for the sweep worker.
+
+### Scheduled sweep
+
+Every `auto_unban.sweep_minutes` minutes (default: 5), the `RevertExpiredAccountStatuses` job sweeps every row with an elapsed `status_expires_at` that the lazy path hasn't touched yet and reverts them. Both paths call `changeStatus()`, so `AccountStatusChanged` fires exactly once per revert.
+
+**Configuration:**
 
 ```php
 'account' => [
     'status' => [
-        // ...
         'auto_unban' => [
             'enabled'            => true,
             'sweep_minutes'      => 5,
-            'temporary_statuses' => ['suspended'],
+            'temporary_statuses' => ['suspended'],  // add 'disabled' if you want it timed too
         ],
     ],
 ],
 ```
 
-Or via env: `AUTH_ACCOUNT_AUTO_UNBAN=true`, `AUTH_ACCOUNT_AUTO_UNBAN_SWEEP=5`.
-
-Set `enabled=false` to disable both layers — admins can still set
-`status_expires_at` but the package will not act on it.
-
-### Manually clearing an active ban
-
-Calling `changeStatus($user, 'active', ...)` always wipes
-`status_expires_at`, regardless of whether a duration was originally set.
-A pardon is a pardon.
-
-### Reading the expiry
-
-`GET /auth/admin/users/{id}/status` returns:
-
-```json
-{
-  "user_id": 42,
-  "status": "suspended",
-  "status_expires_at": "2026-07-17T12:00:00+00:00",
-  "status_changed_at": "2026-05-17T10:00:00.000000Z",
-  "status_reason": "Cooling off",
-  "allowed": ["active", "disabled", "suspended", "deleted"]
-}
+```env
+AUTH_ACCOUNT_AUTO_UNBAN=true
+AUTH_ACCOUNT_AUTO_UNBAN_SWEEP=5
 ```
 
-## Custom statuses
+**Null expiry on a timed-capable status is still a permanent ban.** The worker only acts when `status_expires_at` is set. Omitting an expiry means the ban lasts forever.
 
-Add the string to `allowed`. If it should block login, also add it to
-`login_blocked` and add the matching translation keys:
+**Manually clearing a ban:**
 
-```php
-// config/auth_system.php
-'allowed'       => [..., 'pending_review'],
-'login_blocked' => [..., 'pending_review'],
-```
+Calling `changeStatus($user, 'active', ...)` always wipes `status_expires_at`, regardless of whether a duration was originally set.
 
-```php
-// resources/lang/en/errors.php (host-published copy)
-'account_pending_review' => 'Your account is awaiting review.',
-```
+---
 
-The package builds the error key as `account_{status}`.
+## 8. `deactivated` — user self-pause
 
-## `disabled` — admin violation ban (Meta-style)
+Instagram-style account pause. The user can come back at any time by logging in — no deadline, nothing is deleted.
 
-`disabled` is the heaviest status. It models a Facebook / Instagram-style
-account ban: the admin disables for a policy violation, the user cannot log
-in, and the status only flips back via deliberate admin action.
-
-- Always permanent — not in `temporary_statuses` by default. Passing an
-  `expires_at` or `duration_minutes` for `disabled` returns 422.
-- Login is rejected with the `account_disabled` translatable error key.
-- The reason is captured in `status_reason` for the admin's records.
-- The user has no self-service way out. The intended escape hatch is an
-  **appeal workflow** — the user submits an appeal, an admin reviews and
-  accepts or rejects, and on accept the admin calls the status endpoint
-  to flip back to `active`. The appeal endpoints themselves are not in the
-  package yet (they will ship in a later release); for now host apps can
-  build them on top of `AccountStatusService::changeStatus()`.
-
-## `deactivated` — user self-pause (Instagram-style)
-
-Distinct from `deleted`: nothing is anonymised, no countdown runs, the user
-can come back any time by logging in.
+### Endpoint
 
 ```
 POST /auth/account/deactivate
 Authorization: Bearer <token>
+Content-Type: application/json
 
-{ "password": "...", "reason": "optional free text" }
+{
+  "password": "current-password",
+  "reason": "optional free text"
+}
 ```
 
-What it does:
+### What it does
 
-- writes `account_status = deactivated`, `status_changed_at`, optional `status_reason`
-- revokes every sanctum token + every `AuthSessionExtended` row for the user
-  (they are signed out everywhere)
-- fires `AccountStatusChanged`
-- sends `AccountDeactivatedNotification` (toggle:
-  `mail.account_notifications_enabled.deactivated`, default true)
+1. Writes `account_status = deactivated`, `status_changed_at`, optional `status_reason`
+2. Revokes all Sanctum tokens and `AuthSessionExtended` rows (user is signed out everywhere)
+3. Fires `AccountStatusChanged` event
+4. Sends `AccountDeactivatedNotification` if `mail.account_notifications_enabled.deactivated=true` (default: on)
 
-What it does NOT do:
+### What it does NOT do
 
-- it does not soft-delete the user
-- it does not schedule a purge
-- it does not touch unique columns
+- Does not soft-delete the user row
+- Does not schedule a purge
+- Does not touch unique columns (email, username remain unchanged)
 
-Reactivation is **automatic** on the next successful login. The login flow
-detects `status=deactivated`, flips back to `active`, sends
-`AccountReactivatedNotification`, and continues issuing the token as if
-nothing happened. The user just logs in like normal — no separate
-reactivate endpoint, no signed link.
+### Auto-reactivation on login
+
+When a `deactivated` user logs in with the correct credentials:
+
+1. Package detects `status=deactivated` and `deactivated` is in `login_auto_restorable`
+2. Calls `changeStatus($user, 'active', 'auto_reactivate')`
+3. Fires `AccountStatusChanged` event
+4. Sends `AccountReactivatedNotification`
+5. Continues issuing the token/session normally
+
+The user sees a normal successful login response — no separate "reactivate" endpoint, no extra round-trip.
 
 ### Configuration
 
@@ -302,105 +300,160 @@ reactivate endpoint, no signed link.
 ],
 ```
 
-If you ever want to turn the auto-flow off (e.g. you want to require a
-support ticket to come back), set `auto_reactivate_on_login=false` and add
-`deactivated` to `login_blocked` so the login is explicitly rejected.
+**To require a support ticket to come back:** set `auto_reactivate_on_login=false` and add `deactivated` to `account.status.login_blocked`.
 
-## Audit log (multi-admin context)
+---
 
-Every status transition — admin, user, or automatic — is persisted to
-`account_status_logs` so a second admin can open a user's history and
-understand the chain of events without pinging anyone. Admins can also
-attach free-form notes without changing status (e.g. "user emailed support
-twice — waiting on product reply").
+## 9. `disabled` — admin violation ban
 
-Every row records: who acted (`actor_type` + `actor_id`), what happened
-(`action` = `status_change` or `note`), the transition (`from_status` →
-`to_status`), `reason` (short tag), `comment` (long admin note), `source`
-(context tag like `admin_endpoint`, `self_deactivate`, `auto_unban_lazy`,
-`login_auto_restore`, `purge_worker`, `admin_note`), `expires_at`, IP +
-user-agent if a request is in scope.
+`disabled` is the heaviest status — a Meta/Facebook-style ban for policy violations. The user cannot log in and the status only reverts via deliberate admin action.
 
-### Endpoints
+- **Always permanent by default** — not in `temporary_statuses`, so passing `expires_at` returns HTTP 422. Add `'disabled'` to `temporary_statuses` if you want it to support expiry.
+- Login is rejected with the `account_disabled` error key.
+- The reason is captured in `status_reason` for the admin's records.
+- The user has no self-service way out. The intended flow is an **appeal workflow**: the user submits an appeal, an admin reviews it, and on approval calls `POST /auth/admin/users/{id}/status` with `status=active`.
 
-```
-GET  /auth/admin/users/{id}/status/history
-GET  /auth/admin/users/{id}/status/history?actor_type=admin&from=2026-01-01&page=2&per_page=50
+---
 
-POST /auth/admin/users/{id}/notes
-      { "comment": "Required free-form note.", "reason": "optional short tag" }
+## 10. Custom statuses
 
-POST /auth/admin/users/{id}/status
-      { "status": "...", "reason": "...", "comment": "Optional admin note attached to this change." }
-```
+Add a string to `allowed`. If it should block login, also add it to `login_blocked`. Then add the matching error key.
 
-Both audit endpoints are gated by the same role as the status endpoint
-(`account.status.admin_ability`, default `super-admin|admin`).
-
-### Source tags shipped out of the box
-
-| Source                  | Fires when …                                                         |
-| ----------------------- | -------------------------------------------------------------------- |
-| `admin_endpoint`        | Admin hits `POST /auth/admin/users/{id}/status`.                     |
-| `admin_note`            | Admin hits `POST /auth/admin/users/{id}/notes`.                      |
-| `self_deactivate`       | User hits `POST /auth/account/deactivate`.                           |
-| `self_delete`           | User hits `DELETE /auth/account`.                                    |
-| `login_auto_restore`    | Auto-restore on login for a `deleted` user inside grace.             |
-| `login_auto_reactivate` | Auto-reactivate on login for a `deactivated` user.                   |
-| `auto_unban_lazy`       | Lazy revert inside `AccountStatusService::current()`.                |
-| `auto_unban_sweep`      | Sweep worker reverts an expired ban.                                 |
-| `purge_worker`          | Purge worker permanently anonymises a deleted row.                   |
-
-Host apps can pass any custom string into `AccountStatusService::changeStatus(...,
-['source' => 'my_tag'])` — the column is free-form.
-
-### Config — every part is opt-out
+**Config:**
 
 ```php
-'audit' => [
-    'enabled'              => true,                  // master switch
-    'table'                => 'account_status_logs', // override table name
-    'log_status_changes'   => true,                  // log status transitions
-    'log_system_actions'   => true,                  // include actor=system rows
-    'capture_request_meta' => true,                  // ip + user_agent
-
-    'notes' => [
-        'enabled' => true,                           // POST .../notes endpoint
+'account' => [
+    'status' => [
+        'allowed'       => ['active', 'disabled', 'suspended', 'deleted', 'deactivated', 'pending_review'],
+        'login_blocked' => ['disabled', 'suspended', 'pending_review'],
     ],
-    'history' => [
-        'enabled'          => true,                  // GET .../status/history endpoint
-        'default_per_page' => 20,
-        'max_per_page'     => 100,
-    ],
-
-    'retention_days' => null,                        // null = forever; N = daily cleanup
 ],
 ```
 
-Env equivalents follow the `AUTH_ACCOUNT_AUDIT_*` prefix — see
-`config/auth_system.php` comments for the full list.
+**Translation (error key is always `account_{status}`):**
 
-### When does audit write?
+```php
+// lang/vendor/auth_system/en/errors.php (host-published copy)
+'account_pending_review' => 'Your account is pending review. We will email you within 24 hours.',
+```
 
-- `enabled=false` → nothing is written, both endpoints return 404.
-- `log_status_changes=false` → status transitions stop being logged but
-  admin notes (which are `action=note`) still are.
-- `log_system_actions=false` → admin + user transitions are logged but
-  automatic ones (lazy revert, sweep, purge, login auto-restore, login
-  auto-reactivate) are silently dropped.
+**Timed-capable custom status:**
 
-All writes are wrapped in try/catch — a logger failure must never block
-the underlying action.
+```php
+'auto_unban' => [
+    'temporary_statuses' => ['suspended', 'pending_review'],
+],
+```
 
-## Cheat sheet — picking the right status
+---
 
-- Cooling-off, will lift itself → `suspended` + `duration_minutes`.
-- Policy violation, requires human review to lift → `disabled`.
-- User wants to take a break and come back → `deactivated`.
-- User wants to leave but might change their mind → `deleted` (30-day grace).
+## 11. Audit log
 
-## Disabling the feature
+Every status transition — admin, user, or automatic — is written to `account_status_logs`. A second admin can open a user's history and understand the chain of events without pinging anyone.
 
-Set `account.status.enabled = false`. Login and middleware skip status checks
-entirely. The columns stay in the schema — disabling is a runtime decision,
-not a teardown.
+### What each audit row stores
+
+| Column | Description |
+|---|---|
+| `actor_type` | `admin`, `user`, or `system` |
+| `actor_id` | ID of the admin or user who acted. `null` for system. |
+| `action` | `status_change` or `note` |
+| `from_status` | Status before the change |
+| `to_status` | Status after the change |
+| `reason` | Short tag (e.g. `spam`, `appeal_approved`) |
+| `comment` | Long free-form admin note |
+| `source` | Context tag — see source tags below |
+| `expires_at` | Expiry set on the new status |
+| `ip_address` | IP when an HTTP request is in scope |
+| `user_agent` | User agent string when in scope |
+
+### Source tags
+
+| Source | Fires when |
+|---|---|
+| `admin_endpoint` | Admin hits `POST /auth/admin/users/{id}/status` |
+| `admin_note` | Admin hits `POST /auth/admin/users/{id}/notes` |
+| `self_deactivate` | User hits `POST /auth/account/deactivate` |
+| `self_delete` | User hits `DELETE /auth/account` |
+| `login_auto_restore` | Login auto-restore for a `deleted` user inside grace |
+| `login_auto_reactivate` | Login auto-reactivate for a `deactivated` user |
+| `auto_unban_lazy` | Lazy revert inside `AccountStatusService::current()` |
+| `auto_unban_sweep` | Sweep worker reverts an expired ban |
+| `purge_worker` | Purge worker permanently anonymises a deleted row |
+
+Pass any custom string: `$service->changeStatus($user, 'active', 'manual', ['source' => 'support_ticket_#4711'])`.
+
+### Audit endpoints
+
+Both are gated by `account.status.admin_ability`.
+
+**Status history:**
+
+```
+GET /auth/admin/users/{id}/status/history
+GET /auth/admin/users/{id}/status/history?actor_type=admin&action=status_change&from=2026-01-01&to=2026-06-01&page=2&per_page=50
+```
+
+**Add admin note (without changing status):**
+
+```
+POST /auth/admin/users/{id}/notes
+
+{
+  "comment": "User emailed support twice — waiting on product reply.",
+  "reason": "awaiting_review"
+}
+```
+
+### Configuration
+
+```php
+'account' => [
+    'audit' => [
+        'enabled'              => true,     // false = nothing logged, endpoints return 404
+        'table'                => 'account_status_logs',
+        'log_status_changes'   => true,     // false = only notes logged
+        'log_system_actions'   => true,     // false = only human-initiated actions
+        'capture_request_meta' => true,     // false = no IP/UA stored
+        'retention_days'       => null,     // null = keep forever; N = daily cleanup
+        'notes'   => ['enabled' => true],
+        'history' => ['enabled' => true, 'default_per_page' => 20, 'max_per_page' => 100],
+    ],
+],
+```
+
+All audit writes are wrapped in try/catch — a logger failure never blocks the underlying action.
+
+---
+
+## 12. Disabling the feature
+
+Set `account.status.enabled = false`. Login and the `auth.active` middleware skip all status checks. The columns remain in the schema — disabling is a runtime decision, not a teardown.
+
+```php
+'account' => [
+    'status' => [
+        'enabled' => false,
+    ],
+],
+```
+
+Or via `.env`:
+
+```env
+AUTH_ACCOUNT_STATUS_ENABLED=false
+```
+
+---
+
+## 13. Cheat sheet
+
+| Goal | What to do |
+|---|---|
+| Cooling-off ban that lifts itself | `suspended` + `duration_minutes` or `expires_at` |
+| Policy violation — requires human review to lift | `disabled` (permanent, no expiry) |
+| User wants a break but can come back | `deactivated` (auto-restores on next login) |
+| User wants to leave but might change their mind | `deleted` (30-day grace, auto-restores on login during grace) |
+| Immediate effect after status change | Add `auth.active` middleware to your route groups |
+| Custom status that blocks login | Add to `allowed` + `login_blocked` + add error key |
+| Temporary custom ban | Add to `allowed` + `login_blocked` + `auto_unban.temporary_statuses` |

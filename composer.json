@@ -68,6 +68,13 @@
       ]
     }
   },
+  "archive": {
+    "exclude": [
+      "docs",
+      "tests",
+      "*.postman_collection.json"
+    ]
+  },
   "minimum-stability": "stable",
   "prefer-stable": true,
   "config": {

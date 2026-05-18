@@ -1,7 +1,23 @@
 # Installation Guide
 
-End-to-end install for `joe-404/laravel-auth`, including everything the
-package needs in your host Laravel app.
+Complete setup guide for `joe-404/laravel-auth`.
+
+---
+
+## Table of Contents
+
+- [TL;DR](#tldr)
+- [What gets installed automatically](#what-gets-installed-automatically)
+- [What `auth:install` does step by step](#what-authinstall-does-step-by-step)
+- [Installer flags](#installer-flags)
+- [Host app changes you must make manually](#host-app-changes-you-must-make-manually)
+- [Optional packages](#optional-packages)
+- [Manual install (without auth:install)](#manual-install-without-authinstall)
+- [Customising the route prefix](#customising-the-route-prefix)
+- [Verifying the install](#verifying-the-install)
+- [Troubleshooting](#troubleshooting)
+
+---
 
 ## TL;DR
 
@@ -15,124 +31,134 @@ Then in `app/Models/User.php`:
 ```php
 use Laravel\Sanctum\HasApiTokens;
 use Spatie\Permission\Traits\HasRoles;
+use Illuminate\Database\Eloquent\SoftDeletes;
+use Joe404\LaravelAuth\Concerns\HasAccountStatus;
 
 class User extends Authenticatable
 {
-    use HasApiTokens, HasRoles, Notifiable;
+    use HasApiTokens, HasRoles, Notifiable, SoftDeletes, HasAccountStatus;
 }
 ```
 
-Set a mail driver and `AUTH_MODE` in `.env`, and you're done. The
-end-to-end guide below explains exactly what `auth:install` does and how
-to recover when one of its steps fails partway through.
+Set a mail driver and `AUTH_MODE` in `.env`, and you're ready.
 
 ---
 
-## What `composer require` installs
+## What gets installed automatically
 
-The package declares hard dependencies in its `composer.json`, so they
-install automatically alongside it:
+`composer require joe-404/laravel-auth` installs these four packages as hard dependencies — you do **not** need to require them separately:
 
-| Package | Why |
-|---------|-----|
-| `laravel/sanctum` `^4.0`           | Issues access tokens and session cookies. |
-| `laravel/socialite` `^5.0`         | Optional Google OAuth flow. |
-| `spatie/laravel-permission` `^6.0` | Role + permission storage; `assignRole('admin')`, `User::role('admin')->…`. |
-| `jenssegers/agent` `^2.6`          | User-Agent parsing for the device/session columns. |
+| Package | Purpose |
+|---|---|
+| `laravel/sanctum ^4.0` | Access tokens and SPA session cookies |
+| `laravel/socialite ^5.0` | Google OAuth flow |
+| `spatie/laravel-permission ^6.0` | Roles and permissions (`HasRoles`, `assignRole`, `User::role('admin')`) |
+| `jenssegers/agent ^2.6` | User-Agent parsing for session device tracking |
 
-You do **not** need to `composer require` any of these yourself — Composer
-resolves them transitively. The same is true for their service providers:
-Laravel's package discovery picks them up automatically.
+Their service providers are discovered automatically — no `config/app.php` edit needed.
 
-### Optional packages (install only if you need the feature)
+### Database tables created
 
-| Package | Feature unlocked |
-|---------|------------------|
-| `laravel/reverb`    | Real-time WebSocket notification when a user verifies their email. The package broadcasts on `private-auth.verification.{tempToken}`. |
-| `laravel/horizon`   | A web dashboard for the package's `auth-maintenance` queue (OTP / refresh-token cleanup jobs). |
-| `laravel/telescope` | Request inspector during development. |
+After `auth:install` runs, your database has these tables:
 
-If any of these are missing, `auth:install` prints a notice but does not
-abort — the rest of the install completes normally.
+| Table | Owner |
+|---|---|
+| `auth_otp_codes` | `joe-404/laravel-auth` |
+| `auth_sessions_extended` | `joe-404/laravel-auth` |
+| `auth_refresh_tokens` | `joe-404/laravel-auth` |
+| `auth_social_accounts` | `joe-404/laravel-auth` |
+| `auth_api_tokens` | `joe-404/laravel-auth` |
+| `account_status_logs` | `joe-404/laravel-auth` |
+| `deleted_accounts` | `joe-404/laravel-auth` |
+| `users` (altered: `last_login_at`, `is_active`, `account_status`, `status_changed_at`, `status_reason`, `status_expires_at`, `deleted_at`) | `joe-404/laravel-auth` |
+| `personal_access_tokens` | `laravel/sanctum` |
+| `roles`, `permissions`, `model_has_roles`, `role_has_permissions`, `model_has_permissions` | `spatie/laravel-permission` |
 
 ---
 
-## What `php artisan auth:install` does
+## What `auth:install` does step by step
 
-It is one command on purpose — running steps in the wrong order is the #1
-source of install-time errors. Internally it performs, **in this order**:
+The installer runs steps in this exact order, which matters — running them out of order is the most common source of install errors.
 
-1. **Sanity-check required Composer packages.** Fails loud with the exact
-   `composer require …` command if any of the four required dependencies
-   above is not loadable.
-2. **Publishes the package config** to `config/auth_system.php`.
-3. **Publishes dependency migrations:**
-   - `laravel/sanctum` → `personal_access_tokens` table.
-   - `spatie/laravel-permission` → `roles`, `permissions`,
-     `model_has_roles`, `role_has_permissions`, `model_has_permissions`
-     tables.
-4. **Runs `php artisan migrate --force`.** Creates the dependency tables
-   above **plus** the six package-owned tables loaded from
-   `vendor/joe-404/laravel-auth/database/migrations/`:
-   - `auth_otp_codes`
-   - `auth_sessions_extended`
-   - `auth_refresh_tokens`
-   - `auth_social_accounts`
-   - `auth_api_tokens`
-   - alterations to your `users` table (`last_login_at`, `is_active`)
-5. **Seeds the default roles** via `AuthRolesSeeder`. By default this
-   creates `super-admin`, `admin`, `user` — configurable via
-   `auth_system.roles.seeded_roles`. The seeder is idempotent and pre-flights
-   the `roles` table existence with a helpful error if it's missing.
-6. **Wires the Reverb channel stub** by appending the
-   `auth.verification.{tempToken}` channel definition to
-   `routes/channels.php`. Idempotent — skipped if already present.
+### 1. Sanity-check Composer dependencies
 
-### Flags
+Confirms all four required packages are loadable. If any are missing, the command prints the exact `composer require` command and aborts — it will not proceed to publishing with a broken dependency.
+
+### 2. Publish the package config
+
+Copies `config/auth_system.php` to your application. Skip with `--force` to overwrite an existing copy.
+
+### 3. Publish dependency migrations
+
+Publishes migration stubs from:
+- `laravel/sanctum` → creates `personal_access_tokens`
+- `spatie/laravel-permission` → creates `roles`, `permissions`, and the three pivot tables
+
+### 4. Run `php artisan migrate --force`
+
+Runs all pending migrations. This creates the dependency tables from step 3, and runs all package-owned migrations from `vendor/joe-404/laravel-auth/database/migrations/`.
+
+### 5. Seed the default roles
+
+Runs `AuthRolesSeeder`, which calls `Role::firstOrCreate()` for each role in `config('auth_system.roles.seeded_roles')`. Defaults are `super-admin`, `admin`, `user`. The seeder is idempotent — safe to re-run.
+
+### 6. Wire the Reverb channel stub
+
+Appends the `auth.verification.{tempToken}` channel definition to `routes/channels.php`. This is idempotent — if the definition is already present, it is skipped.
+
+### Is it safe to re-run?
+
+Yes. Publishing without `--force` is a no-op on existing files, `migrate` only runs pending migrations, and the seeder uses `firstOrCreate`. Re-running after a failed install picks up where it left off.
+
+---
+
+## Installer flags
 
 | Flag | Effect |
-|------|--------|
-| `--force`            | Overwrite existing published files (`config/auth_system.php`, migrations). |
-| `--skip-migrations`  | Publish only; do not run `migrate`. Useful in CI / multi-step deploys. |
-| `--skip-seed`        | Skip `AuthRolesSeeder`. Useful when seeding roles from your own seeder. |
-
-### Re-running
-
-`auth:install` is safe to run multiple times. Publishing without `--force`
-is a no-op, `migrate` only runs pending migrations, and the seeder uses
-`Role::firstOrCreate()`.
+|---|---|
+| `--force` | Overwrite existing published files (`config/auth_system.php`, migrations). Use when updating to a new version that ships config changes. |
+| `--skip-migrations` | Publish config only; do not run `migrate`. Useful in CI pipelines or multi-step deploy scripts. |
+| `--skip-seed` | Skip `AuthRolesSeeder`. Use when you seed roles from your own seeder. |
 
 ---
 
-## Host app changes you still need to make manually
+## Host app changes you must make manually
 
-`auth:install` cannot edit your `User` model or `config/sanctum.php`.
-After the command finishes:
+`auth:install` cannot edit your `User` model or your Sanctum config. Do these after the command finishes.
 
-### 1. Add the required traits to `User`
+### 1. Add traits to User model
 
 ```php
+<?php
+
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Database\Eloquent\SoftDeletes;
+use Joe404\LaravelAuth\Concerns\HasAccountStatus;
 use Laravel\Sanctum\HasApiTokens;
 use Spatie\Permission\Traits\HasRoles;
 
 class User extends Authenticatable
 {
-    use HasApiTokens, HasRoles, Notifiable;
-
-    // existing $fillable, $hidden, casts, etc.
+    use HasApiTokens, HasFactory, HasRoles, Notifiable, SoftDeletes, HasAccountStatus;
 }
 ```
 
-Without `HasRoles`, `User::role('admin')` will throw. Without
-`HasApiTokens`, token issuance silently produces null.
+**Why each trait is needed:**
 
-### 2. Add your frontend domain to Sanctum's stateful list
+| Trait | Without it |
+|---|---|
+| `HasApiTokens` | Token issuance silently returns null |
+| `HasRoles` | `User::role('admin')` throws; `assignRole()` fails |
+| `SoftDeletes` | The account deletion auto-restore flow cannot work |
+| `HasAccountStatus` | Optional — convenience methods (`$user->isActive()`, `$user->isSuspended()`, etc.) won't be available, but the package reads/writes the status column directly either way |
 
-For SPA / cookie-based auth:
+### 2. Set Sanctum stateful domains (SPA / cookie auth only)
+
+If you are using web or `both` auth mode with a browser SPA:
 
 ```php
 // config/sanctum.php
@@ -143,37 +169,58 @@ For SPA / cookie-based auth:
 SANCTUM_STATEFUL_DOMAINS=app.example.com,localhost
 ```
 
-### 3. Set the minimum `.env`
+Mobile clients using Bearer tokens do not need this.
+
+### 3. Set the minimum .env
 
 ```env
-AUTH_MODE=both
-AUTH_VERIFICATION_METHOD=both
+# Core
+AUTH_MODE=both                   # api | web | both
+AUTH_VERIFICATION_METHOD=both    # otp | magic_link | both
 
+# Mail (required — the package sends OTPs and magic links)
 MAIL_MAILER=smtp
 MAIL_FROM_ADDRESS=hello@yourapp.com
 MAIL_FROM_NAME="${APP_NAME}"
 ```
 
-See `docs/configuration.md` for the full `.env` reference.
+See [docs/configuration.md](configuration.md) for the complete `.env` reference.
 
 ---
 
-## Manual install (when you cannot use `auth:install`)
+## Optional packages
 
-If your host app forbids `vendor:publish` from a command, has custom
-migration ordering, or you want explicit control over each step:
+Install only the ones you need. `auth:install` prints a notice if they are missing but does not abort.
+
+| Package | What it enables |
+|---|---|
+| `laravel/reverb` | Real-time WebSocket push when a user's email is verified. The package broadcasts on `private-auth.verification.{tempToken}`. |
+| `laravel/horizon` | Web dashboard for the `auth-maintenance` queue (OTP cleanup, refresh token cleanup, deletion purge jobs). |
+| `laravel/telescope` | Request inspector during development. |
+
+```bash
+composer require laravel/reverb
+composer require laravel/horizon
+composer require laravel/telescope
+```
+
+---
+
+## Manual install (without auth:install)
+
+Use this when your host app forbids running artisan commands from `vendor:publish`, or when you need explicit control over migration ordering.
 
 ```bash
 # 1. Install the package
 composer require joe-404/laravel-auth
 
-# 2. Publish the package's config
+# 2. Publish the package config
 php artisan vendor:publish --tag=auth-config
 
-# 3. Publish Sanctum's migration
+# 3. Publish Sanctum migrations
 php artisan vendor:publish --provider="Laravel\Sanctum\SanctumServiceProvider"
 
-# 4. Publish Spatie Permission's migration
+# 4. Publish Spatie Permission migrations
 php artisan vendor:publish \
     --provider="Spatie\Permission\PermissionServiceProvider" \
     --tag=permission-migrations
@@ -184,19 +231,66 @@ php artisan migrate
 # 6. Seed the default roles
 php artisan db:seed --class="Joe404\LaravelAuth\Database\Seeders\AuthRolesSeeder"
 
-# 7. (Optional) Append the Reverb channel auth stub
-php artisan vendor:publish --tag=auth-stubs   # writes stubs/vendor/joe-404/laravel-auth/channels.stub
-# then copy its contents into routes/channels.php
+# 7. (Optional) Publish language files
+php artisan vendor:publish --tag=auth-lang
+
+# 8. (Optional) Publish email view templates
+php artisan vendor:publish --tag=auth-views
+```
+
+Then make the same User model and `.env` changes from the section above.
+
+---
+
+## Customising the route prefix
+
+By default all routes are mounted at `/auth`. To mount them elsewhere (e.g. inside a versioned API group):
+
+```php
+// config/auth_system.php
+'routes' => [
+    'prefix'     => 'api/v1/auth',   // changes /auth/login → /api/v1/auth/login
+    'register'   => true,            // set false to disable route registration entirely
+    'middleware' => ['api'],         // default middleware group
+],
+```
+
+Or via `.env`:
+
+```env
+AUTH_ROUTE_PREFIX=api/v1/auth
+AUTH_ROUTES_ENABLED=true
+```
+
+> If you mount under a prefix that already includes the `api` middleware group (e.g. inside a `Route::prefix('api')->middleware('api')` group), set `middleware` to `[]` to avoid double-applying it.
+
+---
+
+## Verifying the install
+
+Run these three checks after installing. If all pass, the install is complete.
+
+```bash
+# 1. Confirm all package tables are migrated
+php artisan migrate:status | findstr "auth_"
+# Every auth_ table should show "Yes" or "Ran"
+
+# 2. Confirm roles were seeded
+php artisan tinker --execute="echo Spatie\Permission\Models\Role::pluck('name');"
+# Prints: ["super-admin","admin","user"]
+
+# 3. Confirm routes are registered
+php artisan route:list --path=auth
+# Lists /auth/register, /auth/login, /auth/me, etc.
 ```
 
 ---
 
 ## Troubleshooting
 
-### `SQLSTATE[42S02]: Base table or view not found: 1146 Table '…roles' doesn't exist`
+### `Table 'roles' doesn't exist` when seeding
 
-You ran `db:seed` for `AuthRolesSeeder` **before** Spatie Permission's
-migration was published and applied. Fix:
+You ran the seeder before Spatie Permission's migrations were applied.
 
 ```bash
 php artisan vendor:publish --provider="Spatie\Permission\PermissionServiceProvider" --tag=permission-migrations
@@ -204,35 +298,48 @@ php artisan migrate
 php artisan db:seed --class="Joe404\LaravelAuth\Database\Seeders\AuthRolesSeeder"
 ```
 
-Or just run `php artisan auth:install` — it does the same three commands
-in order. Starting with v2.3 the seeder pre-flights this and prints the
-same hint before the SQL error fires.
+Or simply run `php artisan auth:install` — it does these three in order.
 
-### `Class … Joe404\LaravelAuth\Database\Seeders\AuthRolesSeeder does not exist`
+### `Class … AuthRolesSeeder does not exist`
 
-The autoloader has not picked up the package. Run:
+The Composer autoloader hasn't picked up the package. Run:
 
 ```bash
 composer dump-autoload
 ```
 
-### `Role does not exist` on `assignRole('admin')`
+### `Role does not exist` when calling `assignRole('admin')`
 
-Your `auth_system.roles.seeded_roles` config does not include the role
-you're trying to assign, or the seeder has not run. Either add the role
-to the config and re-run `db:seed`, or call
-`Role::firstOrCreate(['name' => 'admin', 'guard_name' => 'web'])`
-before `assignRole`.
+Either the role was not in `auth_system.roles.seeded_roles` when the seeder ran, or the seeder hasn't run at all.
+
+```bash
+# Check what roles exist
+php artisan tinker --execute="echo Spatie\Permission\Models\Role::pluck('name');"
+
+# Re-seed if the role is missing
+php artisan db:seed --class="Joe404\LaravelAuth\Database\Seeders\AuthRolesSeeder"
+```
+
+Alternatively create the role manually:
+
+```php
+\Spatie\Permission\Models\Role::firstOrCreate(['name' => 'admin', 'guard_name' => 'web']);
+```
 
 ### `auth:install` fails at the migrate step
 
-Re-run with `--skip-migrations`, fix the underlying DB issue, then run
-`php artisan migrate` followed by `php artisan auth:install --skip-migrations`
-(the second run will pick up at the seed step without re-publishing).
+Run the install in two passes:
 
-### "Optional packages not installed" warning
+```bash
+php artisan auth:install --skip-migrations   # publish only
+# fix your DB issue
+php artisan migrate
+php artisan auth:install --skip-migrations   # picks up at seed step
+```
 
-Informational only. Install just the ones you want:
+### "Optional packages not installed" notice
+
+This is informational. The install continues normally. Install optional packages individually when you need them:
 
 ```bash
 composer require laravel/reverb     # real-time verification events
@@ -240,19 +347,18 @@ composer require laravel/horizon    # queue dashboard
 composer require laravel/telescope  # dev request inspector
 ```
 
----
+### Tokens come back `null` after login
 
-## Verifying the install
+`HasApiTokens` is missing from the `User` model. Add it (see the traits section above).
 
-```bash
-php artisan migrate:status | grep -E "auth_otp_codes|auth_sessions|auth_refresh|auth_social|auth_api|permission_tables|sanctum"
-# All rows should show "Ran".
+### `User::role('admin')` throws a `BadMethodCallException`
 
-php artisan tinker --execute="echo Spatie\Permission\Models\Role::pluck('name');"
-# Prints ["super-admin", "admin", "user"] (or your configured roles).
+`HasRoles` is missing from the `User` model.
 
-php artisan route:list --path=auth | head -20
-# Confirms /auth/register, /auth/login, /auth/me, etc. are registered.
-```
+### Account deletion auto-restore does not work
 
-If all three commands above succeed, the install is good.
+`SoftDeletes` is missing from the `User` model. The package calls `$user->restore()` on login, which requires the trait.
+
+### MySQL strict mode error on `deleted_accounts` migration
+
+Use v2.4.2 or later. Earlier versions declared timestamp columns as `NOT NULL` without a default, which MySQL strict mode rejects. See [docs/upgrading.md](upgrading.md) for details.

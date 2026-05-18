@@ -1,46 +1,59 @@
 # Account Deletion
 
-v2.4 adds a soft-delete flow with a configurable grace period during which a
-normal login transparently restores the account. After the grace window
-elapses a scheduled worker permanently anonymises the row.
+Added in v2.4. A self-service soft-delete flow with a configurable grace period during which a normal login transparently restores the account. After the grace window elapses, a scheduled worker permanently anonymises the row.
 
-## Flow at a glance
+---
+
+## Table of Contents
+
+1. [Flow overview](#1-flow-overview)
+2. [Configuration](#2-configuration)
+3. [Self-service endpoint](#3-self-service-endpoint)
+4. [The deleted_accounts table](#4-the-deleted_accounts-table)
+5. [Auto-restore on login](#5-auto-restore-on-login)
+6. [The purge worker](#6-the-purge-worker)
+7. [Unique column handling](#7-unique-column-handling)
+8. [Events fired](#8-events-fired)
+9. [Required model traits](#9-required-model-traits)
+10. [Customising the notification emails](#10-customising-the-notification-emails)
+11. [Disabling the feature](#11-disabling-the-feature)
+
+---
+
+## 1. Flow overview
 
 ```
-DELETE /auth/account
-        │
-        ▼
-┌────────────────────────────────────────────┐
-│  Snapshot full users row → deleted_accounts│
-│  status = "deleted"                        │
-│  deleted_at = now()                        │
-│  scheduled_purge_at = now() + grace_days   │
-│  revoke all tokens + sessions              │
-│  send AccountDeletedNotification           │
-└────────────────────────────────────────────┘
-        │
-        │   User logs in again within grace?
-        ├──────── YES ────────┐
-        │                     ▼
-        │            ┌──────────────────────────┐
-        │            │  status = "active"       │
-        │            │  deleted_at = null       │
-        │            │  drop deleted_accounts   │
-        │            │  send AccountRestored    │
-        │            │  continue normal login   │
-        │            └──────────────────────────┘
-        │
-        ▼ NO — grace expires
-┌────────────────────────────────────────────┐
-│  PurgeExpiredAccountDeletions (hourly)    │
-│    null all unique columns on users row    │
-│    optionally hard-delete users row        │
-│    set deleted_accounts.purged_at = now()  │
-│    fire AccountPurged                      │
-└────────────────────────────────────────────┘
+DELETE /auth/account  (user hits endpoint)
+          │
+          ▼
+┌──────────────────────────────────────────────────────┐
+│  Snapshot full users row → deleted_accounts table    │
+│  Set account_status = "deleted"                      │
+│  Set deleted_at = now()                              │
+│  Set scheduled_purge_at = now() + grace_days         │
+│  Revoke all Sanctum tokens + session rows            │
+│  Fire AccountDeleted event                           │
+│  Send AccountDeletedNotification                     │
+└──────────────────────────────────────────────────────┘
+          │
+          │ ◄── User logs in again during grace period?
+          │
+     YES  │  NO ─── grace expires
+          ▼                  ▼
+┌──────────────────┐  ┌──────────────────────────────────────────────┐
+│  Set status=active│  │  PurgeExpiredAccountDeletions (hourly)       │
+│  Clear deleted_at │  │    Null unique columns on users row          │
+│  Drop deleted_    │  │    (hard-delete users row if configured)     │
+│  accounts row     │  │    Set deleted_accounts.purged_at = now()   │
+│  Fire             │  │    Fire AccountPurged event                  │
+│  AccountRestored  │  └──────────────────────────────────────────────┘
+│  Normal login     │
+└──────────────────┘
 ```
 
-## Configuration
+---
+
+## 2. Configuration
 
 ```php
 // config/auth_system.php
@@ -60,150 +73,265 @@ DELETE /auth/account
 ],
 ```
 
-| Key                       | Effect                                                                                          |
-|---------------------------|-------------------------------------------------------------------------------------------------|
-| `enabled`                 | Master switch.                                                                                  |
-| `self_service`            | If `false`, the `DELETE /auth/account` route returns 403 — only admin status change can delete. |
-| `require_password`        | Demand the user's password on the delete call.                                                  |
-| `grace_days`              | How long the deleted row stays restorable.                                                      |
-| `auto_restore_on_login`   | Silently restore on a credential match within grace.                                            |
-| `null_uniques_after_grace`| Worker nulls unique columns so email/username can be reclaimed.                                 |
-| `hard_delete_after_grace` | Worker hard-deletes the users row entirely (audit row in `deleted_accounts` is kept).           |
-| `move_to_deleted_table`   | Take a JSON snapshot of the users row at delete time.                                           |
-| `unique_columns`          | `'auto'` introspects single-column unique indexes; or pass an explicit array.                   |
-| `unique_exclude`          | Columns the resolver must never null (typically primary keys).                                  |
+| Key | Default | Description |
+|---|---|---|
+| `enabled` | `true` | Master switch. `false` = feature is off entirely, endpoint returns 403. |
+| `self_service` | `true` | `true` = expose `DELETE /auth/account`. `false` = only admins can trigger deletion via the status endpoint. |
+| `require_password` | `true` | Require the user's current password on the delete call. Strongly recommended. |
+| `grace_days` | `30` | Days the account stays restorable. Login within this window auto-restores. |
+| `auto_restore_on_login` | `true` | Silently restore on a credential match within grace. Recommended. |
+| `null_uniques_after_grace` | `true` | After grace, null unique columns (email, username) so they can be reclaimed by a new signup. |
+| `hard_delete_after_grace` | `false` | After grace, hard-delete the `users` row. The `deleted_accounts` audit row is kept regardless. |
+| `move_to_deleted_table` | `true` | Snapshot the full `users` row into `deleted_accounts` at delete time. Disable only if you have your own audit mechanism. |
+| `unique_columns` | `'auto'` | `'auto'` = introspect schema. Or pass an explicit array: `['email', 'username']`. |
+| `unique_exclude` | `['id']` | Columns the resolver must never null (primary keys, etc.). |
 
-## The `deleted_accounts` table
+**Environment variables:**
 
-```
-id                  bigint, pk
-original_user_id    bigint, indexed — NO foreign key
-email               varchar, nullable, indexed
-username            varchar, nullable, indexed
-delete_reason       text,    nullable
-snapshot            json     — full users row at delete time
-deleted_at          timestamp
-scheduled_purge_at  timestamp, indexed
-purged_at           timestamp, nullable
-timestamps
-```
-
-Why no FK back to `users`? Because if `hard_delete_after_grace=true` the
-users row eventually disappears, but the audit row must survive forever so
-foreign keys in your app tables (orders, transactions, audit events) still
-resolve to *something* meaningful.
-
-## Why null the unique columns?
-
-So a new sign-up with the same email/username can succeed after grace. While
-the audit row keeps the original values for historical context, the live
-users row's `email`/`username`/etc. become `NULL` — invisible to the unique
-constraint.
-
-**Important**: those columns on your `users` table must be `nullable`. If
-they were created `NOT NULL`, the purge will fail loudly. Migration hint:
-
-```php
-$table->string('email')->nullable()->unique();
+```env
+AUTH_ACCOUNT_DELETE_ENABLED=true
+AUTH_ACCOUNT_DELETE_SELF=true
+AUTH_ACCOUNT_DELETE_REQUIRE_PASSWORD=true
+AUTH_ACCOUNT_DELETE_GRACE_DAYS=30
+AUTH_ACCOUNT_AUTO_RESTORE=true
+AUTH_ACCOUNT_NULL_UNIQUES=true
+AUTH_ACCOUNT_HARD_DELETE=false
+AUTH_ACCOUNT_AUDIT_TABLE=true
+AUTH_ACCOUNT_UNIQUE_COLUMNS=auto
 ```
 
-## Auto unique-column discovery
+---
 
-`UniqueColumnResolver` calls `Schema::getIndexes('users')` and picks every
-single-column unique index that is not the primary key. It runs once per
-request and caches.
-
-Force an explicit list when you want to skip a column:
-
-```php
-'unique_columns' => ['email', 'username'],
-```
-
-Add to the exclude list when you want auto-discovery but with carve-outs:
-
-```php
-'unique_columns' => 'auto',
-'unique_exclude' => ['id', 'external_uuid'],
-```
-
-## Self-service endpoint
+## 3. Self-service endpoint
 
 ```
 DELETE /auth/account
 Authorization: Bearer <token>
 Content-Type: application/json
 
-{ "password": "...", "reason": "optional free text" }
+{
+  "password": "current-password",
+  "reason": "optional free text explaining why"
+}
 ```
 
-Returns:
+**Response (200):**
 
 ```json
 {
-    "success": true,
-    "message": "Account scheduled for deletion.",
-    "data": {
-        "scheduled_purge_at": "2026-06-15T10:34:21+00:00",
-        "grace_days": 30,
-        "auto_restore": true
+  "success": true,
+  "message": "Account scheduled for deletion.",
+  "data": {
+    "scheduled_purge_at": "2026-06-15T10:34:21+00:00",
+    "grace_days": 30,
+    "auto_restore": true
+  }
+}
+```
+
+**Error responses:**
+
+| HTTP | Reason |
+|---|---|
+| `403` | `self_service=false` or feature disabled |
+| `422` | Missing or wrong password (when `require_password=true`) |
+
+---
+
+## 4. The `deleted_accounts` table
+
+Created by the package migration. Stores a permanent audit snapshot of every deleted account.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `bigint PK` | |
+| `original_user_id` | `bigint` | Indexed. **No foreign key** — the users row may be hard-deleted. |
+| `email` | `varchar`, nullable | Original email for audit queries. |
+| `username` | `varchar`, nullable | Original username, if applicable. |
+| `delete_reason` | `text`, nullable | User-supplied reason from the delete call. |
+| `snapshot` | `json` | Full users row at delete time. |
+| `deleted_at` | `timestamp` | When the user hit delete. |
+| `scheduled_purge_at` | `timestamp` | Indexed — when the purge worker picks this row up. |
+| `purged_at` | `timestamp`, nullable | Set by the purge worker after anonymisation. |
+| `timestamps` | | Standard `created_at` / `updated_at`. |
+
+**Why no foreign key back to `users`?**
+
+When `hard_delete_after_grace=true`, the `users` row disappears permanently. A foreign key would prevent the `deleted_accounts` row from surviving. Since app tables (orders, transactions, audit events) may reference `original_user_id`, the audit row must outlive the users row. Without an FK, those references remain readable from the snapshot.
+
+---
+
+## 5. Auto-restore on login
+
+If `auto_restore_on_login=true` (default), a successful credential match on a `status=deleted` user within the grace period triggers a transparent restore:
+
+1. Package detects `status=deleted` and `scheduled_purge_at > now()`
+2. Calls `AccountDeletionService::restore($user)`
+3. Clears `deleted_at` (via Eloquent `restore()` — requires `SoftDeletes` trait on `User`)
+4. Flips `account_status` back to `active`
+5. Drops the `deleted_accounts` row
+6. Fires `AccountRestored` event
+7. Sends `AccountRestoredNotification`
+8. Continues issuing the token/session normally
+
+The user sees a normal successful login response. No extra round-trip, no "restore" endpoint.
+
+---
+
+## 6. The purge worker
+
+`PurgeExpiredAccountDeletions` runs **hourly** on the `auth-maintenance` queue. It chunks `deleted_accounts` rows where `scheduled_purge_at <= now()` and `purged_at IS NULL`, and calls `AccountDeletionService::purge()` on each.
+
+**Per-row purge does (in order):**
+
+1. Null the unique columns on the `users` row (email, username, etc.) so they can be reclaimed
+2. Hard-delete the `users` row if `hard_delete_after_grace=true`
+3. Set `deleted_accounts.purged_at = now()`
+4. Fire `AccountPurged` event
+
+Per-row failures are caught and logged — a single failure does not block the rest of the batch.
+
+**Make sure your queue worker is running:**
+
+```bash
+php artisan queue:work --queue=auth-maintenance
+```
+
+---
+
+## 7. Unique column handling
+
+After grace, the purge worker nulls unique columns on the `users` row so that a new signup with the same email or username can succeed.
+
+**Auto-discovery (default):**
+
+`UniqueColumnResolver` calls `Schema::getIndexes('users')` and picks every single-column unique index that is not the primary key. It caches the result for the request lifetime.
+
+**Force an explicit list:**
+
+```php
+'unique_columns' => ['email', 'username'],
+```
+
+**Exclude specific columns from auto-discovery:**
+
+```php
+'unique_columns' => 'auto',
+'unique_exclude' => ['id', 'external_uuid'],
+```
+
+**Required:** your `users` table unique columns must allow `NULL`, otherwise the purge fails:
+
+```php
+// Your users migration must have:
+$table->string('email')->nullable()->unique();
+$table->string('username')->nullable()->unique();
+```
+
+If a column is `NOT NULL` with a `DEFAULT`, the purge will throw a DB error. Fix the migration and re-run before enabling the feature.
+
+---
+
+## 8. Events fired
+
+| Event | Fired when | Payload |
+|---|---|---|
+| `AccountDeleted` | User calls `DELETE /auth/account` | `$user`, `$gracePeriodDays`, `$scheduledPurgeAt` |
+| `AccountRestored` | Login auto-restore during grace | `$user` |
+| `AccountPurged` | Purge worker permanently anonymises the row | `$userId`, `$email` (from snapshot) |
+
+Listen with the standard auto-discovery pattern:
+
+```php
+// app/Listeners/HandleAccountDeletion.php
+use Joe404\LaravelAuth\Events\AccountDeleted;
+
+class HandleAccountDeletion
+{
+    public function handle(AccountDeleted $event): void
+    {
+        // e.g. cancel subscriptions, freeze wallet, notify billing
+        $event->user->wallet->freeze();
     }
 }
 ```
 
-## Auto-restore on login
+```php
+// app/Listeners/HandleAccountPurged.php
+use Joe404\LaravelAuth\Events\AccountPurged;
 
-A successful credential check on a `status=deleted` user inside the grace
-window triggers `AccountDeletionService::restore()`:
+class HandleAccountPurged
+{
+    public function handle(AccountPurged $event): void
+    {
+        // $event->userId — the original ID (users row may be gone)
+        // $event->email  — from the deleted_accounts snapshot
+        ExternalAnalytics::trackAccountDeleted($event->userId);
+    }
+}
+```
 
-- clears `deleted_at` (via Eloquent `restore()` if the User uses `SoftDeletes`)
-- flips `account_status` back to `active`
-- drops the `deleted_accounts` row
-- fires `AccountRestored`
-- sends `AccountRestoredNotification`
-- continues issuing the token / starting the session normally
+---
 
-The user sees a normal successful login response — no separate restore
-endpoint, no extra round-trip.
-
-## Scheduled worker
-
-`PurgeExpiredAccountDeletions` runs **hourly** on the queue the package was
-configured with (`auth_system.queue.name`, default `auth-maintenance`). It
-chunks expired `deleted_accounts` rows and calls
-`AccountDeletionService::purge()` on each. Per-row failures are reported but
-do not block the batch.
-
-Make sure your queue worker is running for that queue.
-
-## Events
-
-| Event                    | Fired when                                              |
-|--------------------------|---------------------------------------------------------|
-| `AccountDeleted`         | Self-service delete or admin-driven status → deleted.   |
-| `AccountRestored`        | Login auto-restore (or programmatic `restore()` call).  |
-| `AccountPurged`          | Worker permanently anonymises a row.                    |
-
-Listen to them with the standard Laravel `Event::listen` or an
-auto-discovered listener under `app/Listeners/`.
-
-## Customising the emails
-
-Each notification has both a Blade view and an FQCN override key — same
-pattern as the existing OTP / magic-link emails. See
-[customization.md](customization.md#account-emails-v24).
-
-## Required User-model traits
+## 9. Required model traits
 
 ```php
 use Illuminate\Database\Eloquent\SoftDeletes;
-use Joe404\LaravelAuth\Concerns\HasAccountStatus; // optional helper
+use Joe404\LaravelAuth\Concerns\HasAccountStatus;
 
 class User extends Authenticatable
 {
     use HasApiTokens, HasRoles, Notifiable, SoftDeletes, HasAccountStatus;
-    // …
 }
 ```
 
-`SoftDeletes` is required for auto-restore. `HasAccountStatus` is optional
-sugar — the package reads/writes the status column directly either way.
+`SoftDeletes` is required — the auto-restore flow calls `$user->restore()` which is provided by this trait. Without it, the restore throws a `BadMethodCallException`.
+
+`HasAccountStatus` is optional sugar. The package reads and writes the status column directly either way.
+
+---
+
+## 10. Customising the notification emails
+
+Same pattern as OTP/magic-link emails. Each lifecycle email can be overridden in config:
+
+```php
+'mail' => [
+    'account_deleted_notification'  => \App\Notifications\MyDeleteEmail::class,
+    'account_restored_notification' => \App\Notifications\MyRestoreEmail::class,
+    'account_purged_notification'   => null,  // null = use built-in (default)
+    'account_notifications_enabled' => [
+        'deleted'  => true,
+        'restored' => true,
+        'purged'   => false,  // off by default — background worker action
+    ],
+],
+```
+
+Or publish and edit the Blade view:
+
+```bash
+php artisan vendor:publish --tag=auth-views
+```
+
+Edit files in `resources/views/vendor/laravel-auth/emails/`.
+
+---
+
+## 11. Disabling the feature
+
+```php
+'account' => [
+    'deletion' => [
+        'enabled' => false,
+    ],
+],
+```
+
+Or via `.env`:
+
+```env
+AUTH_ACCOUNT_DELETE_ENABLED=false
+```
+
+`DELETE /auth/account` returns HTTP 403. The migration columns and `deleted_accounts` table remain — disabling is a runtime decision, not a schema teardown.

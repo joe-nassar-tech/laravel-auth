@@ -1,77 +1,64 @@
 # Configuration Reference
 
-This document covers **every key** in `config/auth_system.php` — what it does,
-what values it accepts, which `.env` variable controls it, and exactly how to
-override it. Every override mechanic (contracts, custom classes, transformers,
-language files) is shown with working code you can copy directly into your app.
+Every key in `config/auth_system.php` — what it does, what values it accepts, which `.env` variable controls it, and the default. Copy-pasteable examples throughout.
 
-> **Quick orientation:** publish the config file first so you can edit it in
-> your own project:
->
-> ```bash
-> php artisan vendor:publish --tag=auth-config
-> ```
->
-> This copies the file to `config/auth_system.php`. Change values there or via
-> `.env` — both work. `.env` takes priority for every key that reads `env()`.
+Publish the config file so you can edit it locally:
+
+```bash
+php artisan vendor:publish --tag=auth-config
+```
 
 ---
 
 ## Table of Contents
 
-1. [mode](#mode)
-2. [spa_token](#spa_token)
-3. [require_email_verification](#require_email_verification)
-4. [routes](#routes)
-5. [registration](#registration)
-   - [extra_fields_rules](#extra_fields_rules)
-   - [extra_fields_messages](#extra_fields_messages)
-   - [extra_fields_transformers](#extra_fields_transformers)
-   - [request_class](#request_class)
-6. [referral_code](#referral_code)
-7. [verification](#verification)
-8. [password_reset](#password_reset)
-9. [token_ttl](#token_ttl)
-10. [rate_limits](#rate_limits)
-11. [password](#password)
-12. [roles](#roles)
-13. [otp_channel](#otp_channel)
-14. [mail](#mail)
-15. [social](#social)
-16. [reverb](#reverb)
-17. [api_tokens](#api_tokens)
-18. [queue](#queue)
-19. [response](#response)
-20. [security](#security)
-21. [account](#account)
-    - [account.status](#accountstatus)
-    - [account.deletion](#accountdeletion)
-    - [account.deactivation](#accountdeactivation)
-    - [account.audit](#accountaudit)
-22. [errors and messages](#errors-and-messages)
-23. [Contracts — writing your own overrides](#contracts--writing-your-own-overrides)
-24. [Events — hooking into the lifecycle](#events--hooking-into-the-lifecycle)
-25. [Complete .env reference](#complete-env-reference)
+1. [mode](#1-mode)
+2. [spa_token](#2-spa_token)
+3. [require_email_verification](#3-require_email_verification)
+4. [routes](#4-routes)
+5. [registration](#5-registration)
+6. [referral_code](#6-referral_code)
+7. [verification](#7-verification)
+8. [password_reset](#8-password_reset)
+9. [password](#9-password)
+10. [token_ttl](#10-token_ttl)
+11. [rate_limits](#11-rate_limits)
+12. [roles](#12-roles)
+13. [otp_channel](#13-otp_channel)
+14. [mail](#14-mail)
+15. [social](#15-social)
+16. [reverb](#16-reverb)
+17. [api_tokens](#17-api_tokens)
+18. [queue](#18-queue)
+19. [response](#19-response)
+20. [security](#20-security)
+21. [account.status](#21-accountstatus)
+22. [account.deletion](#22-accountdeletion)
+23. [account.deactivation](#23-accountdeactivation)
+24. [account.audit](#24-accountaudit)
+25. [messages](#25-messages)
+26. [errors](#26-errors)
+27. [Complete .env reference](#27-complete-env-reference)
 
 ---
 
-## `mode`
+## 1. `mode`
 
 **Env:** `AUTH_MODE` | **Default:** `both`
 
-Controls what credential type the server returns after a successful login.
+Controls what credential type the server issues after a successful login.
 
-| Value | What happens |
+| Value | Behaviour |
 |---|---|
-| `api` | Always returns a Bearer token. Use for pure API or mobile backends. |
-| `web` | Always uses a Laravel session cookie. Use for traditional server-rendered apps. |
-| `both` | Auto-detects at runtime based on the request (see below). Use when you serve both a mobile app and a browser SPA from the same backend. |
+| `api` | Always returns a Bearer token. Best for pure API backends, mobile apps. |
+| `web` | Always uses a Laravel session cookie. Best for server-rendered apps. |
+| `both` | Auto-detects per request — see detection order below. |
 
-**How detection works in `both` mode** (checked in this order):
+**Detection order for `both` mode** (first match wins):
 
-1. Request has `X-Client-Type: mobile` header → Bearer token (mobile TTL applies).
-2. `AUTH_SPA_TOKEN=true` and no `X-Client-Type` header → Bearer token (SPA TTL applies).
-3. Everything else → session cookie (no token).
+1. Request has `X-Client-Type: mobile` header → Bearer token (mobile TTL)
+2. `spa_token = true` and no `X-Client-Type` → Bearer token (SPA TTL)
+3. Everything else → session cookie (no token)
 
 ```env
 AUTH_MODE=both
@@ -79,14 +66,14 @@ AUTH_MODE=both
 
 ---
 
-## `spa_token`
+## 2. `spa_token`
 
 **Env:** `AUTH_SPA_TOKEN` | **Default:** `false`
 
-Only relevant when `AUTH_MODE=both`.
+Only applies when `AUTH_MODE=both`.
 
-- `false` → Browser requests (SPA) get a session cookie. This is the default and is the most secure choice for browser clients.
-- `true` → Browser requests get a Bearer token instead, just like mobile.
+- `false` — browser SPA clients get a session cookie (recommended, most secure)
+- `true` — browser SPA clients get a Bearer token instead (same as mobile clients)
 
 ```env
 AUTH_SPA_TOKEN=false
@@ -94,12 +81,12 @@ AUTH_SPA_TOKEN=false
 
 ---
 
-## `require_email_verification`
+## 3. `require_email_verification`
 
 **Env:** `AUTH_REQUIRE_VERIFICATION` | **Default:** `true`
 
-- `true` → A user who has not verified their email cannot log in. Login returns HTTP 403.
-- `false` → Users can log in immediately after registering, without verifying their email. Useful for internal tools or development environments.
+- `true` — users who have not verified their email address cannot log in; login returns HTTP 403
+- `false` — users can log in immediately after registering without verifying their email; useful for internal tools or dev environments
 
 ```env
 AUTH_REQUIRE_VERIFICATION=true
@@ -107,7 +94,7 @@ AUTH_REQUIRE_VERIFICATION=true
 
 ---
 
-## `routes`
+## 4. `routes`
 
 Controls how and where the package mounts its HTTP routes.
 
@@ -115,55 +102,49 @@ Controls how and where the package mounts its HTTP routes.
 
 **Env:** `AUTH_ROUTES_REGISTER` | **Default:** `true`
 
-- `true` → The package registers its routes automatically at boot. This is the default — you do not need to do anything.
-- `false` → The package does NOT register routes automatically. You are responsible for including the route file manually. Use this when you need full control over URL structure or middleware ordering.
+- `true` — routes auto-mount under the configured prefix and middleware at boot
+- `false` — the package does NOT register routes; you must include the route file yourself
 
-**Manual mount example** (use when `register = false`):
+**When to use `false`:** when you need the endpoints inside an existing versioned `Route::prefix('api/v2')` group with your own middleware ordering.
 
 ```php
-// routes/api.php
-use Illuminate\Support\Facades\Route;
-
+// routes/api.php (manual mount example)
 Route::prefix('api/v1/auth')
     ->middleware(['api', 'throttle:api'])
     ->group(base_path('vendor/joe-404/laravel-auth/routes/auth.php'));
-```
-
-```env
-AUTH_ROUTES_REGISTER=true
 ```
 
 ### `routes.prefix`
 
 **Env:** `AUTH_ROUTES_PREFIX` | **Default:** `auth`
 
-The URL prefix for all package routes. With the default value `auth`, routes are available at `/auth/login`, `/auth/register`, etc. If you want versioned URLs, change this to `api/v1/auth` and they become `/api/v1/auth/login`, etc.
+The URL prefix for all package routes. With the default, routes are at `/auth/login`. To use versioned URLs set this to `api/v1/auth` and they become `/api/v1/auth/login`.
 
 ```env
-AUTH_ROUTES_PREFIX=auth           # → /auth/login
-AUTH_ROUTES_PREFIX=api/v1/auth    # → /api/v1/auth/login
+AUTH_ROUTES_PREFIX=auth           # → /auth/login, /auth/register
+AUTH_ROUTES_PREFIX=api/v1/auth    # → /api/v1/auth/login, /api/v1/auth/register
 ```
 
 ### `routes.middleware`
 
-**Default:** `null` (the package picks the right middleware automatically based on `mode`)
+**Default:** `null` (package picks automatically based on `mode`)
 
-When `null`, the package applies:
+When `null`:
 - `api` mode → `['api']`
-- `web` / `both` mode → session + cookie + CSRF + `api` (appropriate for browser clients)
+- `web` / `both` mode → session + cookie + CSRF + `['api']`
 
-Set to an array to completely override the middleware stack:
+Override completely by setting an array:
 
 ```php
 // config/auth_system.php
 'routes' => [
-    'middleware' => ['api', 'my-custom-throttle', 'my-logging'],
+    'middleware' => ['api', 'my-custom-throttle'],
 ],
 ```
 
 ---
 
-## `registration`
+## 5. `registration`
 
 Options that extend what data users can submit during registration.
 
@@ -171,9 +152,9 @@ Options that extend what data users can submit during registration.
 
 **Default:** `[]`
 
-A map of `field_name => validation_rules`. These fields are validated alongside the built-in `email` field and are written straight into `User::create()` when registration is finalized (step 3 of the 3-step flow).
+A map of `field_name => validation_rules`. These fields are validated alongside `email` on `POST /auth/register` and are written to `User::create()` when registration is finalized.
 
-**Rules can be a string** (pipe-separated, standard Laravel format):
+Rules can be a **pipe-separated string:**
 
 ```php
 'extra_fields_rules' => [
@@ -182,42 +163,32 @@ A map of `field_name => validation_rules`. These fields are validated alongside 
 ],
 ```
 
-**Or an array** (when you need objects like Rule::unique() or custom rule classes):
+Or an **array** (required when using object rule classes):
 
 ```php
 'extra_fields_rules' => [
     'username'      => ['required', 'string', 'min:3', 'max:30', 'unique:users,username'],
-    'date_of_birth' => ['required', 'date', new \App\Rules\Age18Plus()],
+    'date_of_birth' => ['required', 'date', 'before:18 years ago'],
     'agreed_terms'  => ['required', 'accepted'],
+    'agreed_18_plus'=> ['required', 'accepted'],
 ],
 ```
 
-**Important:** every field name listed here must be in your `User` model's `$fillable` array, otherwise it will be silently ignored by `User::create()`.
-
-```php
-// app/Models/User.php
-protected $fillable = [
-    'name', 'email', 'password',
-    'phone', 'country', 'username', 'date_of_birth',
-    // ... whatever you add here
-];
-```
+**Important:** every field listed here must be in your `User` model's `$fillable`, otherwise `User::create()` silently ignores it.
 
 ### `extra_fields_messages`
 
 **Default:** `[]`
 
-Custom validation error messages for extra fields. Uses the standard Laravel `field.rule` key format. Lets you give users friendly, branded messages instead of Laravel's generic defaults.
+Custom error messages for extra field validation. Standard Laravel `field.rule` format.
 
 ```php
 'extra_fields_messages' => [
-    'username.required' => 'Please choose a username.',
-    'username.unique'   => 'That username is already taken. Try another.',
-    'username.min'      => 'Username must be at least 3 characters.',
-    'username.regex'    => 'Username can only contain letters, numbers, and underscores.',
-    'phone.max'         => 'Phone number is too long.',
-    'agreed_terms.accepted' => 'You must accept our Terms of Service to continue.',
-    'date_of_birth.required' => 'Please enter your date of birth.',
+    'username.required'      => 'Please choose a username.',
+    'username.unique'        => 'That username is already taken.',
+    'username.min'           => 'Username must be at least 3 characters.',
+    'agreed_terms.accepted'  => 'You must accept our Terms of Service to continue.',
+    'date_of_birth.before'   => 'You must be at least 18 years old to register.',
 ],
 ```
 
@@ -227,32 +198,7 @@ Any key not listed here falls back to Laravel's built-in message.
 
 **Default:** `[]`
 
-Transformers let you **derive or normalize a field** from the validated registration input before it is written to the database — without writing a custom controller or request class.
-
-A common use case: you ask users for a `username` but want to also store a `username_normalized` (all lowercase) for case-insensitive lookups.
-
-**Step 1 — Create a transformer class** that implements `ExtraFieldTransformerContract`:
-
-```php
-// app/Transformers/UsernameNormalizer.php
-<?php
-
-namespace App\Transformers;
-
-use Joe404\LaravelAuth\Contracts\ExtraFieldTransformerContract;
-
-class UsernameNormalizer implements ExtraFieldTransformerContract
-{
-    public function transform(array $validated): mixed
-    {
-        // $validated contains all validated fields (email + all extra fields).
-        // Return the value you want stored in the target column.
-        return strtolower(trim($validated['username']));
-    }
-}
-```
-
-**Step 2 — Register the transformer** in config. The key is the column name where the result is stored; the value is the class name:
+Derive or normalise a column value from the validated registration data — without writing a custom controller. The key is the target column name, the value is a class implementing `ExtraFieldTransformerContract`.
 
 ```php
 'extra_fields_transformers' => [
@@ -260,264 +206,158 @@ class UsernameNormalizer implements ExtraFieldTransformerContract
 ],
 ```
 
-**Step 3 — Add the column** to your migration and your `User` model's `$fillable`:
+The transformer runs after validation passes and before `User::create()`. The result is written to the target column. See [docs/customization.md](customization.md#extra-field-transformers) for the full contract and examples.
 
-```php
-// In your migration
-$table->string('username_normalized')->nullable()->unique();
-
-// In User.php
-protected $fillable = [..., 'username_normalized'];
-```
-
-The package calls `transform($validated)` on each transformer after validation passes and before `User::create()`. The returned value is merged into the data array under the transformer's key.
-
-**Another example — derive a `display_name` from `first_name` + `last_name`:**
-
-```php
-class DisplayNameTransformer implements ExtraFieldTransformerContract
-{
-    public function transform(array $validated): mixed
-    {
-        return trim($validated['first_name'] . ' ' . $validated['last_name']);
-    }
-}
-
-// config
-'extra_fields_transformers' => [
-    'display_name' => \App\Transformers\DisplayNameTransformer::class,
-],
-```
+**Security note:** transformers cannot bypass the built-in privileged-field denylist. These target names are always stripped, even from transformer output: `role`, `roles`, `is_admin`, `admin`, `email_verified_at`, `password`, `password_change_required`.
 
 ### `request_class`
 
 **Default:** `null`
 
-Points to a custom `FormRequest` class that extends `RegisterRequest`. Use this when `extra_fields_rules` is not enough — for example when you need:
-- Complex conditional validation (`required_if`, `sometimes`)
-- Cross-field validation (`->after()` callbacks)
-- Dependency injection into the request class
-- Custom `prepareForValidation()` or `passedValidation()` hooks
-
-**This takes full priority over `extra_fields_rules`, `extra_fields_messages`, and `extra_fields_transformers` when set.**
+Override the built-in `RegisterRequest` with your own `FormRequest` subclass — for complex conditional rules, custom messages, or validation logic that can't be expressed as rule strings.
 
 ```php
-// app/Http/Requests/FanRegisterRequest.php
-<?php
-
-namespace App\Http\Requests;
-
-use Joe404\LaravelAuth\Http\Requests\RegisterRequest;
-
-class FanRegisterRequest extends RegisterRequest
-{
-    public function rules(): array
-    {
-        return array_merge(parent::rules(), [
-            'username'      => ['required', 'string', 'min:3', 'unique:users'],
-            'date_of_birth' => ['required', 'date'],
-        ]);
-    }
-
-    public function messages(): array
-    {
-        return array_merge(parent::messages(), [
-            'username.unique' => 'That username is already taken.',
-        ]);
-    }
-}
-```
-
-```php
-// config/auth_system.php
 'registration' => [
-    'request_class' => \App\Http\Requests\FanRegisterRequest::class,
+    'request_class' => \App\Http\Requests\MyRegisterRequest::class,
 ],
 ```
 
+`request_class` takes priority over `extra_fields_rules` when both are set. See [docs/customization.md](customization.md#custom-register-request) for the subclassing example.
+
 ---
 
-## `referral_code`
+## 6. `referral_code`
 
-When enabled, the package auto-generates a unique referral code for every new user during registration finalization and writes it to the configured column.
+**Env:** multiple | **Default:** all off
 
-| Key | Env | Default | Meaning |
-|---|---|---|---|
-| `enabled` | `AUTH_REFERRAL_CODE_ENABLED` | `false` | Master switch |
-| `column` | `AUTH_REFERRAL_CODE_COLUMN` | `referral_code` | Column on the users table |
-| `length` | `AUTH_REFERRAL_CODE_LENGTH` | `10` | Code length in characters |
-| `uppercase` | `AUTH_REFERRAL_CODE_UPPERCASE` | `true` | `true` → `"AB12CD34EF"`, `false` → `"ab12cd34ef"` |
-| `generator` | `AUTH_REFERRAL_CODE_GENERATOR` | `null` | FQCN of a custom generator class |
-
-**To enable with defaults:**
-
-```env
-AUTH_REFERRAL_CODE_ENABLED=true
-```
-
-Make sure the column exists and is in `$fillable`:
+When enabled, generates a unique referral code per user during registration and writes it to the configured column.
 
 ```php
-// Migration
-$table->string('referral_code')->nullable()->unique();
-
-// User.php
-protected $fillable = [..., 'referral_code'];
+'referral_code' => [
+    'enabled'   => env('AUTH_REFERRAL_CODE_ENABLED', false),   // master switch
+    'column'    => env('AUTH_REFERRAL_CODE_COLUMN', 'referral_code'),
+    'length'    => env('AUTH_REFERRAL_CODE_LENGTH', 10),
+    'uppercase' => env('AUTH_REFERRAL_CODE_UPPERCASE', true),
+    'generator' => env('AUTH_REFERRAL_CODE_GENERATOR', null),  // FQCN or null
+],
 ```
 
-**Custom generator** — implement `ReferralCodeGeneratorContract` to produce codes in your own format (prefixed, sequential, etc.):
+| Key | Effect |
+|---|---|
+| `enabled` | `false` (default) = nothing happens. `true` = generate a code for every new user. |
+| `column` | The `users` table column that stores the code. Must be in `$fillable` and your migration. |
+| `length` | Number of characters in the generated code. Default: 10. |
+| `uppercase` | `true` = code is all uppercase (default). `false` = mixed case. |
+| `generator` | FQCN of a class implementing `ReferralCodeGeneratorContract`. Leave `null` to use the default random alphanumeric generator. |
+
+**Will not overwrite:** if the user already supplied a value for the referral column via `extra_fields_rules`, the package will not overwrite it.
+
+**Required migration when enabling:**
 
 ```php
-// app/Auth/VanityCodeGenerator.php
-<?php
-
-namespace App\Auth;
-
-use Joe404\LaravelAuth\Contracts\ReferralCodeGeneratorContract;
-
-class VanityCodeGenerator implements ReferralCodeGeneratorContract
-{
-    public function generate(): string
-    {
-        // Must be unique. Check your DB here if needed.
-        return 'CP-' . strtoupper(substr(md5(uniqid()), 0, 8));
-        // Example output: "CP-A3F82B91"
-    }
-}
+Schema::table('users', function (Blueprint $table): void {
+    $table->string('referral_code', 20)->nullable()->unique();
+});
 ```
 
-```env
-AUTH_REFERRAL_CODE_GENERATOR=App\Auth\VanityCodeGenerator
-```
+See [docs/customization.md](customization.md#referral-codes) for the custom generator contract.
 
 ---
 
-## `verification`
+## 7. `verification`
 
-Controls how email verification works during registration.
+Controls how users verify their email address after registration.
 
-| Key | Env | Default | Meaning |
+```php
+'verification' => [
+    'method'              => env('AUTH_VERIFICATION_METHOD', 'both'),
+    'otp_length'          => env('AUTH_OTP_LENGTH', 6),
+    'otp_expiry'          => env('AUTH_OTP_EXPIRY', 10),
+    'otp_max_attempts'    => env('AUTH_OTP_MAX_ATTEMPTS', 5),
+    'magic_expiry'        => env('AUTH_MAGIC_EXPIRY', 30),
+    'magic_link_target'   => env('AUTH_MAGIC_LINK_TARGET', 'backend'),
+    'frontend_verify_url' => env('AUTH_FRONTEND_VERIFY_URL', null),
+    'frontend_reset_url'  => env('AUTH_FRONTEND_RESET_URL', null),
+],
+```
+
+| Key | Env | Default | Description |
 |---|---|---|---|
-| `method` | `AUTH_VERIFICATION_METHOD` | `both` | `otp`, `magic_link`, or `both` |
-| `otp_length` | `AUTH_OTP_LENGTH` | `6` | Digits in the OTP code (4–8) |
-| `otp_expiry` | `AUTH_OTP_EXPIRY` | `10` | Minutes until OTP expires |
-| `otp_max_attempts` | `AUTH_OTP_MAX_ATTEMPTS` | `5` | Wrong OTP guesses before code is invalidated |
-| `magic_expiry` | `AUTH_MAGIC_EXPIRY` | `30` | Minutes until magic link expires |
-| `magic_link_target` | `AUTH_MAGIC_LINK_TARGET` | `backend` | `backend` or `frontend` |
-| `frontend_verify_url` | `AUTH_FRONTEND_VERIFY_URL` | `null` | URL for `frontend` target mode |
-| `frontend_reset_url` | `AUTH_FRONTEND_RESET_URL` | `null` | URL for password-reset magic links in frontend mode |
+| `method` | `AUTH_VERIFICATION_METHOD` | `both` | `otp` = numeric code only; `magic_link` = clickable link only; `both` = one email with OTP + link simultaneously |
+| `otp_length` | `AUTH_OTP_LENGTH` | `6` | Number of digits in the OTP code (4–8) |
+| `otp_expiry` | `AUTH_OTP_EXPIRY` | `10` | Minutes the OTP is valid before it expires |
+| `otp_max_attempts` | `AUTH_OTP_MAX_ATTEMPTS` | `5` | Wrong guesses before the OTP is invalidated (brute-force guard) |
+| `magic_expiry` | `AUTH_MAGIC_EXPIRY` | `30` | Minutes the magic link is valid |
+| `magic_link_target` | `AUTH_MAGIC_LINK_TARGET` | `backend` | `backend` = link points to Laravel API; `frontend` = link points to your SPA/app, which then calls the API itself |
+| `frontend_verify_url` | `AUTH_FRONTEND_VERIFY_URL` | `null` | Required when `magic_link_target=frontend`. Your SPA URL for email verification. The package appends `?token=xxx`. |
+| `frontend_reset_url` | `AUTH_FRONTEND_RESET_URL` | `null` | Required when `magic_link_target=frontend`. Your SPA URL for password reset. |
 
-**`method` values explained:**
+**Frontend magic link flow** (when `magic_link_target=frontend`):
 
-- `otp` — User receives a 6-digit code, types it in a form.
-- `magic_link` — User clicks a link in their email. No typing.
-- `both` — User receives ONE email with both the code and the link. They can use whichever is easier. This is the default.
-
-**`magic_link_target` explained:**
-
-- `backend` — The magic link URL points to your own Laravel API: `GET /auth/register/verify-magic/{token}`. The package handles everything. Best for APIs.
-- `frontend` — The magic link URL points to your SPA or mobile deep link. Your frontend extracts the `?token=` and calls the backend itself. Requires `AUTH_FRONTEND_VERIFY_URL` to be set.
-
-```env
-# SPA frontend mode
-AUTH_MAGIC_LINK_TARGET=frontend
-AUTH_FRONTEND_VERIFY_URL=https://myapp.com/verify-email
-AUTH_FRONTEND_RESET_URL=https://myapp.com/reset-password
+```
+Email link → https://myapp.com/verify-email?token=xxx
+    ↓
+SPA extracts token from URL
+    ↓
+SPA calls GET /auth/register/verify-magic/{token}
+    ↓
+API returns { completion_token: "..." }
 ```
 
 ---
 
-## `password_reset`
+## 8. `password_reset`
 
-### `password_reset.method`
+Controls how password reset codes or links are delivered.
 
-**Env:** `AUTH_PASSWORD_RESET_METHOD` | **Default:** `null` (inherits `verification.method`)
+```php
+'password_reset' => [
+    'method' => env('AUTH_PASSWORD_RESET_METHOD', null),
+],
+```
 
-Controls how password reset instructions are sent, independently from registration verification. Useful when you want a different UX for each flow.
+| Value | Effect |
+|---|---|
+| `null` (default) | Inherit from `verification.method` |
+| `otp` | Send a numeric code only |
+| `magic_link` | Send a clickable link only |
+| `both` | Send one email with OTP + link |
+
+**Example:** your app uses magic links for registration but you prefer OTP codes for the reset form (easier to type on mobile):
 
 ```env
-# Use OTP for resets even though registration uses magic_link
 AUTH_VERIFICATION_METHOD=magic_link
 AUTH_PASSWORD_RESET_METHOD=otp
 ```
 
 ---
 
-## `token_ttl`
+## 9. `password`
 
-Controls how long access tokens and refresh tokens last per client type. All values are in **minutes**. Set to `0` for a token that never expires.
+Password policy enforced when users register or change their password.
 
-### Mobile (`X-Client-Type: mobile` header on login)
-
-```env
-AUTH_TOKEN_TTL_MOBILE=10080    # access token: 7 days
-AUTH_REFRESH_TTL_MOBILE=43200  # refresh token: 30 days
+```php
+'password' => [
+    'min_length'          => env('AUTH_PASSWORD_MIN', 8),
+    'require_uppercase'   => env('AUTH_PASSWORD_UPPERCASE', false),
+    'require_number'      => env('AUTH_PASSWORD_NUMBER', false),
+    'require_special'     => env('AUTH_PASSWORD_SPECIAL', false),
+    'pending_ttl_minutes' => env('AUTH_PENDING_TTL', 60),
+],
 ```
 
-### SPA (browser when `AUTH_SPA_TOKEN=true`)
-
-```env
-AUTH_TOKEN_TTL_SPA=1440        # access token: 24 hours
-AUTH_REFRESH_TTL_SPA=10080     # refresh token: 7 days
-```
-
-### API (`AUTH_MODE=api`)
-
-```env
-AUTH_TOKEN_TTL_API=525600      # access token: 365 days
-AUTH_REFRESH_TTL_API=0         # refresh token: never expires
-```
-
-### Web session (`AUTH_MODE=web`)
-
-No tokens are issued. The Laravel session handles everything.
-
-```env
-AUTH_SESSION_TTL=120           # keep in sync with SESSION_LIFETIME in .env
-```
-
----
-
-## `rate_limits`
-
-Protects auth endpoints from brute-force and spam. Limits are applied **per IP address** and **per email** independently — both must be under the limit for the request to proceed.
-
-**Format:** `"max_attempts:decay_minutes"` — for example `"5:1"` means 5 attempts per 1-minute window.
-
-| Key | Env | Default | Endpoint |
+| Key | Env | Default | Description |
 |---|---|---|---|
-| `register` | `AUTH_RATE_REGISTER` | `5:1` | `POST /auth/register` |
-| `login` | `AUTH_RATE_LOGIN` | `5:1` | `POST /auth/login`, `POST /auth/token/refresh` |
-| `otp_verify` | `AUTH_RATE_OTP_VERIFY` | `10:5` | OTP verification endpoints |
-| `otp_send` | `AUTH_RATE_OTP_SEND` | `3:1` | `POST /auth/email/resend-verification` |
-| `password_reset` | `AUTH_RATE_PASSWORD_RESET` | `3:1` | `POST /auth/password/forgot` |
+| `min_length` | `AUTH_PASSWORD_MIN` | `8` | Minimum number of characters |
+| `require_uppercase` | `AUTH_PASSWORD_UPPERCASE` | `false` | Require at least one capital letter (A–Z) |
+| `require_number` | `AUTH_PASSWORD_NUMBER` | `false` | Require at least one digit (0–9) |
+| `require_special` | `AUTH_PASSWORD_SPECIAL` | `false` | Require at least one symbol (`!@#$%...`) |
+| `pending_ttl_minutes` | `AUTH_PENDING_TTL` | `60` | Minutes the pending registration is cached (between step 1 "initiate" and step 3 "complete"). If the user doesn't finish within this window, they must restart. |
 
-**Recommended production values:**
-
-```env
-AUTH_RATE_LOGIN=3:5
-AUTH_RATE_OTP_VERIFY=5:5
-AUTH_RATE_PASSWORD_RESET=2:10
-```
-
----
-
-## `password`
-
-Password policy applied at registration, password change, and password reset.
-
-| Key | Env | Default | Meaning |
-|---|---|---|---|
-| `min_length` | `AUTH_PASSWORD_MIN` | `8` | Minimum character count |
-| `require_uppercase` | `AUTH_PASSWORD_UPPERCASE` | `false` | Must contain at least one A–Z |
-| `require_number` | `AUTH_PASSWORD_NUMBER` | `false` | Must contain at least one 0–9 |
-| `require_special` | `AUTH_PASSWORD_SPECIAL` | `false` | Must contain at least one symbol (`!@#$%...`) |
-| `pending_ttl_minutes` | `AUTH_PENDING_TTL` | `60` | How long a pending (unverified) registration is kept in cache. If the user does not complete verification within this window they must restart. |
-
-**Strict production policy:**
+**Recommended production policy:**
 
 ```env
-AUTH_PASSWORD_MIN=12
+AUTH_PASSWORD_MIN=10
 AUTH_PASSWORD_UPPERCASE=true
 AUTH_PASSWORD_NUMBER=true
 AUTH_PASSWORD_SPECIAL=true
@@ -525,289 +365,271 @@ AUTH_PASSWORD_SPECIAL=true
 
 ---
 
-## `roles`
+## 10. `token_ttl`
 
-Uses [Spatie Laravel Permission](https://github.com/spatie/laravel-permission).
-
-### `roles.default_role`
-
-**Env:** `AUTH_DEFAULT_ROLE` | **Default:** `user`
-
-The role automatically assigned to every new user when they complete registration (after email verification). This role must already exist in your database — run `AuthRolesSeeder` or create it manually.
-
-```env
-AUTH_DEFAULT_ROLE=fan
-```
-
-> **Tip:** if your platform assigns roles based on registration type (fan vs. creator vs. admin), set `default_role` to the most common one and override it in a listener that handles `EmailVerified`.
-
-### `roles.seeded_roles`
-
-**Default:** `['super-admin', 'admin', 'user']`
-
-The roles that `AuthRolesSeeder` will create. This is not an env variable. Edit it directly in `config/auth_system.php`:
+How long access tokens and refresh tokens stay valid, broken out by client type.
 
 ```php
-'seeded_roles' => ['super-admin', 'admin', 'fan', 'creator'],
-```
-
-Then run the seeder:
-
-```bash
-php artisan db:seed --class="Joe404\LaravelAuth\Database\Seeders\AuthRolesSeeder"
-```
-
----
-
-## `otp_channel`
-
-### `otp_channel.driver`
-
-**Env:** `AUTH_OTP_CHANNEL` | **Default:** `email`
-
-Controls HOW OTP codes and magic links are delivered. The built-in `email` driver sends Blade-template emails.
-
-To deliver via SMS, WhatsApp, or any other channel, implement `OtpChannelContract`:
-
-```php
-// app/Channels/SmsOtpChannel.php
-<?php
-
-namespace App\Channels;
-
-use Joe404\LaravelAuth\Contracts\OtpChannelContract;
-
-class SmsOtpChannel implements OtpChannelContract
-{
-    public function send(string $recipient, string $code, string $type, array $context = []): void
-    {
-        // $recipient = user's email (use $context['phone'] if you store it)
-        // $code      = the OTP string e.g. "482910"
-        // $type      = "register" | "reset"
-        // $context   = ['user' => User, 'temp_token' => '...', ...]
-
-        $phone = $context['user']->phone ?? $recipient;
-
-        // Call your SMS provider here
-        // SmsProvider::send($phone, "Your code is: {$code}");
-    }
-}
-```
-
-If `AUTH_VERIFICATION_METHOD=both` and your channel can deliver both OTP and magic link in one message (e.g. a rich email), also implement `CombinedOtpChannelContract`:
-
-```php
-use Joe404\LaravelAuth\Contracts\CombinedOtpChannelContract;
-
-class MyEmailChannel implements CombinedOtpChannelContract
-{
-    // required by OtpChannelContract
-    public function send(string $recipient, string $code, string $type, array $context = []): void
-    {
-        // Fallback: send OTP-only message
-    }
-
-    // called when method=both — delivers both in one message
-    public function sendCombined(string $recipient, string $code, string $url, string $type, array $context = []): void
-    {
-        // $url = the full magic link URL
-        // Send one message that contains both $code and $url
-    }
-}
-```
-
-> If your channel only implements `OtpChannelContract` (not `CombinedOtpChannelContract`), the package automatically falls back to calling `send()` twice when `method=both` — once for the OTP and once for the link.
-
-```env
-AUTH_OTP_CHANNEL=App\Channels\SmsOtpChannel
-```
-
----
-
-## `mail`
-
-Override the built-in email notifications. All keys default to `null`, which means the package's bundled Blade template is used.
-
-### Auth email overrides
-
-| Key | Triggered by | Constructor signature |
-|---|---|---|
-| `otp_verify_notification` | OTP code sent during registration | `($code, $type, $context)` |
-| `otp_reset_notification` | OTP code sent for password reset | `($code, $type, $context)` |
-| `magic_link_verify_notification` | Magic link sent during registration | `($code, $type, $context)` |
-| `magic_link_reset_notification` | Magic link sent for password reset | `($code, $type, $context)` |
-| `otp_verify_combined_notification` | Combined OTP + link for registration (`method=both`) | `($code, $url, $type, $context)` |
-| `otp_reset_combined_notification` | Combined OTP + link for password reset (`method=both`) | `($code, $url, $type, $context)` |
-
-### Account lifecycle email overrides (v2.4)
-
-| Key | Triggered when |
-|---|---|
-| `account_deleted_notification` | User soft-deletes their account |
-| `account_restored_notification` | Account auto-restored on login during grace period |
-| `account_purged_notification` | Account permanently purged after grace expires |
-| `account_status_changed_notification` | Admin changes the account status |
-| `account_deactivated_notification` | User self-deactivates (`POST /auth/account/deactivate`) |
-| `account_reactivated_notification` | Account auto-reactivated on login after deactivation |
-
-### `account_notifications_enabled`
-
-Toggle individual lifecycle notifications on or off without removing the class pointer:
-
-```php
-'account_notifications_enabled' => [
-    'deleted'        => true,   // notify user when they delete their account
-    'restored'       => true,   // notify user when account is auto-restored on login
-    'purged'         => false,  // no email when purge worker runs (default)
-    'status_changed' => false,  // no email when admin changes status (default)
-    'deactivated'    => true,   // notify user when they deactivate
-    'reactivated'    => true,   // notify user when account auto-reactivates on login
+'token_ttl' => [
+    'mobile' => [
+        'access_minutes'  => env('AUTH_TOKEN_TTL_MOBILE', 10080),    // 7 days
+        'refresh_minutes' => env('AUTH_REFRESH_TTL_MOBILE', 43200),  // 30 days
+    ],
+    'spa' => [
+        'access_minutes'  => env('AUTH_TOKEN_TTL_SPA', 1440),        // 24 hours
+        'refresh_minutes' => env('AUTH_REFRESH_TTL_SPA', 10080),     // 7 days
+    ],
+    'api' => [
+        'access_minutes'  => env('AUTH_TOKEN_TTL_API', 525600),      // 365 days
+        'refresh_minutes' => env('AUTH_REFRESH_TTL_API', 0),         // 0 = never expires
+    ],
+    'web' => [
+        'session_minutes' => env('AUTH_SESSION_TTL', 120),           // keep in sync with SESSION_LIFETIME
+    ],
 ],
 ```
 
-**Custom notification example:**
+| Client type | How it's detected |
+|---|---|
+| `mobile` | Login request has `X-Client-Type: mobile` header |
+| `spa` | `AUTH_MODE=both` and `AUTH_SPA_TOKEN=true` |
+| `api` | `AUTH_MODE=api` |
+| `web` | `AUTH_MODE=web` or session mode in `both` |
+
+Setting `access_minutes` or `refresh_minutes` to `0` means the token never expires (not recommended for short-lived clients).
+
+---
+
+## 11. `rate_limits`
+
+Rate limits applied per IP address and per email address independently. Exceeding either returns HTTP 429.
 
 ```php
-// app/Notifications/MyVerificationEmail.php
-<?php
-
-namespace App\Notifications;
-
-use Illuminate\Notifications\Notification;
-use Illuminate\Notifications\Messages\MailMessage;
-
-class MyVerificationEmail extends Notification
-{
-    public function __construct(
-        private readonly string $code,
-        private readonly string $type,
-        private readonly array  $context = []
-    ) {}
-
-    public function via(object $notifiable): array
-    {
-        return ['mail'];
-    }
-
-    public function toMail(object $notifiable): MailMessage
-    {
-        return (new MailMessage)
-            ->subject('Verify your account')
-            ->line("Your verification code is: **{$this->code}**")
-            ->line('This code expires in 10 minutes.');
-    }
-}
+'rate_limits' => [
+    'register'       => env('AUTH_RATE_REGISTER', '5:1'),
+    'login'          => env('AUTH_RATE_LOGIN', '5:1'),
+    'otp_send'       => env('AUTH_RATE_OTP_SEND', '3:1'),
+    'otp_verify'     => env('AUTH_RATE_OTP_VERIFY', '10:5'),
+    'password_reset' => env('AUTH_RATE_PASSWORD_RESET', '3:1'),
+],
 ```
+
+Format: `"max_attempts:decay_minutes"` — e.g. `"5:1"` = 5 attempts per 1 minute.
+
+| Key | Endpoint protected | Default |
+|---|---|---|
+| `register` | `POST /auth/register` | `5:1` |
+| `login` | `POST /auth/login` | `5:1` |
+| `otp_send` | `POST /auth/email/resend-verification` | `3:1` |
+| `otp_verify` | `POST /auth/register/verify-otp` | `10:5` |
+| `password_reset` | `POST /auth/password/forgot` | `3:1` |
+
+**Stricter production example:**
+
+```env
+AUTH_RATE_LOGIN=3:5
+AUTH_RATE_PASSWORD_RESET=2:10
+```
+
+---
+
+## 12. `roles`
+
+```php
+'roles' => [
+    'default_role' => env('AUTH_DEFAULT_ROLE', 'user'),
+    'seeded_roles' => ['super-admin', 'admin', 'user'],
+],
+```
+
+| Key | Description |
+|---|---|
+| `default_role` | Role automatically assigned to every new user after they verify their email. The role must exist — run `AuthRolesSeeder` first. |
+| `seeded_roles` | Roles that `AuthRolesSeeder` creates. Add any custom roles your app needs here. |
+
+```env
+AUTH_DEFAULT_ROLE=member
+```
+
+**To add a custom role:**
 
 ```php
 // config/auth_system.php
-'mail' => [
-    'otp_verify_notification' => \App\Notifications\MyVerificationEmail::class,
+'roles' => [
+    'default_role' => 'fan',
+    'seeded_roles' => ['super-admin', 'admin', 'fan', 'creator'],
 ],
 ```
 
-> You can mix and match — override only the notifications you want to change and leave the rest as `null`.
+Then re-run the seeder: `php artisan db:seed --class="Joe404\LaravelAuth\Database\Seeders\AuthRolesSeeder"`
 
 ---
 
-## `social`
+## 13. `otp_channel`
 
-### `social.google`
+**Env:** `AUTH_OTP_CHANNEL` | **Default:** `email`
 
-Enables "Sign in with Google" via Laravel Socialite.
+Controls how OTP codes and magic links are delivered.
 
-| Key | Env | Default |
+- `email` — built-in email delivery (default)
+- A FQCN — your own class implementing `OtpChannelContract` (SMS, WhatsApp, push notification, etc.)
+
+```php
+'otp_channel' => [
+    'driver' => env('AUTH_OTP_CHANNEL', 'email'),
+    // or:
+    'driver' => \App\Channels\SmsOtpChannel::class,
+],
+```
+
+See [docs/customization.md](customization.md#custom-otp-channel) for the full contract and examples.
+
+---
+
+## 14. `mail`
+
+Controls which notification classes are used for each email, and which account lifecycle emails are enabled.
+
+### Email notification overrides
+
+Each key accepts `null` (use the built-in) or a FQCN of your own Notification class.
+
+```php
+'mail' => [
+    // Registration / password reset emails
+    'otp_verify_notification'          => null,
+    'otp_reset_notification'           => null,
+    'magic_link_verify_notification'   => null,
+    'magic_link_reset_notification'    => null,
+    'otp_verify_combined_notification' => null,
+    'otp_reset_combined_notification'  => null,
+
+    // Account lifecycle emails (v2.4)
+    'account_deleted_notification'         => null,
+    'account_restored_notification'        => null,
+    'account_purged_notification'          => null,
+    'account_status_changed_notification'  => null,
+    'account_deactivated_notification'     => null,
+    'account_reactivated_notification'     => null,
+
+    // Toggle which lifecycle emails are sent
+    'account_notifications_enabled' => [
+        'deleted'        => true,
+        'restored'       => true,
+        'purged'         => false,   // off by default (background worker action)
+        'status_changed' => false,   // off by default (not always user-facing)
+        'deactivated'    => true,
+        'reactivated'    => true,
+    ],
+],
+```
+
+**Custom notification constructor signature:**
+
+For OTP/magic-link notifications, your class constructor receives:
+- `($code, $type, $context)` for single-delivery
+- `($code, $url, $type, $context)` for combined
+
+**Alternative: Blade view override (no PHP needed)**
+
+```bash
+php artisan vendor:publish --tag=auth-views
+```
+
+Editable templates appear in `resources/views/vendor/laravel-auth/emails/`:
+
+| File | Email sent for |
+|---|---|
+| `otp-verify.blade.php` | OTP code during registration |
+| `otp-reset.blade.php` | OTP code for password reset |
+| `magic-link-verify.blade.php` | Magic link during registration |
+| `magic-link-reset.blade.php` | Magic link for password reset |
+| `otp-verify-combined.blade.php` | OTP + link in one email (verification, method=both) |
+| `otp-reset-combined.blade.php` | OTP + link in one email (password reset, method=both) |
+
+Custom notification class takes priority over the Blade view for the same email slot.
+
+---
+
+## 15. `social`
+
+```php
+'social' => [
+    'google' => [
+        'enabled'       => env('AUTH_GOOGLE_ENABLED', false),
+        'client_id'     => env('AUTH_GOOGLE_CLIENT_ID'),
+        'client_secret' => env('AUTH_GOOGLE_CLIENT_SECRET'),
+        'redirect'      => env('AUTH_GOOGLE_REDIRECT'),
+    ],
+    'frontend_url' => env('AUTH_SOCIAL_FRONTEND_URL', null),
+],
+```
+
+| Key | Env | Description |
 |---|---|---|
-| `enabled` | `AUTH_GOOGLE_ENABLED` | `false` |
-| `client_id` | `AUTH_GOOGLE_CLIENT_ID` | — |
-| `client_secret` | `AUTH_GOOGLE_CLIENT_SECRET` | — |
-| `redirect` | `AUTH_GOOGLE_REDIRECT` | — |
+| `google.enabled` | `AUTH_GOOGLE_ENABLED` | Master switch for Google OAuth |
+| `google.client_id` | `AUTH_GOOGLE_CLIENT_ID` | From Google Cloud Console |
+| `google.client_secret` | `AUTH_GOOGLE_CLIENT_SECRET` | From Google Cloud Console |
+| `google.redirect` | `AUTH_GOOGLE_REDIRECT` | Must match the URI registered in Google Cloud Console |
+| `frontend_url` | `AUTH_SOCIAL_FRONTEND_URL` | After a social account-link confirmation email is clicked, where to redirect. `null` = return JSON instead of redirecting. |
 
-**How to get credentials:**
+**Setup steps:**
 1. Go to [console.cloud.google.com](https://console.cloud.google.com)
-2. Create a project → APIs & Services → Credentials → OAuth 2.0 Client ID
-3. Set the authorized redirect URI to match `AUTH_GOOGLE_REDIRECT`
+2. Create a project → Credentials → OAuth 2.0 Client ID → Web application
+3. Add your redirect URI: `https://yourapp.com/auth/social/google/callback`
+4. Copy the Client ID and Client Secret to `.env`
 
 ```env
 AUTH_GOOGLE_ENABLED=true
 AUTH_GOOGLE_CLIENT_ID=123456789.apps.googleusercontent.com
 AUTH_GOOGLE_CLIENT_SECRET=GOCSPX-xxxx
 AUTH_GOOGLE_REDIRECT=https://yourapp.com/auth/social/google/callback
-```
-
-### `social.frontend_url`
-
-**Env:** `AUTH_SOCIAL_FRONTEND_URL` | **Default:** `null`
-
-After a Google account-link confirmation is completed, the browser redirects here. When `null`, the package returns JSON instead of redirecting.
-
-```env
 AUTH_SOCIAL_FRONTEND_URL=https://yourapp.com/auth/callback
 ```
 
 ---
 
-## `reverb`
-
-### `reverb.enabled`
+## 16. `reverb`
 
 **Env:** `AUTH_REVERB_ENABLED` | **Default:** `false`
 
-When `true`, the package broadcasts `EmailVerified` over WebSocket the instant a user finishes email verification. Your frontend can subscribe and react in real time — the user never needs to manually refresh or poll.
+When enabled, the package broadcasts an event on the private channel `auth.verification.{tempToken}` as soon as a user's email is verified. Your frontend can subscribe to this channel with Laravel Echo and react immediately without polling.
 
-Requires [`laravel/reverb`](https://reverb.laravel.com/) to be installed and running.
-
-**Frontend subscription** (using Laravel Echo):
-
-```js
-// Subscribe using the temp_token returned by POST /auth/register
-Echo.private(`auth.verification.${tempToken}`)
-    .listen('EmailVerified', (event) => {
-        // The user verified! Call step 3 to complete registration.
-        // Your frontend should have stored the completion_token from step 2.
-        axios.post('/api/v1/auth/register/complete', {
-            completion_token: storedCompletionToken,
-            password: userPassword,
-            password_confirmation: userPassword,
-        });
-    });
-```
+Requires `laravel/reverb` to be installed and configured.
 
 ```env
 AUTH_REVERB_ENABLED=true
 ```
 
+**Frontend subscription example:**
+
+```js
+Echo.private(`auth.verification.${tempToken}`)
+    .listen('EmailVerified', (e) => {
+        // Verification complete — proceed to completion step
+        showPasswordForm(e.completionToken);
+    });
+```
+
 ---
 
-## `api_tokens`
+## 17. `api_tokens`
 
-Long-lived, scoped API tokens for third-party integrations (scripts, CI pipelines, external services). These are separate from Sanctum session tokens and use the format `auth_at_{base64}`.
+Long-lived, scoped tokens for third-party integrations. Disabled by default.
 
-**Disabled by default** — enable only if your app specifically needs users to generate third-party tokens.
-
-### `api_tokens.enabled`
-
-**Env:** `AUTH_API_TOKENS_ENABLED` | **Default:** `false`
-
-When `true`, these routes become active:
-
-```
-GET    /auth/api-tokens              list user's tokens
-POST   /auth/api-tokens              create a token
-DELETE /auth/api-tokens/{id}         revoke a token
-GET    /auth/admin/api-tokens        admin: list all tokens
-POST   /auth/admin/api-tokens        admin: create unowned token
-PATCH  /auth/admin/api-tokens/{id}   admin: update token
-DELETE /auth/admin/api-tokens/{id}   admin: revoke any token
+```php
+'api_tokens' => [
+    'enabled'           => env('AUTH_API_TOKENS_ENABLED', false),
+    'abilities_default' => ['read'],
+],
 ```
 
-The `CleanExpiredApiTokens` job also starts running hourly.
+| Key | Description |
+|---|---|
+| `enabled` | `false` (default) = API token routes don't exist, no cleanup job runs. `true` = enables user and admin API token endpoints, and schedules `CleanExpiredApiTokens` hourly. |
+| `abilities_default` | Default abilities assigned when creating a token without specifying abilities. |
 
-### `api_tokens.abilities_default`
-
-**Default:** `['read']`
-
-The default abilities granted to a token when none are specified in the create request.
+These tokens use the format `auth_at_{base64}`, are stored in `auth_api_tokens`, and are completely separate from Sanctum session tokens.
 
 ```env
 AUTH_API_TOKENS_ENABLED=true
@@ -815,336 +637,357 @@ AUTH_API_TOKENS_ENABLED=true
 
 ---
 
-## `queue`
+## 18. `queue`
 
-Maintenance jobs the package schedules automatically.
+```php
+'queue' => [
+    'connection' => env('AUTH_QUEUE_CONNECTION', null),
+    'name'       => env('AUTH_QUEUE_NAME', 'auth-maintenance'),
+],
+```
 
-| Job | Frequency | When active |
+| Key | Description |
+|---|---|
+| `connection` | Queue connection (`redis`, `database`, `sqs`, etc.). `null` = use the app's default. |
+| `name` | Queue name for maintenance jobs. Run a worker: `php artisan queue:work --queue=auth-maintenance` |
+
+**Background jobs the package runs automatically:**
+
+| Job | Frequency | Always active? |
 |---|---|---|
-| `CleanExpiredOtpRecords` | Every 5 minutes | Always |
-| `CleanExpiredRefreshTokens` | Hourly | Always |
+| `CleanExpiredOtpRecords` | Every 5 minutes | Yes |
+| `CleanExpiredRefreshTokens` | Hourly | Yes |
+| `PurgeExpiredAccountDeletions` | Hourly | Yes (when deletion.enabled=true) |
 | `CleanExpiredApiTokens` | Hourly | Only when `api_tokens.enabled=true` |
-| `RevertExpiredAccountStatuses` | Every `auto_unban.sweep_minutes` | Only when `account.status.auto_unban.enabled=true` |
-
-| Key | Env | Default | Meaning |
-|---|---|---|---|
-| `connection` | `AUTH_QUEUE_CONNECTION` | `null` | Queue connection name. `null` = use Laravel's default. |
-| `name` | `AUTH_QUEUE_NAME` | `auth-maintenance` | Queue name these jobs are dispatched to. |
-
-```env
-AUTH_QUEUE_CONNECTION=redis
-AUTH_QUEUE_NAME=auth-maintenance
-```
-
-Start a worker for this queue:
-
-```bash
-php artisan queue:work --queue=auth-maintenance
-```
 
 ---
 
-## `response`
+## 19. `response`
 
-### `response.formatter`
+**Env:** `AUTH_RESPONSE_FORMATTER` | **Default:** `null` (built-in format)
 
-**Env:** `AUTH_RESPONSE_FORMATTER` | **Default:** `null`
+Swap the JSON envelope to match your API conventions.
 
-Every response from the package follows this structure by default:
-
-```json
-{ "success": true,  "message": "Logged in successfully.", "data": {} }
-{ "success": false, "message": "Invalid credentials.",    "errors": {} }
+```php
+'response' => [
+    'formatter' => env('AUTH_RESPONSE_FORMATTER', null),
+    // or directly:
+    'formatter' => \App\Auth\MyFormatter::class,
+],
 ```
 
-If your app uses a different envelope, implement `ResponseFormatterContract` and point to it here:
+Your formatter class must implement `ResponseFormatterContract`:
 
 ```php
 // app/Auth/MyFormatter.php
-<?php
-
-namespace App\Auth;
-
 use Joe404\LaravelAuth\Contracts\ResponseFormatterContract;
 
 class MyFormatter implements ResponseFormatterContract
 {
-    public function format(bool $success, string $message, array $data = [], array $errors = []): array
+    public function format(bool $success, string $message, array $data, array $errors): array
     {
-        // Build whatever JSON structure your frontend expects
         return [
-            'ok'     => $success,
-            'msg'    => $message,
-            'result' => $success ? $data : $errors,
+            'ok'      => $success,
+            'msg'     => $message,
+            'payload' => $data ?: $errors,
         ];
     }
 }
 ```
 
-Two ways to register it (package checks in this order):
-
-**Option A — config (recommended):**
-
-```env
-AUTH_RESPONSE_FORMATTER=App\Auth\MyFormatter
-```
-
-**Option B — container binding** (in your `AppServiceProvider`):
+Alternatively register via the service container (config takes priority):
 
 ```php
+// app/Providers/AppServiceProvider.php
 use Joe404\LaravelAuth\Contracts\ResponseFormatterContract;
-use App\Auth\MyFormatter;
 
-public function register(): void
-{
-    $this->app->bind(ResponseFormatterContract::class, MyFormatter::class);
-}
+$this->app->bind(ResponseFormatterContract::class, \App\Auth\MyFormatter::class);
 ```
+
+See [docs/customization.md](customization.md#custom-response-formatter) for full details.
 
 ---
 
-## `security`
+## 20. `security`
 
-### `security.notify_new_device_login`
-
-**Env:** `AUTH_NOTIFY_NEW_DEVICE` | **Default:** `true`
-
-Sends an email alert to the user when they log in from a device (browser + OS combination) the package has not seen before. Helps users spot unauthorized access.
-
-```env
-AUTH_NOTIFY_NEW_DEVICE=true
+```php
+'security' => [
+    'notify_new_device_login' => env('AUTH_NOTIFY_NEW_DEVICE', true),
+    'lockout' => [
+        'enabled'       => env('AUTH_LOCKOUT_ENABLED', true),
+        'max_attempts'  => env('AUTH_LOCKOUT_MAX', 10),
+        'decay_minutes' => env('AUTH_LOCKOUT_DECAY', 15),
+    ],
+],
 ```
 
-### `security.lockout`
-
-Per-account lockout after too many failed login attempts. This is separate from rate limiting. Rate limiting blocks requests by speed; lockout blocks by total failure count against a specific account.
-
-| Key | Env | Default | Meaning |
+| Key | Env | Default | Description |
 |---|---|---|---|
-| `enabled` | `AUTH_LOCKOUT_ENABLED` | `true` | Master switch |
-| `max_attempts` | `AUTH_LOCKOUT_MAX` | `10` | Failed attempts before lockout |
-| `decay_minutes` | `AUTH_LOCKOUT_DECAY` | `15` | How long the lockout lasts |
+| `notify_new_device_login` | `AUTH_NOTIFY_NEW_DEVICE` | `true` | Send an email alert when a user logs in from a device (browser + OS combo) the package hasn't seen before |
+| `lockout.enabled` | `AUTH_LOCKOUT_ENABLED` | `true` | Temporarily lock an account after too many failed logins |
+| `lockout.max_attempts` | `AUTH_LOCKOUT_MAX` | `10` | Failed login count before lockout triggers |
+| `lockout.decay_minutes` | `AUTH_LOCKOUT_DECAY` | `15` | How long the lockout lasts in minutes |
 
-**Recommended production settings:**
-
-```env
-AUTH_LOCKOUT_ENABLED=true
-AUTH_LOCKOUT_MAX=5
-AUTH_LOCKOUT_DECAY=30
-```
+**Note:** lockout is separate from rate limiting. Rate limiting blocks by request speed; lockout blocks by total failure count accumulated over time.
 
 ---
 
-## `account`
+## 21. `account.status`
 
-Everything related to account status, deletion, deactivation, and audit logging (added in v2.4).
+Controls the account status system (active / suspended / disabled / deactivated / deleted).
 
-### `account.status`
+```php
+'account' => [
+    'status' => [
+        'enabled'                   => env('AUTH_ACCOUNT_STATUS_ENABLED', true),
+        'column'                    => env('AUTH_ACCOUNT_STATUS_COLUMN', 'account_status'),
+        'default'                   => env('AUTH_ACCOUNT_STATUS_DEFAULT', 'active'),
+        'allowed'                   => ['active', 'disabled', 'suspended', 'deleted', 'deactivated'],
+        'login_blocked'             => ['disabled', 'suspended'],
+        'login_auto_restorable'     => ['deactivated'],
+        'revoke_sessions_on_change' => env('AUTH_ACCOUNT_STATUS_REVOKE_ON_CHANGE', true),
+        'admin_ability'             => env('AUTH_ACCOUNT_STATUS_ABILITY', 'super-admin|admin'),
+        'auto_unban' => [
+            'enabled'            => env('AUTH_ACCOUNT_AUTO_UNBAN', true),
+            'sweep_minutes'      => env('AUTH_ACCOUNT_AUTO_UNBAN_SWEEP', 5),
+            'temporary_statuses' => ['suspended'],
+        ],
+    ],
+],
+```
 
-Controls which statuses exist and what happens at login for each one.
-
-| Key | Env | Default | Meaning |
-|---|---|---|---|
-| `enabled` | `AUTH_ACCOUNT_STATUS_ENABLED` | `true` | Master switch for the status system |
-| `column` | `AUTH_ACCOUNT_STATUS_COLUMN` | `account_status` | Column on users table that stores the status string |
-| `default` | `AUTH_ACCOUNT_STATUS_DEFAULT` | `active` | Status assigned to brand-new users |
-| `allowed` | — | see below | List of valid status strings |
-| `login_blocked` | — | `['disabled', 'suspended']` | Statuses that block login with HTTP 401 |
-| `login_auto_restorable` | — | `['deactivated']` | Statuses where a successful login silently flips the user back to `active` |
-| `revoke_sessions_on_change` | `AUTH_ACCOUNT_STATUS_REVOKE_ON_CHANGE` | `true` | Revoke all tokens when status leaves `active` |
-| `admin_ability` | `AUTH_ACCOUNT_STATUS_ABILITY` | `super-admin\|admin` | Spatie role/permission required for admin status endpoints |
-
-**Built-in statuses and what they mean:**
-
-| Status | Set by | Behaviour |
-|---|---|---|
-| `active` | System (default) | Normal access — no restrictions |
-| `suspended` | Admin | Login blocked. Can be timed (auto-lifts when `status_expires_at` passes) or permanent |
-| `disabled` | Admin | Login blocked permanently. Meta-style violation ban. No expiry allowed |
-| `deactivated` | User (self-service) | Login blocked but auto-reactivates when user logs in again |
-| `deleted` | User or Admin | Soft-deleted. Login auto-restores within grace period. After grace the purge worker anonymises the row |
+| Key | Description |
+|---|---|
+| `enabled` | Master switch. `false` = login and middleware skip all status checks. |
+| `column` | The `users` table column that stores the status string. |
+| `default` | Status for brand-new users. |
+| `allowed` | Accepted status values. Add custom ones here (e.g. `pending_review`). |
+| `login_blocked` | Statuses that block login with an error. `deleted` is not here — it's handled by the deletion flow. |
+| `login_auto_restorable` | Statuses that auto-flip back to `active` on a successful login. `deactivated` is here by default (Instagram-style: log in and you're back). |
+| `revoke_sessions_on_change` | When a status changes away from `active`, revoke all Sanctum tokens and session rows. |
+| `admin_ability` | The Spatie role/permission required to call the admin status endpoints. Pipe-separated = any match wins. |
+| `auto_unban.enabled` | Enable the timed-ban system (lazy revert + scheduled sweep). |
+| `auto_unban.sweep_minutes` | How often the sweep worker runs to revert expired bans. |
+| `auto_unban.temporary_statuses` | Statuses that can carry an expiry. Not listed here = permanent-only (passing `expires_at` returns 422). |
 
 **Adding a custom status:**
 
 ```php
-'allowed' => ['active', 'disabled', 'suspended', 'deleted', 'deactivated', 'under_review'],
-'login_blocked' => ['disabled', 'suspended', 'under_review'],
+'allowed'       => ['active', 'disabled', 'suspended', 'deleted', 'deactivated', 'pending_review'],
+'login_blocked' => ['disabled', 'suspended', 'pending_review'],
 ```
 
-#### `account.status.auto_unban`
+```php
+// lang/vendor/auth_system/en/errors.php (host-published copy)
+'account_pending_review' => 'Your account is under review. We will email you shortly.',
+```
 
-Timed bans — when an admin sets `suspended` with an `expires_at` or `duration_minutes`, the package auto-lifts the ban two ways:
+The error key is always `account_{status}`.
 
-1. **Lazy revert** — checked inside `AccountStatusService::current()` on every status read (login, `auth.active` middleware, `/me`). The user can log in the instant their ban expires.
-2. **Scheduled sweep** — `RevertExpiredAccountStatuses` job runs every `sweep_minutes` to catch rows the lazy path has not touched yet.
+See [docs/account-status.md](account-status.md) for the complete guide.
 
-| Key | Env | Default | Meaning |
-|---|---|---|---|
-| `enabled` | `AUTH_ACCOUNT_AUTO_UNBAN` | `true` | Master switch for timed bans |
-| `sweep_minutes` | `AUTH_ACCOUNT_AUTO_UNBAN_SWEEP` | `5` | How often the sweep worker runs |
-| `temporary_statuses` | — | `['suspended']` | Which statuses accept an expiry. Passing `expires_at` for any status NOT in this list returns HTTP 422 |
+---
+
+## 22. `account.deletion`
+
+Controls self-service account deletion with a grace period.
 
 ```php
-// Only 'suspended' can be timed. 'disabled' is always permanent.
-'auto_unban' => [
-    'enabled'            => true,
-    'sweep_minutes'      => 5,
-    'temporary_statuses' => ['suspended'],
+'account' => [
+    'deletion' => [
+        'enabled'                  => env('AUTH_ACCOUNT_DELETE_ENABLED', true),
+        'self_service'             => env('AUTH_ACCOUNT_DELETE_SELF', true),
+        'require_password'         => env('AUTH_ACCOUNT_DELETE_REQUIRE_PASSWORD', true),
+        'grace_days'               => env('AUTH_ACCOUNT_DELETE_GRACE_DAYS', 30),
+        'auto_restore_on_login'    => env('AUTH_ACCOUNT_AUTO_RESTORE', true),
+        'null_uniques_after_grace' => env('AUTH_ACCOUNT_NULL_UNIQUES', true),
+        'hard_delete_after_grace'  => env('AUTH_ACCOUNT_HARD_DELETE', false),
+        'move_to_deleted_table'    => env('AUTH_ACCOUNT_AUDIT_TABLE', true),
+        'unique_columns'           => env('AUTH_ACCOUNT_UNIQUE_COLUMNS', 'auto'),
+        'unique_exclude'           => ['id'],
+    ],
+],
+```
+
+| Key | Default | Description |
+|---|---|---|
+| `enabled` | `true` | Master switch for account deletion. |
+| `self_service` | `true` | Expose `DELETE /auth/account` for users. `false` = only admins can delete via status endpoint. |
+| `require_password` | `true` | Require the user's password on the delete call. Strongly recommended. |
+| `grace_days` | `30` | Days the account stays restorable before the purge worker runs. |
+| `auto_restore_on_login` | `true` | Login during grace silently restores the account (recommended). |
+| `null_uniques_after_grace` | `true` | After grace, null unique columns (email, username) so they can be reclaimed by a new signup. |
+| `hard_delete_after_grace` | `false` | After grace, hard-delete the `users` row entirely. The `deleted_accounts` snapshot is kept for audit. |
+| `move_to_deleted_table` | `true` | Snapshot the full `users` row to `deleted_accounts` at delete time. |
+| `unique_columns` | `auto` | `'auto'` = introspect schema for unique indexes. Or pass an explicit array: `['email', 'username']`. |
+| `unique_exclude` | `['id']` | Columns the resolver must never null (primary keys, etc.). |
+
+**Required:** `users` unique columns must be nullable in your migration:
+
+```php
+$table->string('email')->nullable()->unique();
+$table->string('username')->nullable()->unique();
+```
+
+See [docs/account-deletion.md](account-deletion.md) for the full flow.
+
+---
+
+## 23. `account.deactivation`
+
+Controls Instagram-style self-service account pause.
+
+```php
+'account' => [
+    'deactivation' => [
+        'enabled'                  => env('AUTH_ACCOUNT_DEACTIVATE_ENABLED', true),
+        'self_service'             => env('AUTH_ACCOUNT_DEACTIVATE_SELF', true),
+        'require_password'         => env('AUTH_ACCOUNT_DEACTIVATE_REQUIRE_PASSWORD', true),
+        'auto_reactivate_on_login' => env('AUTH_ACCOUNT_AUTO_REACTIVATE', true),
+    ],
+],
+```
+
+| Key | Default | Description |
+|---|---|---|
+| `enabled` | `true` | Master switch. |
+| `self_service` | `true` | Expose `POST /auth/account/deactivate`. |
+| `require_password` | `true` | Require the user's password on the deactivate call. |
+| `auto_reactivate_on_login` | `true` | When `true`, a successful login auto-flips `deactivated` back to `active`. No separate reactivate endpoint. |
+
+**If you want to require a support ticket to come back:** set `auto_reactivate_on_login=false` and add `deactivated` to `account.status.login_blocked`.
+
+---
+
+## 24. `account.audit`
+
+Controls the account status audit log written to `account_status_logs`.
+
+```php
+'account' => [
+    'audit' => [
+        'enabled'              => env('AUTH_ACCOUNT_AUDIT_ENABLED', true),
+        'table'                => env('AUTH_ACCOUNT_AUDIT_TABLE_NAME', 'account_status_logs'),
+        'log_status_changes'   => env('AUTH_ACCOUNT_AUDIT_LOG_STATUS', true),
+        'log_system_actions'   => env('AUTH_ACCOUNT_AUDIT_LOG_SYSTEM', true),
+        'capture_request_meta' => env('AUTH_ACCOUNT_AUDIT_CAPTURE_META', true),
+        'retention_days'       => null,
+        'notes' => [
+            'enabled' => env('AUTH_ACCOUNT_AUDIT_NOTES_ENABLED', true),
+        ],
+        'history' => [
+            'enabled'          => env('AUTH_ACCOUNT_AUDIT_HISTORY_ENABLED', true),
+            'default_per_page' => env('AUTH_ACCOUNT_AUDIT_HISTORY_PER_PAGE', 20),
+            'max_per_page'     => env('AUTH_ACCOUNT_AUDIT_HISTORY_MAX_PER_PAGE', 100),
+        ],
+    ],
+],
+```
+
+| Key | Default | Description |
+|---|---|---|
+| `enabled` | `true` | Master switch. `false` = nothing is logged, both admin endpoints return 404. |
+| `table` | `account_status_logs` | Table name. Override if you already use this name. |
+| `log_status_changes` | `true` | Log status transitions (admin, user, automatic). `false` = only admin notes are logged. |
+| `log_system_actions` | `true` | Include automatic actions (lazy revert, sweep worker, login auto-restore, purge). `false` = only human-initiated actions. |
+| `capture_request_meta` | `true` | Capture IP address and user agent when an HTTP request is in scope. |
+| `retention_days` | `null` | `null` = keep forever. Set to a number for GDPR-style cleanup (daily job deletes entries older than N days). |
+| `notes.enabled` | `true` | Enables `POST /auth/admin/users/{id}/notes`. |
+| `history.enabled` | `true` | Enables `GET /auth/admin/users/{id}/status/history`. |
+| `history.default_per_page` | `20` | Default results per page. |
+| `history.max_per_page` | `100` | Maximum allowed per page (enforced server-side). |
+
+---
+
+## 25. `messages`
+
+Static per-key overrides for success response messages. Leave as `null` (default) to use the built-in English or the active locale's translation.
+
+**Resolution order:** `config('auth_system.messages.<key>')` → `trans('auth_system::messages.<key>')` → built-in English fallback.
+
+```php
+'messages' => [
+    'register_initiated'     => null,   // "Verification sent. Please check your email."
+    'register_verified'      => null,   // "Email verified. Please set your password."
+    'register_complete'      => null,   // "Registration complete."
+    'verification_resent'    => null,   // "Verification email resent."
+    'login_success'          => null,   // "Login successful."
+    'me_retrieved'           => null,   // "User retrieved."
+    'logout_success'         => null,   // "Logged out successfully."
+    'logout_all_success'     => null,   // "Logged out from all devices."
+    'password_reset_sent'    => null,   // "Password reset instructions sent."
+    'password_reset_otp_ok'  => null,   // "OTP verified. Submit your new password..."
+    'password_reset_link_ok' => null,   // "Link validated. Submit your new password..."
+    'password_reset_success' => null,   // "Password reset successfully. You are now logged in."
+    'password_changed'       => null,   // "Password changed successfully."
+    'sessions_retrieved'     => null,   // "Sessions retrieved."
+    'session_terminated'     => null,   // "Session terminated."
+    'api_tokens_retrieved'   => null,
+    'api_token_created'      => null,
+    'api_token_updated'      => null,
+    'api_token_revoked'      => null,
+    'account_deleted'        => null,
+    'account_restored'       => null,
+    'account_status_updated' => null,
+    'account_deactivated'    => null,
+    'account_reactivated'    => null,
+],
+```
+
+**Branded example:**
+
+```php
+'messages' => [
+    'register_initiated' => 'Almost there! We sent a verification code to your inbox.',
+    'register_complete'  => 'Welcome to Acme. Your account is ready.',
+    'login_success'      => 'Welcome back!',
 ],
 ```
 
 ---
 
-### `account.deletion`
+## 26. `errors`
 
-Self-service account deletion with a 30-day grace window. During the grace period, a normal login auto-restores the account. After the grace period, a scheduled worker anonymises the row.
+Static per-key overrides for error messages. Same resolution order as `messages`.
 
-| Key | Env | Default | Meaning |
-|---|---|---|---|
-| `enabled` | `AUTH_ACCOUNT_DELETE_ENABLED` | `true` | Master switch |
-| `self_service` | `AUTH_ACCOUNT_DELETE_SELF` | `true` | Expose `DELETE /auth/account` for users. When `false`, only admins can mark accounts as deleted via the status endpoint |
-| `require_password` | `AUTH_ACCOUNT_DELETE_REQUIRE_PASSWORD` | `true` | Force the user to supply their current password on the delete call. Strongly recommended |
-| `grace_days` | `AUTH_ACCOUNT_DELETE_GRACE_DAYS` | `30` | Days the account stays soft-deleted before the worker runs |
-| `auto_restore_on_login` | `AUTH_ACCOUNT_AUTO_RESTORE` | `true` | A login during grace silently restores the account and logs the user in |
-| `null_uniques_after_grace` | `AUTH_ACCOUNT_NULL_UNIQUES` | `true` | After grace, null every unique column so the email/username can be reused |
-| `hard_delete_after_grace` | `AUTH_ACCOUNT_HARD_DELETE` | `false` | After grace, hard-delete the users row. The `deleted_accounts` snapshot is kept regardless |
-| `move_to_deleted_table` | `AUTH_ACCOUNT_AUDIT_TABLE` | `true` | Snapshot the full users row to `deleted_accounts` on delete |
-| `unique_columns` | `AUTH_ACCOUNT_UNIQUE_COLUMNS` | `auto` | `auto` = introspect schema for unique indexes. Or pass a comma-separated list: `email,username` |
-| `unique_exclude` | — | `['id']` | Columns to never null, even if they have a unique index |
+Some keys support Laravel-style `:placeholder` replacement:
 
----
-
-### `account.deactivation`
-
-Instagram-style "pause my account". The user can come back any time — there is no deadline.
-
-| Key | Env | Default | Meaning |
-|---|---|---|---|
-| `enabled` | `AUTH_ACCOUNT_DEACTIVATE_ENABLED` | `true` | Master switch |
-| `self_service` | `AUTH_ACCOUNT_DEACTIVATE_SELF` | `true` | Expose `POST /auth/account/deactivate` for users |
-| `require_password` | `AUTH_ACCOUNT_DEACTIVATE_REQUIRE_PASSWORD` | `true` | Require current password confirmation on the deactivate call |
-| `auto_reactivate_on_login` | `AUTH_ACCOUNT_AUTO_REACTIVATE` | `true` | Silently flip status back to `active` when the user logs in again |
-
-**How it works end-to-end:**
-
-1. User calls `POST /auth/account/deactivate` with their password.
-2. Status set to `deactivated`. All tokens/sessions revoked immediately.
-3. User logs in again any time in the future.
-4. Package detects `status=deactivated` during credential validation.
-5. Status silently set back to `active`. `AccountReactivatedNotification` sent. User is logged in normally.
-
-**Difference from `disabled`:** `disabled` is an admin-only violation ban (Meta-style). It requires manual admin reactivation. A deactivated user can always bring themselves back.
-
----
-
-### `account.audit`
-
-Multi-admin audit log. Every status change and every admin note is written to `account_status_logs` with full actor/source/comment context. Multiple admins can see why an account is in its current state without contacting each other.
-
-| Key | Env | Default | Meaning |
-|---|---|---|---|
-| `enabled` | `AUTH_ACCOUNT_AUDIT_ENABLED` | `true` | Master switch. When `false` the package behaves as if the audit system does not exist |
-| `table` | `AUTH_ACCOUNT_AUDIT_TABLE_NAME` | `account_status_logs` | Database table name |
-| `log_status_changes` | `AUTH_ACCOUNT_AUDIT_LOG_STATUS` | `true` | Write a row on every status change |
-| `log_system_actions` | `AUTH_ACCOUNT_AUDIT_LOG_SYSTEM` | `true` | Write rows for system-triggered events (auto-unban, auto-restore, purge). Set `false` for a human-actions-only log |
-| `capture_request_meta` | `AUTH_ACCOUNT_AUDIT_CAPTURE_META` | `true` | Save `ip_address` + `user_agent` on every write. Populated only when there is an active HTTP request |
-| `retention_days` | `AUTH_ACCOUNT_AUDIT_RETENTION_DAYS` | `null` | `null` = keep forever. Any positive integer = delete entries older than N days (daily cleanup job) |
-
-#### `account.audit.notes`
-
-| Key | Env | Default | Meaning |
-|---|---|---|---|
-| `enabled` | `AUTH_ACCOUNT_AUDIT_NOTES_ENABLED` | `true` | Enable `POST /auth/admin/users/{id}/notes` — standalone admin notes without changing status |
-
-#### `account.audit.history`
-
-| Key | Env | Default | Meaning |
-|---|---|---|---|
-| `enabled` | `AUTH_ACCOUNT_AUDIT_HISTORY_ENABLED` | `true` | Enable `GET /auth/admin/users/{id}/status/history` |
-| `default_per_page` | `AUTH_ACCOUNT_AUDIT_HISTORY_PER_PAGE` | `20` | Default page size |
-| `max_per_page` | `AUTH_ACCOUNT_AUDIT_HISTORY_MAX_PER_PAGE` | `100` | Maximum page size a caller can request |
-
-**Source tags written to the audit log** — so you can filter by who/what caused a change:
-
-| Source tag | What caused it |
+| Key | Placeholder |
 |---|---|
-| `admin_endpoint` | Admin called `POST /auth/admin/users/{id}/status` |
-| `admin_note` | Admin called `POST /auth/admin/users/{id}/notes` |
-| `self_deactivate` | User called `POST /auth/account/deactivate` |
-| `self_delete` | User called `DELETE /auth/account` |
-| `login_auto_restore` | Login during delete grace period auto-restored the account |
-| `login_auto_reactivate` | Login after deactivation auto-reactivated the account |
-| `auto_unban_lazy` | Lazy revert triggered by a status read when `status_expires_at` was in the past |
-| `auto_unban_sweep` | Scheduled `RevertExpiredAccountStatuses` worker ran |
-| `purge_worker` | `PurgeExpiredAccountDeletions` job ran after grace expired |
-
----
-
-## `errors` and `messages`
-
-Override any success message or error message the package produces — globally, in one place, without touching translations.
-
-### How override priority works
-
-For **error** messages the package checks in this order:
-
-1. `config('auth_system.errors.<key>')` — if this is set to a non-empty string, it wins. Always.
-2. `trans('auth_system::errors.<key>')` — per-locale translation file (publish with `--tag=auth-lang`).
-3. The exception's built-in English fallback.
-
-For **success** messages:
-
-1. `config('auth_system.messages.<key>')` — if set, wins.
-2. `trans('auth_system::messages.<key>')` — per-locale translation file.
-3. The built-in English default.
-
-### `errors` keys
+| `account_locked` | `:seconds` (seconds remaining) |
+| `social_provider_disabled` | `:provider` |
+| `social_authentication_failed` | `:provider` |
+| `social_email_unverified` | `:provider` |
 
 ```php
 'errors' => [
-    // Auth
-    'invalid_credentials'           => null,  // wrong email or password
-    'account_inactive'              => null,  // account is not active
-    'email_not_verified'            => null,  // login before email verified
-    'unauthenticated'               => null,  // no valid session/token
-
-    // OTP / registration
-    'otp_invalid'                   => null,  // wrong OTP code
-    'otp_expired'                   => null,  // OTP timed out
-    'completion_token_invalid'      => null,  // bad/expired completion token (step 3)
-    'registration_session_expired'  => null,  // pending registration cache expired
-    'email_already_registered'      => null,  // email exists (sent out of band)
-
-    // Password reset
-    'reset_token_invalid'           => null,  // bad/expired reset token
-    'current_password_invalid'      => null,  // wrong current password on change
-
-    // Refresh token
+    'invalid_credentials'           => null,
+    'account_inactive'              => null,
+    'email_not_verified'            => null,
+    'otp_invalid'                   => null,
+    'otp_expired'                   => null,
+    'completion_token_invalid'      => null,
+    'registration_session_expired'  => null,
+    'email_already_registered'      => null,
+    'reset_token_invalid'           => null,
+    'current_password_invalid'      => null,
     'refresh_token_invalid'         => null,
     'refresh_token_revoked'         => null,
-    'refresh_token_reused'          => null,  // replay attack detected
+    'refresh_token_reused'          => null,
     'refresh_token_expired'         => null,
-
-    // API tokens
     'api_token_invalid_format'      => null,
     'api_token_invalid_encoding'    => null,
     'api_token_revoked'             => null,
     'api_token_expired'             => null,
-
-    // Social / OAuth
-    'social_provider_disabled'      => null,  // placeholder: :provider
-    'social_authentication_failed'  => null,  // placeholder: :provider
-    'social_email_unverified'       => null,  // placeholder: :provider
+    'social_provider_disabled'      => null,
+    'social_authentication_failed'  => null,
+    'social_email_unverified'       => null,
     'social_link_token_invalid'     => null,
     'social_user_not_found'         => null,
-
-    // Sessions
     'session_not_found'             => null,
-
-    // Lockout
-    'account_locked'                => null,  // placeholder: :seconds
-
-    // Account status / deletion (v2.4)
+    'account_locked'                => null,
+    'unauthenticated'               => null,
+    // v2.4
     'account_disabled'              => null,
     'account_suspended'             => null,
     'account_deletion_disabled'     => null,
@@ -1154,275 +997,81 @@ For **success** messages:
 ],
 ```
 
-**Placeholders** — some messages accept a `:name` placeholder that is interpolated at runtime:
-
-| Key | Placeholder | Example output |
-|---|---|---|
-| `account_locked` | `:seconds` | `"Account locked. Try again in 900 seconds."` |
-| `social_provider_disabled` | `:provider` | `"Google authentication is not enabled."` |
-| `social_authentication_failed` | `:provider` | `"Authentication with Google failed."` |
-| `social_email_unverified` | `:provider` | `"Your Google email is not verified."` |
-
-**Example overrides:**
-
-```php
-'errors' => [
-    'invalid_credentials' => 'Wrong email or password. Please try again.',
-    'account_locked'      => 'Too many attempts. Wait :seconds seconds.',
-    'account_suspended'   => 'Your account has been temporarily suspended.',
-    'account_disabled'    => 'Your account has been permanently disabled. Contact support.',
-],
-```
-
-### `messages` keys
-
-```php
-'messages' => [
-    'register_initiated'     => null,  // POST /auth/register success
-    'register_verified'      => null,  // after OTP/magic verification (step 2)
-    'register_complete'      => null,  // after POST /auth/register/complete (step 3)
-    'verification_resent'    => null,  // after POST /auth/email/resend-verification
-    'login_success'          => null,  // after POST /auth/login
-    'me_retrieved'           => null,  // after GET /auth/me
-    'logout_success'         => null,  // after POST /auth/logout
-    'logout_all_success'     => null,  // after POST /auth/logout/all
-    'password_reset_sent'    => null,  // after POST /auth/password/forgot
-    'password_reset_otp_ok'  => null,  // after OTP verified for password reset
-    'password_reset_link_ok' => null,  // after magic link verified for password reset
-    'password_reset_success' => null,  // after POST /auth/password/reset/confirm
-    'password_changed'       => null,  // after POST /auth/password/change
-    'sessions_retrieved'     => null,  // after GET /auth/sessions
-    'session_terminated'     => null,  // after DELETE /auth/sessions/{id}
-    'api_tokens_retrieved'   => null,
-    'api_token_created'      => null,
-    'api_token_updated'      => null,
-    'api_token_revoked'      => null,
-    // v2.4 account lifecycle
-    'account_deleted'        => null,
-    'account_restored'       => null,
-    'account_status_updated' => null,
-    'account_deactivated'    => null,
-    'account_reactivated'    => null,
-],
-```
-
-**Example overrides:**
-
-```php
-'messages' => [
-    'login_success'       => 'Welcome back!',
-    'register_complete'   => 'Account created! Welcome to the platform.',
-    'account_deactivated' => 'Your account is now paused. See you soon.',
-],
-```
-
 ---
 
-## Contracts — writing your own overrides
-
-The package exposes six contracts in the `Joe404\LaravelAuth\Contracts\` namespace. Each one is a PHP interface you implement to replace a piece of built-in behaviour.
-
-| Contract | Registered via | What it replaces |
-|---|---|---|
-| `ResponseFormatterContract` | `response.formatter` config or container binding | JSON envelope structure |
-| `OtpChannelContract` | `otp_channel.driver` config | OTP/magic-link delivery (email, SMS, etc.) |
-| `CombinedOtpChannelContract` | (extends `OtpChannelContract`) | Single-message combined OTP + magic link delivery |
-| `ExtraFieldTransformerContract` | `registration.extra_fields_transformers` config | Deriving/normalizing extra registration fields |
-| `ReferralCodeGeneratorContract` | `referral_code.generator` config | Referral code generation logic |
-| `DeviceResolverContract` | Container binding | Device fingerprint parsing (platform, browser, OS) |
-
-### `DeviceResolverContract`
-
-Replaces the built-in User-Agent parser. Implement this when you have a better device database or a third-party device detection service.
-
-```php
-// app/Auth/MyDeviceResolver.php
-<?php
-
-namespace App\Auth;
-
-use Illuminate\Http\Request;
-use Joe404\LaravelAuth\Contracts\DeviceResolverContract;
-
-class MyDeviceResolver implements DeviceResolverContract
-{
-    public function resolve(Request $request): array
-    {
-        // Parse $request->userAgent() however you like.
-        // Return an array with these keys (all optional except 'platform'):
-        return [
-            'platform'               => 'mobile',    // 'mobile', 'desktop', 'tablet'
-            'browser'                => 'Safari',
-            'os'                     => 'iOS 17',
-            'device_model'           => 'iPhone 15',
-            'device_marketing_name'  => 'iPhone 15 Pro Max',
-            'device_code'            => 'iPhone16,2',
-            'device_platform'        => 'iOS',
-        ];
-    }
-}
-```
-
-Register it in your `AppServiceProvider`:
-
-```php
-use Joe404\LaravelAuth\Contracts\DeviceResolverContract;
-use App\Auth\MyDeviceResolver;
-
-public function register(): void
-{
-    $this->app->bind(DeviceResolverContract::class, MyDeviceResolver::class);
-}
-```
-
----
-
-## Events — hooking into the lifecycle
-
-The package fires Laravel events at every significant moment. Your app subscribes via listeners in `app/Listeners/`. Laravel 11+ auto-discovers them — no service provider registration needed.
-
-| Event | When fired | Payload |
-|---|---|---|
-| `EmailVerified` | After `POST /auth/register/complete` succeeds — user row exists, role assigned | `$user`, `$tempToken` |
-| `UserLoggedIn` | Successful login (password or social) | `$user`, `$request` |
-| `UserLoggedOut` | Any logout (single or all sessions) | — |
-| `PasswordChanged` | Password reset or authenticated password change | `$user` |
-| `SuspiciousLoginDetected` | Login from an unseen device | `$user`, `$ip`, `$browser`, `$os`, `$city`, `$country` |
-| `AccountStatusChanged` | Any status change (admin, self, or system) | `$user`, `$from`, `$to`, `$source` |
-
-**Minimal listener example:**
-
-```php
-// app/Listeners/SeedFanWallet.php
-<?php
-
-namespace App\Listeners;
-
-use Joe404\LaravelAuth\Events\EmailVerified;
-
-class SeedFanWallet
-{
-    public function handle(EmailVerified $event): void
-    {
-        // $event->user is the freshly created user
-        Wallet::create(['user_id' => $event->user->id, 'balance' => 0]);
-    }
-}
-```
-
-That file alone is enough. No other registration needed.
-
-**Queueing a listener** (for anything slow — emails, webhooks, analytics):
-
-```php
-use Illuminate\Contracts\Queue\ShouldQueue;
-use Joe404\LaravelAuth\Events\EmailVerified;
-
-class SendBrandedWelcomeEmail implements ShouldQueue
-{
-    public string $queue = 'mail';
-
-    public function handle(EmailVerified $event): void
-    {
-        // This runs on your queue worker, not in the HTTP request
-    }
-}
-```
-
-**Multiple listeners on the same event** — just add more files:
-
-```php
-class SeedFanWallet          { public function handle(EmailVerified $e) {...} }
-class SendBrandedWelcomeEmail { public function handle(EmailVerified $e) {...} }
-class TrackSignupInAnalytics  { public function handle(EmailVerified $e) {...} }
-```
-
-All three run independently on every `EmailVerified` dispatch.
-
-> **Warning:** do not also add `Event::listen(EmailVerified::class, ...)` in a service provider. Auto-discovery already registers it — a manual call registers it twice and your handler runs twice.
-
----
-
-## Complete `.env` reference
-
-Every environment variable the package reads, in one place.
+## 27. Complete `.env` Reference
 
 ```env
-# ── Core ──────────────────────────────────────────────────────────────────────
-AUTH_MODE=both                         # api | web | both
-AUTH_SPA_TOKEN=false
-AUTH_REQUIRE_VERIFICATION=true
+# ── Auth mode ─────────────────────────────────────────────────────────────────
+AUTH_MODE=both                          # api | web | both
+AUTH_SPA_TOKEN=false                    # true = SPA clients get Bearer token in 'both' mode
+AUTH_REQUIRE_VERIFICATION=true          # false = allow login without email verification
 
 # ── Routes ────────────────────────────────────────────────────────────────────
-AUTH_ROUTES_REGISTER=true
-AUTH_ROUTES_PREFIX=auth                # change to api/v1/auth for versioned APIs
+AUTH_ROUTES_REGISTER=true               # false = don't auto-mount; include manually
+AUTH_ROUTES_PREFIX=auth                 # URL prefix (e.g. api/v1/auth)
 
 # ── Verification ──────────────────────────────────────────────────────────────
-AUTH_VERIFICATION_METHOD=both          # otp | magic_link | both
-AUTH_OTP_LENGTH=6
-AUTH_OTP_EXPIRY=10
-AUTH_OTP_MAX_ATTEMPTS=5
-AUTH_MAGIC_EXPIRY=30
-AUTH_MAGIC_LINK_TARGET=backend         # backend | frontend
-AUTH_FRONTEND_VERIFY_URL=
-AUTH_FRONTEND_RESET_URL=
-AUTH_OTP_CHANNEL=email                 # email | App\Channels\YourChannel
+AUTH_VERIFICATION_METHOD=both           # otp | magic_link | both
+AUTH_OTP_LENGTH=6                       # digits in OTP code (4–8)
+AUTH_OTP_EXPIRY=10                      # minutes until OTP expires
+AUTH_OTP_MAX_ATTEMPTS=5                 # wrong guesses before OTP is invalidated
+AUTH_MAGIC_EXPIRY=30                    # minutes until magic link expires
+AUTH_MAGIC_LINK_TARGET=backend          # backend | frontend
+AUTH_FRONTEND_VERIFY_URL=               # required when magic_link_target=frontend
+AUTH_FRONTEND_RESET_URL=                # required when magic_link_target=frontend
+AUTH_PENDING_TTL=60                     # minutes to keep pending registration in cache
 
 # ── Password reset ────────────────────────────────────────────────────────────
-AUTH_PASSWORD_RESET_METHOD=            # null inherits AUTH_VERIFICATION_METHOD
+AUTH_PASSWORD_RESET_METHOD=             # null | otp | magic_link | both
 
 # ── Password policy ───────────────────────────────────────────────────────────
 AUTH_PASSWORD_MIN=8
 AUTH_PASSWORD_UPPERCASE=false
 AUTH_PASSWORD_NUMBER=false
 AUTH_PASSWORD_SPECIAL=false
-AUTH_PENDING_TTL=60                    # minutes to keep pending registration in cache
 
-# ── Token TTLs (in minutes) ───────────────────────────────────────────────────
-AUTH_TOKEN_TTL_MOBILE=10080            # 7 days
-AUTH_REFRESH_TTL_MOBILE=43200          # 30 days
-AUTH_TOKEN_TTL_SPA=1440                # 24 hours
-AUTH_REFRESH_TTL_SPA=10080             # 7 days
-AUTH_TOKEN_TTL_API=525600              # 365 days
-AUTH_REFRESH_TTL_API=0                 # 0 = never expires
-AUTH_SESSION_TTL=120                   # keep in sync with SESSION_LIFETIME
+# ── Token TTL (minutes) ───────────────────────────────────────────────────────
+AUTH_TOKEN_TTL_MOBILE=10080             # 7 days
+AUTH_REFRESH_TTL_MOBILE=43200           # 30 days
+AUTH_TOKEN_TTL_SPA=1440                 # 24 hours
+AUTH_REFRESH_TTL_SPA=10080              # 7 days
+AUTH_TOKEN_TTL_API=525600               # 365 days
+AUTH_REFRESH_TTL_API=0                  # 0 = never expires
+AUTH_SESSION_TTL=120                    # keep in sync with SESSION_LIFETIME
 
-# ── Rate limiting ─────────────────────────────────────────────────────────────
+# ── Rate limits ("max:decay_minutes") ─────────────────────────────────────────
 AUTH_RATE_REGISTER=5:1
 AUTH_RATE_LOGIN=5:1
-AUTH_RATE_OTP_VERIFY=10:5
 AUTH_RATE_OTP_SEND=3:1
+AUTH_RATE_OTP_VERIFY=10:5
 AUTH_RATE_PASSWORD_RESET=3:1
 
 # ── Roles ─────────────────────────────────────────────────────────────────────
 AUTH_DEFAULT_ROLE=user
 
-# ── Referral codes ────────────────────────────────────────────────────────────
-AUTH_REFERRAL_CODE_ENABLED=false
-AUTH_REFERRAL_CODE_COLUMN=referral_code
-AUTH_REFERRAL_CODE_LENGTH=10
-AUTH_REFERRAL_CODE_UPPERCASE=true
-AUTH_REFERRAL_CODE_GENERATOR=          # FQCN of custom generator class
+# ── OTP channel ───────────────────────────────────────────────────────────────
+AUTH_OTP_CHANNEL=email                  # email | FQCN of OtpChannelContract impl
 
-# ── Social / Google OAuth ─────────────────────────────────────────────────────
+# ── Google OAuth ──────────────────────────────────────────────────────────────
 AUTH_GOOGLE_ENABLED=false
 AUTH_GOOGLE_CLIENT_ID=
 AUTH_GOOGLE_CLIENT_SECRET=
 AUTH_GOOGLE_REDIRECT=
-AUTH_SOCIAL_FRONTEND_URL=
+AUTH_SOCIAL_FRONTEND_URL=               # optional — redirect after social link confirm
 
-# ── Reverb (WebSocket) ────────────────────────────────────────────────────────
+# ── Reverb ────────────────────────────────────────────────────────────────────
 AUTH_REVERB_ENABLED=false
 
 # ── API tokens ────────────────────────────────────────────────────────────────
 AUTH_API_TOKENS_ENABLED=false
 
 # ── Queue ─────────────────────────────────────────────────────────────────────
-AUTH_QUEUE_CONNECTION=                 # null = use app default
+AUTH_QUEUE_CONNECTION=                  # null = app default
 AUTH_QUEUE_NAME=auth-maintenance
 
-# ── Response formatter ────────────────────────────────────────────────────────
-AUTH_RESPONSE_FORMATTER=               # FQCN of custom formatter class
+# ── Response format ───────────────────────────────────────────────────────────
+AUTH_RESPONSE_FORMATTER=               # FQCN or empty
 
 # ── Security ──────────────────────────────────────────────────────────────────
 AUTH_NOTIFY_NEW_DEVICE=true
@@ -1430,16 +1079,18 @@ AUTH_LOCKOUT_ENABLED=true
 AUTH_LOCKOUT_MAX=10
 AUTH_LOCKOUT_DECAY=15
 
-# ── Account status (v2.4) ─────────────────────────────────────────────────────
+# ── Account status (v2.4) ──────────────────────────────────────────────────────
 AUTH_ACCOUNT_STATUS_ENABLED=true
 AUTH_ACCOUNT_STATUS_COLUMN=account_status
 AUTH_ACCOUNT_STATUS_DEFAULT=active
 AUTH_ACCOUNT_STATUS_REVOKE_ON_CHANGE=true
 AUTH_ACCOUNT_STATUS_ABILITY=super-admin|admin
-AUTH_ACCOUNT_AUTO_UNBAN=true
-AUTH_ACCOUNT_AUTO_UNBAN_SWEEP=5        # minutes between sweep worker runs
 
-# ── Account deletion (v2.4) ───────────────────────────────────────────────────
+# ── Timed bans (v2.4) ──────────────────────────────────────────────────────────
+AUTH_ACCOUNT_AUTO_UNBAN=true
+AUTH_ACCOUNT_AUTO_UNBAN_SWEEP=5         # sweep every N minutes
+
+# ── Account deletion (v2.4) ────────────────────────────────────────────────────
 AUTH_ACCOUNT_DELETE_ENABLED=true
 AUTH_ACCOUNT_DELETE_SELF=true
 AUTH_ACCOUNT_DELETE_REQUIRE_PASSWORD=true
@@ -1447,24 +1098,31 @@ AUTH_ACCOUNT_DELETE_GRACE_DAYS=30
 AUTH_ACCOUNT_AUTO_RESTORE=true
 AUTH_ACCOUNT_NULL_UNIQUES=true
 AUTH_ACCOUNT_HARD_DELETE=false
-AUTH_ACCOUNT_AUDIT_TABLE=true          # snapshot to deleted_accounts on delete
-AUTH_ACCOUNT_UNIQUE_COLUMNS=auto       # auto | comma,separated,column,names
+AUTH_ACCOUNT_AUDIT_TABLE=true
+AUTH_ACCOUNT_UNIQUE_COLUMNS=auto
 
-# ── Account deactivation (v2.4) ───────────────────────────────────────────────
+# ── Account deactivation (v2.4) ────────────────────────────────────────────────
 AUTH_ACCOUNT_DEACTIVATE_ENABLED=true
 AUTH_ACCOUNT_DEACTIVATE_SELF=true
 AUTH_ACCOUNT_DEACTIVATE_REQUIRE_PASSWORD=true
 AUTH_ACCOUNT_AUTO_REACTIVATE=true
 
-# ── Audit log (v2.4) ──────────────────────────────────────────────────────────
+# ── Audit log (v2.4) ───────────────────────────────────────────────────────────
 AUTH_ACCOUNT_AUDIT_ENABLED=true
 AUTH_ACCOUNT_AUDIT_TABLE_NAME=account_status_logs
 AUTH_ACCOUNT_AUDIT_LOG_STATUS=true
 AUTH_ACCOUNT_AUDIT_LOG_SYSTEM=true
 AUTH_ACCOUNT_AUDIT_CAPTURE_META=true
-AUTH_ACCOUNT_AUDIT_RETENTION_DAYS=     # null = keep forever, integer = days
+AUTH_ACCOUNT_AUDIT_RETENTION_DAYS=      # null = keep forever
 AUTH_ACCOUNT_AUDIT_NOTES_ENABLED=true
 AUTH_ACCOUNT_AUDIT_HISTORY_ENABLED=true
 AUTH_ACCOUNT_AUDIT_HISTORY_PER_PAGE=20
 AUTH_ACCOUNT_AUDIT_HISTORY_MAX_PER_PAGE=100
+
+# ── Referral codes (v2.3) ─────────────────────────────────────────────────────
+AUTH_REFERRAL_CODE_ENABLED=false
+AUTH_REFERRAL_CODE_COLUMN=referral_code
+AUTH_REFERRAL_CODE_LENGTH=10
+AUTH_REFERRAL_CODE_UPPERCASE=true
+AUTH_REFERRAL_CODE_GENERATOR=           # FQCN or empty
 ```

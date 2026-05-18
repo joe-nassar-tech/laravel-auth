@@ -1,49 +1,100 @@
 # Events & Listeners
 
-The package never reaches into your application code directly. Instead, every
-significant moment in the auth lifecycle is broadcast as a Laravel event, and
-your host app subscribes to whichever ones it cares about. This keeps the
-package self-contained — and lets you bolt on host-specific behaviour
-(create a wallet, write an audit row, send a custom welcome email, push to
-analytics, fan out to a webhook) **without forking the package**.
+The package fires a Laravel event at every significant point in the auth lifecycle. Your host app subscribes to the events it cares about and runs its own logic — wallet seeding, audit rows, welcome emails, analytics, webhooks — without modifying the package or forking controllers.
 
-## Why events, not callbacks
+---
 
-A typical config-driven library asks you to point a config key at your
-own class:
+## Table of Contents
+
+1. [Why events?](#1-why-events)
+2. [All events reference](#2-all-events-reference)
+3. [Listening to events (auto-discovery)](#3-listening-to-events-auto-discovery)
+4. [Multiple listeners on the same event](#4-multiple-listeners-on-the-same-event)
+5. [Queueing a listener](#5-queueing-a-listener)
+6. [Worked example](#6-worked-example)
+7. [Common pitfall — double registration](#7-common-pitfall--double-registration)
+8. [Disabling auto-discovery](#8-disabling-auto-discovery)
+
+---
+
+## 1. Why events?
+
+A typical config-driven library asks you to set a callback:
 
 ```php
-'on_email_verified' => \App\Hooks\MyHook::class,    // not how this package works
+'on_user_registered' => \App\Hooks\MyHook::class,  // not how this package works
 ```
 
-That works for *one* hook per slot. The moment a second team needs the same
-trigger (auditing wants in, billing wants in, messaging wants in), config
-slots become a bottleneck — you end up wrapping classes inside classes.
+That works for one hook per slot. The moment a second team needs the same trigger (auditing, billing, messaging), you're wrapping classes inside classes.
 
-Events solve that with N:M wiring. The package fires one event; any number
-of listeners — yours, a teammate's, a third-party package's — can react,
-independently, in any order, without any of them knowing about the others.
+Events solve this with N:M wiring. The package fires one event; any number of independent listeners — yours, a teammate's, a third-party package's — can react without knowing about each other.
 
-## Lifecycle event reference
+---
 
-| Event | When fired | Payload |
-|-------|-----------|---------|
-| `EmailVerified`           | After `POST /auth/register/complete` succeeds — the user row exists, the role is assigned, the registration transaction has committed. | `$user`, `$tempToken` |
-| `UserLoggedIn`            | Successful login (password or social).                                                                                                  | `$user`, `$request`   |
-| `UserLoggedOut`           | Any logout (single session or `logout/all`).                                                                                            | —                     |
-| `PasswordChanged`         | Password reset confirmation **or** authenticated password change.                                                                       | `$user`               |
-| `SuspiciousLoginDetected` | Login from a device the package has not seen before for this user.                                                                      | `$user`, `$ip`, `$browser`, `$os`, `$city`, `$country` |
+## 2. All events reference
 
 All events live under the `Joe404\LaravelAuth\Events\` namespace.
 
-## How your listener gets wired (auto-discovery)
+### Core auth events
 
-Laravel 11+ scans `app/Listeners/` at boot and reads each class's `handle()`
-method signature. **The first parameter's type-hint is the event** — Laravel
-auto-registers the link. You do not need to add anything to a service
-provider.
+| Event | When fired | Payload |
+|---|---|---|
+| `EmailVerified` | After `POST /auth/register/complete` — user row exists, role assigned, transaction committed | `$user`, `$tempToken` |
+| `UserLoggedIn` | Successful login (password or social) | `$user`, `$request` |
+| `UserLoggedOut` | Any logout (single session or `logout/all`) | — |
+| `PasswordChanged` | Password reset confirmation **or** authenticated password change | `$user` |
+| `SuspiciousLoginDetected` | Login from a device the package hasn't seen before for this user | `$user`, `$ip`, `$browser`, `$os`, `$city`, `$country` |
 
-A complete, zero-config listener:
+### Account lifecycle events (v2.4)
+
+| Event | When fired | Payload |
+|---|---|---|
+| `AccountStatusChanged` | Any status change (admin, user, or automatic) | `$user`, `$from`, `$to`, `$reason`, `$expiresAt` |
+| `AccountDeleted` | User calls `DELETE /auth/account` | `$user`, `$gracePeriodDays`, `$scheduledPurgeAt` |
+| `AccountRestored` | Login auto-restore during grace period | `$user` |
+| `AccountPurged` | Purge worker permanently anonymises the row after grace | `$userId`, `$email` (from snapshot) |
+
+### Payload access
+
+Event payloads are public properties on the event class:
+
+```php
+use Joe404\LaravelAuth\Events\EmailVerified;
+use Joe404\LaravelAuth\Events\AccountStatusChanged;
+use Joe404\LaravelAuth\Events\UserLoggedIn;
+
+// EmailVerified
+$event->user        // App\Models\User instance
+$event->tempToken   // string — the UUID from step 1 of registration
+
+// UserLoggedIn
+$event->user        // User
+$event->request     // Illuminate\Http\Request
+
+// AccountStatusChanged
+$event->user        // User
+$event->from        // string — previous status
+$event->to          // string — new status
+$event->reason      // string|null
+$event->expiresAt   // Carbon|null — for timed bans
+
+// AccountDeleted
+$event->user              // User (still accessible during grace period)
+$event->gracePeriodDays   // int
+$event->scheduledPurgeAt  // Carbon
+
+// AccountPurged
+$event->userId  // int — original user ID (row may be hard-deleted)
+$event->email   // string|null — from the deleted_accounts snapshot
+```
+
+---
+
+## 3. Listening to events (auto-discovery)
+
+Laravel 11+ auto-discovers listeners in `app/Listeners/` by reading the type-hint of each class's `handle()` method. No service provider registration needed.
+
+**Zero-config listener:**
 
 ```php
 <?php
@@ -56,120 +107,197 @@ class GrantSignupBonus
 {
     public function handle(EmailVerified $event): void
     {
-        // $event->user is the freshly-created user.
-        // Run any host-app logic that should follow registration.
+        $user = $event->user;
+        // Run any host-app logic that should happen at registration
+        $user->wallet()->create(['balance' => 0]);
     }
 }
 ```
 
-That file is enough. The next time `EmailVerified` fires, this listener runs.
+Drop the file in `app/Listeners/` and the next time `EmailVerified` fires, this runs.
 
-### Verifying the wiring
+**Verify wiring:**
 
 ```bash
 php artisan event:list --event="Joe404\LaravelAuth\Events\EmailVerified"
 ```
 
-Every registered listener for the event prints in the output. Use this to
-confirm a new listener is picked up — or to spot an accidental
-double-registration.
+All registered listeners for that event are printed. Use this to confirm a new listener is picked up, or to spot an accidental double-registration.
 
-### Common pitfall: registering the same listener twice
+---
 
-Because auto-discovery already binds your listener via the type-hint, an
-**additional** manual `Event::listen(...)` call in a service provider
-registers the listener a *second* time, and `handle()` runs twice for
-every dispatch. Symptoms include duplicate audit rows, duplicate emails,
-or `firstOrCreate` rows that look as if they "succeeded twice."
+## 4. Multiple listeners on the same event
 
-If you see duplicates: remove the manual `Event::listen()` call and rely
-on auto-discovery alone.
-
-## Multiple listeners on the same event
-
-Drop more files into `app/Listeners/` — order is not guaranteed and they
-run independently:
+Drop additional files in `app/Listeners/`. Order is not guaranteed; they run independently.
 
 ```php
-class GrantSignupBonus       { public function handle(EmailVerified $e): void { /* ... */ } }
-class SendBrandedWelcomeMail { public function handle(EmailVerified $e): void { /* ... */ } }
-class TrackSignupInAnalytics { public function handle(EmailVerified $e): void { /* ... */ } }
+// app/Listeners/SeedFanWallet.php
+class SeedFanWallet
+{
+    public function handle(EmailVerified $event): void
+    {
+        $event->user->wallet()->create(['balance' => 0]);
+    }
+}
+
+// app/Listeners/RecordRegistrationAudit.php
+class RecordRegistrationAudit
+{
+    public function handle(EmailVerified $event): void
+    {
+        AuditLog::create(['event' => 'registered', 'user_id' => $event->user->id]);
+    }
+}
+
+// app/Listeners/SendBrandedWelcomeEmail.php
+class SendBrandedWelcomeEmail implements ShouldQueue
+{
+    public function handle(EmailVerified $event): void
+    {
+        Mail::to($event->user)->send(new WelcomeMailable($event->user));
+    }
+}
 ```
 
-All three run on every `EmailVerified` dispatch.
+All three run on every `EmailVerified` dispatch. Each team owns and maintains their listener independently.
 
-## Queueing a listener
+---
 
-Implement `ShouldQueue` and the listener runs on your queue worker
-instead of inside the request:
+## 5. Queueing a listener
+
+Implement `ShouldQueue` and the listener runs in the background instead of inside the HTTP request. Recommended for anything that takes more than a few hundred milliseconds (email sending, analytics calls, webhook delivery).
 
 ```php
+<?php
+
+namespace App\Listeners;
+
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Joe404\LaravelAuth\Events\EmailVerified;
 
-class SendBrandedWelcomeMail implements ShouldQueue
+class SendBrandedWelcomeEmail implements ShouldQueue
+{
+    public string $queue = 'mail';
+    public int $tries = 3;
+    public int $backoff = 30;  // seconds between retry attempts
+
+    public function handle(EmailVerified $event): void
+    {
+        Mail::to($event->user)->send(new WelcomeMailable($event->user));
+    }
+
+    public function failed(EmailVerified $event, \Throwable $exception): void
+    {
+        // Called when all retries are exhausted — log, alert, etc.
+        Log::error('Welcome email failed', ['user_id' => $event->user->id]);
+    }
+}
+```
+
+---
+
+## 6. Worked example
+
+**Scenario:** a creator platform where three things must happen the moment a fan registers:
+
+1. Seed a wallet (every fan starts with 0 balance)
+2. Write a compliance audit row
+3. Send a branded welcome email (queued — don't slow down the response)
+
+**Old approach:** one fat controller that does all three. Every change touches the same file.
+
+**Events approach:** each team owns a tiny listener.
+
+```
+app/Listeners/SeedFanWallet.php             → creates wallet (synchronous, fast)
+app/Listeners/RecordRegistrationAudit.php   → writes audit row (synchronous, fast)
+app/Listeners/SendWelcomeEmail.php          → queues the email (ShouldQueue)
+```
+
+```php
+// app/Listeners/SeedFanWallet.php
+class SeedFanWallet
+{
+    public function handle(EmailVerified $event): void
+    {
+        $event->user->wallet()->create(['balance' => 0]);
+    }
+}
+```
+
+```php
+// app/Listeners/RecordRegistrationAudit.php
+class RecordRegistrationAudit
+{
+    public function handle(EmailVerified $event): void
+    {
+        RegistrationAudit::create([
+            'user_id'    => $event->user->id,
+            'ip_address' => request()->ip(),
+            'registered_at' => now(),
+        ]);
+    }
+}
+```
+
+```php
+// app/Listeners/SendWelcomeEmail.php
+class SendWelcomeEmail implements ShouldQueue
 {
     public string $queue = 'mail';
 
     public function handle(EmailVerified $event): void
     {
-        // ... long-running work, retried automatically on failure
+        Mail::to($event->user)->queue(new WelcomeMailable($event->user));
     }
 }
 ```
 
-Recommended for anything that takes more than a few hundred milliseconds
-(network calls to email/SMS providers, analytics, third-party webhooks).
-The `EmailVerified` dispatch happens inside the registration's HTTP
-request, so anything you do synchronously stretches the response time.
+The package, the controllers, and the other listeners are completely untouched regardless of which listener changes.
 
-## Worked example — the real-world pattern
+---
 
-Suppose your platform needs three things to happen the moment a user
-finishes registration:
+## 7. Common pitfall — double registration
 
-1. Create a wallet row (every fan starts with a 0-balance wallet).
-2. Write an audit row (compliance / fraud team needs a log).
-3. Send a branded welcome email (marketing team's domain).
+Because auto-discovery already binds your listener via the type-hint, an additional manual `Event::listen()` call in a service provider registers it **a second time**. The `handle()` method then runs twice for every dispatch — duplicate audit rows, duplicate emails, double wallet seeds.
 
-The "old" way would be one giant controller that does all three after
-calling the package — every change requires editing that controller, and
-the wallet team, audit team, and marketing team all touch the same file.
+**Symptom:** everything looks correct but effects happen twice.
 
-The events way: each team owns a tiny listener.
+**Fix:** remove the manual `Event::listen()` call and rely on auto-discovery alone.
 
-```
-app/Listeners/SeedFanWallet.php          → creates the wallet
-app/Listeners/RecordRegistrationAudit.php → writes the audit row
-app/Listeners/SendWelcomeEmail.php        → queues the welcome email
+```php
+// WRONG — do not add this if using auto-discovery
+Event::listen(EmailVerified::class, SeedFanWallet::class);
+
+// RIGHT — just drop the file in app/Listeners/ and let auto-discovery do it
 ```
 
-Each handles `EmailVerified`, each is auto-discovered, each can be
-edited / disabled / re-tested independently. The package, the controller,
-and the other listeners stay untouched.
+**Verify with:**
 
-## Disabling auto-discovery (rarely needed)
+```bash
+php artisan event:list --event="Joe404\LaravelAuth\Events\EmailVerified"
+```
 
-If your team prefers explicit registration over auto-discovery, opt out
-in `bootstrap/app.php`:
+If your listener appears twice in the output, you have a double registration.
+
+---
+
+## 8. Disabling auto-discovery
+
+If your team prefers explicit registration over auto-discovery, opt out in `bootstrap/app.php`:
 
 ```php
 ->withEvents(discover: [])
 ```
 
-Then register listeners manually anywhere in your service providers:
+Then register listeners manually in any service provider:
 
 ```php
-Event::listen(EmailVerified::class, GrantSignupBonus::class);
+use Illuminate\Support\Facades\Event;
+use Joe404\LaravelAuth\Events\EmailVerified;
+use App\Listeners\SeedFanWallet;
+
+Event::listen(EmailVerified::class, SeedFanWallet::class);
 ```
 
-The package fires events the same way regardless — only the *registration
-mechanism* changes.
-
-## Why this matters for forward compatibility
-
-Because your platform code lives in listener classes you own, package
-upgrades cannot break your hooks. Even if the package internally rewrites
-how `finalizeRegistration()` works, as long as it still dispatches
-`EmailVerified` at the same moment with the same payload contract, your
-listeners keep working. The event class is the API.
+The package fires events the same way regardless — only the registration mechanism changes.
