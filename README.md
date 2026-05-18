@@ -39,6 +39,7 @@ A drop-in, config-driven authentication library for Laravel 13. Register, verify
 - [Events](#events)
 - [Security Design](#security-design)
 - [Testing](#testing)
+- [AI Context](#ai-context)
 - [License](#license)
 
 ---
@@ -1320,6 +1321,19 @@ composer test
 ```
 
 The test suite uses Pest with `RefreshDatabase`, `Mail::fake()`, and `Queue::fake()`. No real emails or HTTP calls are made.
+
+---
+
+## AI Context
+
+`docs/AI_Context.md` gives any AI assistant a complete picture of this repository in a single read — every file, every table, every flow, every contract, and every config key, with code snippets. Open it if you're using an AI to help you integrate or extend the package.
+
+**Fastest way to feed the whole repo to an AI:**
+
+1. Open **https://gitingest.com/joe-nassar-tech/laravel-auth**
+2. Set **Include files under** to `100kB`
+3. Click **Ingest**
+4. Under the summary, click **Copy All** and paste into your AI — or **Download** as an `.md` file and attach it
 
 ---
 
