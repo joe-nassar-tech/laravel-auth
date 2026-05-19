@@ -43,6 +43,36 @@ it('resend endpoint returns same 200 when no pending registration exists (no enu
     Notification::assertNothingSent();
 });
 
+it('resend endpoint returns a temp_token in the response so SPAs can rebind their Echo channel', function (): void {
+    config()->set('auth_system.verification.method', 'both');
+    $email = 'temp-token-rebind@example.com';
+
+    Cache::put("auth:pending:{$email}", ['extra' => []], now()->addMinutes(60));
+
+    $response = test()->postJson('/auth/email/resend-verification', ['email' => $email])
+        ->assertStatus(200)
+        ->assertJsonStructure(['success', 'message', 'data' => ['temp_token']]);
+
+    $tempToken = $response->json('data.temp_token');
+    expect($tempToken)->toBeString()->toHaveLength(36); // UUID v4
+
+    // The new temp_token must actually match the OTP records that were just
+    // created — that is the whole point of returning it.
+    expect(AuthOtpCode::where('email', $email)->where('temp_token', $tempToken)->count())
+        ->toBe(2); // one email_verify + one magic_link_verify under method=both
+});
+
+it('resend endpoint returns a temp_token even when no pending registration exists (anti-enumeration)', function (): void {
+    // Returning a UUID-shaped temp_token regardless of whether a pending
+    // registration exists prevents an outsider from probing emails: the
+    // response shape is identical in both branches.
+    test()->postJson('/auth/email/resend-verification', ['email' => 'nobody-tt@example.com'])
+        ->assertStatus(200)
+        ->assertJsonStructure(['success', 'message', 'data' => ['temp_token']]);
+
+    Notification::assertNothingSent();
+});
+
 it('email verified event is dispatched at /register/complete', function (): void {
     config()->set('auth_system.verification.method', 'otp');
     $email = 'verified-event@example.com';

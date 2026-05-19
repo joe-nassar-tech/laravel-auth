@@ -23,12 +23,14 @@ class EmailVerificationController extends Controller
 
     public function resend(ResendVerificationRequest $request): JsonResponse
     {
-        $email = strtolower(trim($request->validated('email')));
+        $email     = strtolower(trim($request->validated('email')));
+        $tempToken = Str::uuid()->toString();
 
-        // Only resend if there is a pending pre-registration in cache
+        // Only resend if there is a pending pre-registration in cache. When
+        // there isn't, we still return a structurally identical response so
+        // an outsider cannot probe which emails have pending registrations.
         if (Cache::has("auth:pending:{$email}")) {
-            $method    = (string) config('auth_system.verification.method', 'both');
-            $tempToken = Str::uuid()->toString();
+            $method = (string) config('auth_system.verification.method', 'both');
 
             match ($method) {
                 'both'       => $this->otpService->sendCombined($email, 'email_verify', 'magic_link_verify', $tempToken),
@@ -37,9 +39,14 @@ class EmailVerificationController extends Controller
             };
         }
 
-        // Always same response — prevents enumeration of pending registrations.
+        // Always same response shape — prevents enumeration of pending
+        // registrations. SPAs should always update their stored temp_token
+        // from this response so the realtime channel subscription tracks the
+        // currently-valid OTP records (resend invalidates previous OTPs and
+        // creates new ones with this new temp_token).
         return $this->success(
             $this->msg('verification_resent', 'If your email is pending verification, new instructions have been sent.'),
+            ['temp_token' => $tempToken],
         );
     }
 }

@@ -408,6 +408,30 @@ Once Tab B has consumed the `completion_token` (by hitting verify-magic), advanc
 
 `POST /auth/email/resend-verification` calls `OtpService::invalidatePrevious()` before sending a new code. After resend, only the **latest** email's OTP / link works; clicking an old link returns 422. If your UI shows "resend email" without making this obvious, users will keep clicking the original email and report it as broken. Either make the latest-link rule explicit in the resend success message, or hide the resend button after the first send.
 
+**5a. Resend ROTATES the `temp_token` — re-bind your Echo subscription.**
+
+A resend creates a fresh set of OTP records under a new `temp_token`. The package broadcasts `RegistrationEmailVerified` on `auth.verification.{NEW_TEMP_TOKEN}`, so a tab still subscribed to the original channel will silently miss the event and look frozen.
+
+The resend endpoint returns the new token in its response:
+
+```json
+{ "success": true, "message": "...", "data": { "temp_token": "<new-uuid>" } }
+```
+
+Always read it and re-bind your store + channel:
+
+```ts
+const res = await authApi.resendVerification(email)
+if (res.success && res.data?.temp_token) {
+  // Updating the temp_token in the store causes useRegistrationEcho's
+  // useEffect (deps: [tempToken]) to tear down the old subscription and
+  // open a new one on the now-valid channel.
+  store.setInitiation(res.data.temp_token, email)
+}
+```
+
+The response is structurally identical whether or not a pending registration exists for that email (the package returns a dummy `temp_token` in the not-found case) — this preserves the anti-enumeration guarantee while letting honest SPAs always treat the field as authoritative.
+
 **6. Echo re-subscribes on every render if your callback identity changes.**
 
 If you pass an inline arrow function as your `onVerified` handler and include it in the effect's deps, every re-render produces a new closure → effect runs cleanup + re-subscribe → `/broadcasting/auth` POST fires on a loop. Any state update in the parent (e.g. a 1-second countdown timer) triggers this. Capture the callback in a ref and leave it out of the deps:
