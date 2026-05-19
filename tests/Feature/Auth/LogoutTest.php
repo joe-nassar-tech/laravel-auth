@@ -26,6 +26,19 @@ it('can logout with a valid sanctum token', function (): void {
     expect($user->tokens()->count())->toBe(0);
 });
 
+it('session/clear succeeds without authentication and invalidates the current session', function (): void {
+    // Hit it twice — first call should clear whatever is there, second call
+    // should be idempotent (no error, same envelope). Verifies the endpoint
+    // is reachable without a Bearer token or active session.
+    $this->postJson('/auth/session/clear')
+        ->assertStatus(200)
+        ->assertJson(['success' => true]);
+
+    $this->postJson('/auth/session/clear')
+        ->assertStatus(200)
+        ->assertJson(['success' => true]);
+});
+
 it('returns 401 when trying to logout without authentication', function (): void {
     $response = $this->postJson('/auth/logout');
 

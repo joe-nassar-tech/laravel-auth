@@ -53,6 +53,12 @@ Route::middleware(['auth.device', 'throttle:api'])->group(function (): void {
     Route::post('email/resend-verification', [EmailVerificationController::class, 'resend'])
         ->middleware('auth.ratelimit:otp_send');
 
+    // Force-destroy an orphaned session cookie without requiring auth. Meant
+    // for SPAs to call after `/auth/me` returns 401 at app boot, so the next
+    // request to the API does not carry a stale session cookie that points
+    // at a no-longer-existing user.
+    Route::post('session/clear', [LogoutController::class, 'clearOrphanSession']);
+
     // M4: Password reset
     Route::post('password/forgot', [PasswordResetController::class, 'forgot'])
         ->middleware('auth.ratelimit:password_reset');

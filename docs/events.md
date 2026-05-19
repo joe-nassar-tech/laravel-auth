@@ -449,3 +449,28 @@ useEffect(() => {
 
 The symptom is a burst of `OPTIONS/POST /broadcasting/auth` requests in the network tab. Easy to mistake for a CORS or auth bug — actually a hook deps issue.
 
+**7. Orphaned sessions after out-of-band user deletion.**
+
+If a user row is deleted directly in the database (admin tool, manual SQL, test fixture cleanup) without going through `DELETE /auth/account`, the session row in storage survives but now points at a missing user ID. The next page load fires `/auth/me` and gets 401, the SPA "logs out" locally, but the browser still holds the stale session cookie. When the same browser then attempts a fresh registration, `Auth::login(newUser)` runs on top of the orphaned session and — depending on storage driver and timing — the `Set-Cookie` from the response can be silently rejected by the browser. `/auth/me` keeps returning 401 in a loop until the user clears cookies manually.
+
+The package ships `POST /auth/session/clear` (unauthenticated, no body) specifically for this. It calls `$request->session()->invalidate()` + `regenerateToken()` and returns a fresh `Set-Cookie` so the next request starts clean. Wire it into your SPA's auth bootstrap on every 401 from `/auth/me`:
+
+```ts
+export async function bootstrapAuth() {
+  try {
+    const me = await authApi.me()
+    if (me.success && me.data.user) {
+      store.setSession(me.data.user, me.data.roles ?? [])
+      return
+    }
+    store.clearSession()
+    await authApi.clearOrphanSession()  // ← here
+  } catch {
+    store.clearSession()
+    await authApi.clearOrphanSession()  // ← and here (most 401s land here)
+  }
+}
+```
+
+The call is a no-op when there's nothing to clear, so it's safe to fire on every cold boot.
+

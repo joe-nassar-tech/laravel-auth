@@ -287,6 +287,7 @@ return [
         'me_retrieved'           => null,
         'logout_success'         => null,
         'logout_all_success'     => null,
+        'session_cleared'        => null,
         'password_reset_sent'    => null,
         'password_reset_otp_ok'  => null,
         'password_reset_link_ok' => null,
