@@ -120,7 +120,8 @@ joe-404/laravel-auth/
 │   │   └── DeviceResolverContract.php
 │   │
 │   ├── Events/                    ← Dispatched at key lifecycle moments
-│   │   ├── EmailVerified.php
+│   │   ├── RegistrationEmailVerified.php  ← verify step (SPA cross-tab handoff)
+│   │   ├── EmailVerified.php              ← finalize step (user row exists)
 │   │   ├── UserLoggedIn.php
 │   │   ├── UserLoggedOut.php
 │   │   ├── PasswordChanged.php
@@ -387,6 +388,7 @@ The package dispatches events and never calls host-app code directly. Host apps 
 
 | Event class | Namespace | Fired when | Payload |
 |---|---|---|---|
+| `RegistrationEmailVerified` | `Joe404\LaravelAuth\Events\` | OTP / magic link verified at step 2, before user row exists. Broadcasts on `private-auth.verification.{tempToken}` for SPA cross-tab handoff. | `$tempToken`, `$completionToken`, `$email` |
 | `EmailVerified` | `Joe404\LaravelAuth\Events\` | Registration step 3 succeeds | `$user`, `$tempToken` |
 | `UserLoggedIn` | `Joe404\LaravelAuth\Events\` | Successful login | `$user`, `$request` |
 | `UserLoggedOut` | `Joe404\LaravelAuth\Events\` | Any logout | — |

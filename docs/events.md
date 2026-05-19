@@ -14,6 +14,7 @@ The package fires a Laravel event at every significant point in the auth lifecyc
 6. [Worked example](#6-worked-example)
 7. [Common pitfall — double registration](#7-common-pitfall--double-registration)
 8. [Disabling auto-discovery](#8-disabling-auto-discovery)
+9. [SPA / frontend integration — cross-tab verification handoff](#9-spa--frontend-integration--cross-tab-verification-handoff)
 
 ---
 
@@ -39,6 +40,7 @@ All events live under the `Joe404\LaravelAuth\Events\` namespace.
 
 | Event | When fired | Payload |
 |---|---|---|
+| `RegistrationEmailVerified` | After OTP / magic link verification, BEFORE the user row exists. Broadcasts on `private-auth.verification.{tempToken}` (when Reverb is enabled) so SPA tabs can drive cross-tab handoff. | `$tempToken`, `$completionToken`, `$email` |
 | `EmailVerified` | After `POST /auth/register/complete` — user row exists, role assigned, transaction committed | `$user`, `$tempToken` |
 | `UserLoggedIn` | Successful login (password or social) | `$user`, `$request` |
 | `UserLoggedOut` | Any logout (single session or `logout/all`) | — |
@@ -62,6 +64,11 @@ Event payloads are public properties on the event class:
 use Joe404\LaravelAuth\Events\EmailVerified;
 use Joe404\LaravelAuth\Events\AccountStatusChanged;
 use Joe404\LaravelAuth\Events\UserLoggedIn;
+
+// RegistrationEmailVerified
+$event->tempToken        // string — the UUID returned from POST /auth/register
+$event->completionToken  // string — the UUID the SPA must send to /auth/register/complete
+$event->email            // string — the verified address
 
 // EmailVerified
 $event->user        // App\Models\User instance
@@ -301,3 +308,120 @@ Event::listen(EmailVerified::class, SeedFanWallet::class);
 ```
 
 The package fires events the same way regardless — only the registration mechanism changes.
+
+---
+
+## 9. SPA / frontend integration — cross-tab verification handoff
+
+This section is for the **frontend developer** integrating the registration flow into a SPA. It is the part of the lifecycle most likely to be implemented wrong, because it crosses tabs / devices / browser contexts. The notes below capture the mistakes that were actually made building the reference integration; they apply to any framework (React, Vue, Svelte) — only the syntax changes.
+
+### The two-tab problem
+
+The registration flow has three steps:
+
+1. `POST /auth/register` — collect non-password fields, return `temp_token`
+2. **Verify email** — either `POST /auth/register/verify-otp` or click a magic link
+3. `POST /auth/register/complete` — submit `completion_token` + password
+
+The password is collected at step 3, **never sent to the backend at step 1**. This is deliberate: a stranger should not be able to set a password on an email address they do not own. (See the [security rationale in `AuthService::initiateRegistration()`](../src/Services/AuthService.php).)
+
+The mistake teams make: storing the password in `sessionStorage` at step 1 so step 3 can read it. That works **only when verification happens in the same tab**. The moment the user clicks the magic link in Gmail, on their phone, or in an incognito window, `sessionStorage` is empty and the flow dead-ends with "session expired".
+
+### The recommended UX
+
+Have the frontend render two views:
+
+- **Tab A** (the one where the user submitted the register form) — shows "we sent a code, enter it below or click the link in your email." Waits for either OTP entry **or** a real-time event from the backend.
+- **Tab B** (whatever opened the magic link — different tab, browser, or device) — after verification, shows "Email verified. Continue setting up your account in your original tab." Does **not** ask for a password. Does **not** navigate further.
+
+When verification succeeds in Tab B, the backend fires `RegistrationEmailVerified`. The event broadcasts on `private-auth.verification.{tempToken}` and includes the `completion_token` in the payload. Tab A is subscribed to that channel (it knows `tempToken` from step 1), receives the broadcast, stores the `completion_token`, and moves itself to the "set your password" view.
+
+Tab A then collects password + confirmation and calls `POST /auth/register/complete`. Done.
+
+### Subscribing — Echo example
+
+```ts
+import Echo from 'laravel-echo'
+import Pusher from 'pusher-js'
+
+const echo = new Echo({
+  broadcaster: 'reverb',
+  key: import.meta.env.VITE_REVERB_APP_KEY,
+  // ... your Reverb host/port/scheme settings
+  client: new Pusher(import.meta.env.VITE_REVERB_APP_KEY, { /* ... */ }),
+})
+
+echo
+  .private(`auth.verification.${tempToken}`)
+  .listen('.RegistrationEmailVerified', (payload: {
+    verified: boolean
+    completion_token: string
+    email: string
+  }) => {
+    // Store payload.completion_token, navigate to your "set password" screen.
+  })
+```
+
+Notes:
+
+- The Echo event name **must be prefixed with a dot**: `'.RegistrationEmailVerified'`. Without the dot, Echo prepends the Laravel namespace and your listener never fires.
+- `Broadcast::channel('auth.verification.{tempToken}', ...)` (installed by `php artisan auth:install`) authorises subscribers without a logged-in user, by checking that the `tempToken` exists in `auth_otp_codes`. Do not delete that closure.
+- `/broadcasting/auth` must be reachable by the unauthenticated registering tab — make sure your Sanctum stateful domains and any auth middleware on the broadcast route do not block it.
+
+### Pitfalls that bit the reference implementation
+
+These are real bugs found and fixed during development. Avoid repeating them.
+
+**1. React StrictMode double-fires `useEffect` (and your magic link consumes itself).**
+
+In development, React 18+ `StrictMode` mounts → unmounts → remounts every component. An effect that calls `GET /auth/register/verify-magic/{token}` on mount runs **twice** in dev — the first call validates and sets `used_at`; the second hits the now-used record and returns 422. The first response succeeds in the background, but the UI shows the second response's error.
+
+Fix: guard the effect with a `useRef` (refs persist across the StrictMode unmount/remount cycle for function components):
+
+```ts
+const verifyAttempted = useRef(false)
+
+useEffect(() => {
+  const token = new URLSearchParams(window.location.search).get('token')
+  if (!token) return
+  if (verifyAttempted.current) return
+  verifyAttempted.current = true
+  // ... call verify-magic
+}, [])
+```
+
+The symptom is "magic link always returns 422" — only in development, never in production (where StrictMode is a no-op). Easy to misdiagnose as a backend bug.
+
+**2. Don't subscribe to the channel keyed on `completion_token` from Tab A.**
+
+`completion_token` is the *output* of verification — Tab A does not have it yet. Subscribe with `tempToken`, which Tab A has had since step 1. The package broadcasts on `auth.verification.{tempToken}` precisely so Tab A can listen before verification happens.
+
+**3. Don't store the password in `localStorage`.**
+
+It "fixes" the cross-tab problem but at the cost of putting a plaintext password on disk for an unbounded time. The cross-tab handoff via broadcast removes the need entirely. (`sessionStorage` is also wrong, but at least it dies with the tab.)
+
+**4. Don't navigate Tab B forward after verification.**
+
+Once Tab B has consumed the `completion_token` (by hitting verify-magic), advancing it to a "set password" screen creates two tabs racing to call `/auth/register/complete` — and the cache entry is consumed by whichever lands first, leaving the other tab orphaned. Make Tab B a terminal screen ("verified, switch tabs"). Tab A is the one that finishes registration.
+
+**5. Resend invalidates previous OTPs and magic links — by design.**
+
+`POST /auth/email/resend-verification` calls `OtpService::invalidatePrevious()` before sending a new code. After resend, only the **latest** email's OTP / link works; clicking an old link returns 422. If your UI shows "resend email" without making this obvious, users will keep clicking the original email and report it as broken. Either make the latest-link rule explicit in the resend success message, or hide the resend button after the first send.
+
+**6. Echo re-subscribes on every render if your callback identity changes.**
+
+If you pass an inline arrow function as your `onVerified` handler and include it in the effect's deps, every re-render produces a new closure → effect runs cleanup + re-subscribe → `/broadcasting/auth` POST fires on a loop. Any state update in the parent (e.g. a 1-second countdown timer) triggers this. Capture the callback in a ref and leave it out of the deps:
+
+```ts
+const onVerifiedRef = useRef(onVerified)
+useEffect(() => { onVerifiedRef.current = onVerified })
+
+useEffect(() => {
+  const channel = echo.private(`auth.verification.${tempToken}`)
+  channel.listen('.RegistrationEmailVerified', (payload) => onVerifiedRef.current(payload))
+  return () => { channel.stopListening('.RegistrationEmailVerified'); echo.leave(channel.name) }
+}, [tempToken])  // NOT [tempToken, onVerified]
+```
+
+The symptom is a burst of `OPTIONS/POST /broadcasting/auth` requests in the network tab. Easy to mistake for a CORS or auth bug — actually a hook deps issue.
+

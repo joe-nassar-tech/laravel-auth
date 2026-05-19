@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 use Joe404\LaravelAuth\Events\EmailVerified;
 use Joe404\LaravelAuth\Events\PasswordChanged;
+use Joe404\LaravelAuth\Events\RegistrationEmailVerified;
 use Joe404\LaravelAuth\Events\SuspiciousLoginDetected;
 use Joe404\LaravelAuth\Events\UserLoggedIn;
 use Joe404\LaravelAuth\Events\UserLoggedOut;
@@ -159,14 +160,30 @@ class AuthService
     {
         $otpRecord = $this->otpService->validateOtp($email, $code, 'email_verify');
 
-        return $this->issueCompletionToken($otpRecord->email);
+        $result = $this->issueCompletionToken($otpRecord->email);
+
+        RegistrationEmailVerified::dispatch(
+            (string) $otpRecord->temp_token,
+            (string) $result['completion_token'],
+            (string) $otpRecord->email,
+        );
+
+        return $result;
     }
 
     public function completeRegistrationWithMagicLink(string $token): array
     {
         $otpRecord = $this->otpService->validateMagicLink($token, 'magic_link_verify');
 
-        return $this->issueCompletionToken($otpRecord->email);
+        $result = $this->issueCompletionToken($otpRecord->email);
+
+        RegistrationEmailVerified::dispatch(
+            (string) $otpRecord->temp_token,
+            (string) $result['completion_token'],
+            (string) $otpRecord->email,
+        );
+
+        return $result;
     }
 
     private function issueCompletionToken(string $email): array
