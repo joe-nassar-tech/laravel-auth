@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Illuminate\Support\Facades\Route;
 use Joe404\LaravelAuth\Http\Controllers\AccountController;
+use Joe404\LaravelAuth\Http\Controllers\Admin\ReferralController as AdminReferralController;
 use Joe404\LaravelAuth\Http\Controllers\Admin\UserAuditController;
 use Joe404\LaravelAuth\Http\Controllers\Admin\UserStatusController;
 use Joe404\LaravelAuth\Http\Controllers\ApiTokenController;
@@ -12,8 +13,10 @@ use Joe404\LaravelAuth\Http\Controllers\LogoutController;
 use Joe404\LaravelAuth\Http\Controllers\TokenRefreshController;
 use Joe404\LaravelAuth\Http\Controllers\PasswordChangeController;
 use Joe404\LaravelAuth\Http\Controllers\PasswordResetController;
+use Joe404\LaravelAuth\Http\Controllers\ReferralController;
 use Joe404\LaravelAuth\Http\Controllers\RegisterController;
 use Joe404\LaravelAuth\Http\Controllers\SessionController;
+use Joe404\LaravelAuth\Http\Controllers\UserDeviceController;
 use Joe404\LaravelAuth\Http\Controllers\EmailVerificationController;
 use Joe404\LaravelAuth\Http\Controllers\SocialAuthController;
 
@@ -92,6 +95,12 @@ Route::middleware(['auth:sanctum', 'auth.no-refresh', 'auth.verified', 'auth.dev
     Route::get('sessions', [SessionController::class, 'index']);
     Route::delete('sessions/{id}', [SessionController::class, 'destroy']);
 
+    // Permanent device history (survives logout) — security audit for
+    // the user ("who has ever logged into my account?") and the backing
+    // store for referral abuse detection.
+    Route::get('devices', [UserDeviceController::class, 'index']);
+    Route::delete('devices/{id}', [UserDeviceController::class, 'destroy']);
+
     // M4: Password change
     Route::post('password/change', [PasswordChangeController::class, 'change']);
 
@@ -110,6 +119,15 @@ Route::middleware(['auth:sanctum', 'auth.no-refresh', 'auth.verified', 'auth.dev
         Route::get('api-tokens', [ApiTokenController::class, 'index']);
         Route::post('api-tokens', [ApiTokenController::class, 'store']);
         Route::delete('api-tokens/{id}', [ApiTokenController::class, 'destroy']);
+    });
+
+    // Referral codes — gated on auth_system.referral_code.enabled. The
+    // redeem endpoint is the fallback path for users who forgot to enter
+    // a code during registration; index + stats are the dashboard reads.
+    Route::middleware('auth.feature:referral_code')->group(function (): void {
+        Route::post('referrals/redeem', [ReferralController::class, 'redeem']);
+        Route::get('referrals', [ReferralController::class, 'index']);
+        Route::get('referrals/stats', [ReferralController::class, 'stats']);
     });
 });
 
@@ -143,4 +161,17 @@ Route::middleware([
     // v2.4 audit log — paginated status history + free-form admin notes.
     Route::get('users/{id}/status/history', [UserAuditController::class, 'history']);
     Route::post('users/{id}/notes', [UserAuditController::class, 'addNote']);
+});
+
+// Admin referral management — separate group so it can keep the same
+// admin_ability gating as the user-status admin routes.
+Route::middleware([
+    'auth:sanctum',
+    'auth.no-refresh',
+    'auth.verified',
+    'role:' . (string) config('auth_system.account.status.admin_ability', 'super-admin|admin'),
+    'auth.feature:referral_code',
+])->prefix('admin')->group(function (): void {
+    Route::get('referrals', [AdminReferralController::class, 'index']);
+    Route::patch('referrals/{id}', [AdminReferralController::class, 'update']);
 });

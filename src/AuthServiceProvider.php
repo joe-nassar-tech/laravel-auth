@@ -76,6 +76,29 @@ class AuthServiceProvider extends ServiceProvider
             return $this->app->make(\Joe404\LaravelAuth\Services\DefaultReferralCodeGenerator::class);
         });
 
+        // Bind referral reward handler. When the developer points the config
+        // at their own class we resolve it from the container so they can
+        // typehint dependencies (their own services, mailers, etc.). Leaving
+        // it null is supported — in that case ReferralService skips the
+        // handler entirely and the host listens to events instead.
+        $this->app->bind(\Joe404\LaravelAuth\Contracts\ReferralRewardHandlerContract::class, function () {
+            $custom = config('auth_system.referral_code.reward_handler');
+
+            if (is_string($custom) && $custom !== '' && class_exists($custom)) {
+                return $this->app->make($custom);
+            }
+
+            // No-op handler so consumers can typehint the contract without
+            // null-checking. ReferralService bypasses this path when the
+            // config is null, so this binding is mostly a typehint fallback.
+            return new class implements \Joe404\LaravelAuth\Contracts\ReferralRewardHandlerContract {
+                public function handle(\Joe404\LaravelAuth\Models\Referral $referral): void
+                {
+                    // intentional no-op
+                }
+            };
+        });
+
         // Bind response formatter contract
         $this->app->bind(ResponseFormatterContract::class, function (): ResponseFormatterContract {
             $formatterClass = config('auth_system.response.formatter');

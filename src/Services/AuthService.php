@@ -37,11 +37,22 @@ class AuthService
         private readonly RateLimitService $rateLimitService,
         private readonly AccountStatusService $accountStatusService,
         private readonly AccountDeletionService $accountDeletionService,
+        private readonly ReferralService $referralService,
     ) {}
 
     public function initiateRegistration(string $email, array $extraFields = []): array
     {
         $email = strtolower(trim($email));
+
+        // Pull out the optional incoming referral code BEFORE running the
+        // extra-field transformer pipeline — we don't want a transformer
+        // accidentally stripping it, and we cache it separately so the
+        // schema for transformers stays purely "user attributes".
+        $incomingReferral = null;
+        if (isset($extraFields['referral_code']) && is_string($extraFields['referral_code'])) {
+            $incomingReferral = trim($extraFields['referral_code']);
+            unset($extraFields['referral_code']);
+        }
 
         $extraFields = $this->applyExtraFieldTransformers(
             $this->stripPrivilegedFields($extraFields),
@@ -61,7 +72,10 @@ class AuthService
             // registration.
             Cache::put(
                 "auth:pending:{$email}",
-                ['extra' => $extraFields],
+                [
+                    'extra'         => $extraFields,
+                    'referral_code' => $incomingReferral,
+                ],
                 now()->addMinutes((int) config('auth_system.password.pending_ttl_minutes', 60)),
             );
 
@@ -198,7 +212,11 @@ class AuthService
 
         Cache::put(
             "auth:completion:{$completionToken}",
-            ['email' => $email, 'extra' => (array) ($pending['extra'] ?? [])],
+            [
+                'email'         => $email,
+                'extra'         => (array) ($pending['extra'] ?? []),
+                'referral_code' => $pending['referral_code'] ?? null,
+            ],
             now()->addMinutes(15),
         );
 
@@ -219,8 +237,11 @@ class AuthService
             throw new AuthException('Invalid or expired completion token. Please verify your email again.', 'completion_token_invalid');
         }
 
-        $email       = (string) $data['email'];
-        $extraFields = $this->stripPrivilegedFields((array) ($data['extra'] ?? []));
+        $email             = (string) $data['email'];
+        $extraFields       = $this->stripPrivilegedFields((array) ($data['extra'] ?? []));
+        $incomingReferral  = isset($data['referral_code']) && is_string($data['referral_code']) && $data['referral_code'] !== ''
+            ? $data['referral_code']
+            : null;
 
         // Generate a referral code if the host app has opted in. The column
         // name is configurable so this works regardless of the host's schema.
@@ -273,6 +294,35 @@ class AuthService
 
         EmailVerified::dispatch($user, $completionToken);
 
+        // Apply the referral code (if one was submitted at /register and
+        // the feature is enabled). The session row must already exist
+        // before we apply the referral so the referrer-side fingerprint
+        // snapshot reads work — but here we are the *new* user and the
+        // session is created below. The referral service reads the
+        // referrer's session (a different user), so order with the
+        // current user's session creation doesn't matter.
+        $referralError = null;
+        if ($incomingReferral !== null && (bool) config('auth_system.referral_code.enabled', false)) {
+            try {
+                $this->referralService->applyAtRegistration($user, $incomingReferral, $request);
+            } catch (AuthException $e) {
+                // Registration must still succeed. We attach the error so
+                // the response includes it as metadata and the frontend
+                // can show "you registered, but your referral code was
+                // not accepted because X".
+                $referralError = [
+                    'key'     => $e->errorKey(),
+                    'message' => $e->getMessage(),
+                ];
+            } catch (\Throwable) {
+                // Never bring down registration over a referral hiccup.
+                $referralError = [
+                    'key'     => 'referral_unknown_error',
+                    'message' => 'Referral could not be applied.',
+                ];
+            }
+        }
+
         $clientType = $this->resolveClientType($request);
         $tokenData  = [];
 
@@ -286,11 +336,17 @@ class AuthService
             $this->sessionService->create($user, $request, null);
         }
 
-        return [
+        $result = [
             'user'          => $user,
             'token'         => $tokenData['plain_text_token'] ?? null,
             'refresh_token' => $tokenData['plain_refresh_token'] ?? null,
         ];
+
+        if ($referralError !== null) {
+            $result['referral_error'] = $referralError;
+        }
+
+        return $result;
     }
 
     public function login(string $email, string $password, Request $request): array

@@ -40,6 +40,7 @@ The package covers everything a backend auth system needs:
 - New device login email alerts
 - Laravel Reverb WebSocket push (optional)
 - Fully customizable: response format, email templates, OTP delivery channel, referral codes, extra registration fields, field transformers
+- Referral codes with fingerprint-based anti-abuse detection (browser canvas/WebGL hash + mobile Keychain/ANDROID_ID), config-driven block/flag policy, developer-supplied reward handler (wallet, subscription, coupons, ...), admin override workflow, redeem fallback endpoint within configurable window
 
 ---
 
@@ -77,7 +78,10 @@ joe-404/laravel-auth/
 │   │   ├── 2026_05_16_000001_add_account_status_to_users_table.php (v2.4)
 │   │   ├── 2026_05_16_000002_create_deleted_accounts_table.php     (v2.4)
 │   │   ├── 2026_05_17_000003_add_status_expires_at_to_users_table.php (v2.4)
-│   │   └── 2026_05_17_000005_create_account_status_logs_table.php  (v2.4)
+│   │   ├── 2026_05_17_000005_create_account_status_logs_table.php  (v2.4)
+│   │   ├── 2026_05_20_000001_create_referrals_table.php              (v2.5 — referrals)
+│   │   ├── 2026_05_20_000002_add_fingerprint_hash_to_auth_sessions_extended.php (v2.5)
+│   │   └── 2026_05_20_000003_create_auth_user_devices_table.php     (v2.5 — permanent device history)
 │   └── seeders/
 │       └── AuthRolesSeeder.php    ← Creates default roles via Spatie Permission
 │
@@ -90,7 +94,8 @@ joe-404/laravel-auth/
 │   ├── localization.md            ← Multi-language, translation files
 │   ├── upgrading.md               ← Version migration guides
 │   ├── account-status.md          ← Account status system, timed bans, admin endpoints
-│   └── account-deletion.md        ← Soft-delete, grace period, purge worker
+│   ├── account-deletion.md        ← Soft-delete, grace period, purge worker
+│   └── referral-codes.md          ← Referral system + fingerprint anti-abuse + reward handlers
 │
 ├── resources/
 │   ├── devices.json               ← ~500 device model definitions for UA parsing

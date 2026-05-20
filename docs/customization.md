@@ -247,6 +247,9 @@ final class DisplayNameTransformer implements ExtraFieldTransformerContract
 
 Generate a unique referral code for every new user during `finalizeRegistration()`.
 
+> **Looking for the full referral system** — fingerprint anti-abuse, reward handlers, redeem endpoint, admin override, frontend integration guide?
+> See **[docs/referral-codes.md](referral-codes.md)** for the complete walkthrough. This section only covers the *generator* side.
+
 ### Enable in config
 
 ```php

@@ -8,7 +8,8 @@ Version history for `joe-404/laravel-auth`. Every release is documented — what
 
 ## Table of Contents
 
-- [v2.4.2 — Current stable](#v242----current-stable)
+- [v2.5.0 — Current stable](#v250----current-stable)
+- [v2.4.2](#v242)
 - [v2.4.1](#v241)
 - [v2.4.0](#v240)
 - [v2.3.2 ⚠ Outdated](#v232--outdated)
@@ -23,6 +24,37 @@ Version history for `joe-404/laravel-auth`. Every release is documented — what
 ---
 
 ## Upgrading steps
+
+### Upgrading to v2.5.0 from v2.4.x
+
+**No breaking changes.** Run migrations, publish the updated config to pick up the new `referral_code` and `device` keys.
+
+```bash
+composer require joe-404/laravel-auth:^2.5
+php artisan migrate
+php artisan vendor:publish --tag=auth-config --force
+```
+
+**New `.env` variables (all optional — safe to ignore if features not needed):**
+
+```env
+# Referral codes
+AUTH_REFERRAL_CODE_ENABLED=false
+AUTH_REFERRAL_CODE_LENGTH=10
+AUTH_REFERRAL_CODE_UPPERCASE=true
+AUTH_REFERRAL_REDEEM_WINDOW=120
+AUTH_REFERRAL_ALLOWED_CLIENTS=both
+AUTH_REFERRAL_ABUSE_SAME_IP=flag
+AUTH_REFERRAL_ABUSE_SAME_DEVICE=block
+AUTH_REFERRAL_ABUSE_BOTH=block
+```
+
+**New tables created by migrations:**
+- `referrals` — referral relationship, status, fingerprint snapshots, abuse flags
+- `auth_user_devices` — permanent per-user device history (survives logout)
+- `fingerprint_hash` column added to `auth_sessions_extended`
+
+---
 
 ### Upgrading to v2.4.x from v2.3.x
 
@@ -87,7 +119,47 @@ If you **throw** package exceptions in your own code (unusual), update the const
 
 ---
 
-## v2.4.2 — Current stable
+## v2.5.0 — Current stable
+
+**Tag:** `v2.5.0` | **Released:** 2026-05-20
+
+### Added
+
+- **Permanent device history.** Every successful login writes a record to the new `auth_user_devices` table. The record survives logout and session revocation — giving users a full audit trail of every device that has ever accessed their account. Exposed via `GET /auth/devices` (list) and `DELETE /auth/devices/{id}` (forget device + revoke any active sessions with that fingerprint).
+
+- **Browser and mobile device fingerprinting.** `DeviceService` now extracts a `fingerprint_hash` from the `X-Browser-Fingerprint` header (browser/SPA) or the `device_id` field in the `X-Device-Info` header (mobile). The hash is stored on both `auth_sessions_extended` and `auth_user_devices` for abuse detection. A `device_signature` is derived by priority: fingerprint hash → device code SHA-256 → browser+OS+platform SHA-256; this de-duplicates records across reinstalls and browser-clears on the same physical device.
+
+- **Referral code system.** Config-driven, pluggable referral system with the following capabilities:
+  - Auto-generate referral codes on registration (configurable length, uppercase toggle, custom generator via `ReferralCodeGeneratorContract`).
+  - Submit a referral code after registration via `POST /auth/referrals/redeem`. Code must be redeemed within a configurable time window (`AUTH_REFERRAL_REDEEM_WINDOW`).
+  - Abuse detection: compares the new user's IP and device fingerprint against the **full device history** of the referrer (not just the latest session). Even if the referrer logs out before the referral is submitted, the history is still checked.
+  - Per-signal abuse policy (each independently configurable to `block`, `flag`, or `ignore`): `on_same_ip`, `on_same_device`, `on_same_ip_and_device`.
+  - Client restriction: restrict redemption to `web`, `mobile`, or `both` via `AUTH_REFERRAL_ALLOWED_CLIENTS`. Wrong client type fails silently — 200 response, nothing persisted.
+  - Pluggable reward handler: implement `ReferralRewardHandlerContract::handle(Referral $referral): void` and bind it in config. If the handler throws, the referral reverts to `pending` for retry.
+  - Admin override: `PATCH /auth/admin/referrals/{id}` — change status and add a note. Transitioning to `valid` with no prior `redeemed_at` triggers the reward handler automatically.
+  - Referral endpoints: `GET /auth/referrals`, `GET /auth/referrals/stats`, `GET /auth/admin/referrals`, `PATCH /auth/admin/referrals/{id}`.
+
+- **Three new events:** `ReferralCreated` (on every submission), `SuspiciousReferralDetected` (carries `$reason` string), `ReferralRedeemed` (fires after reward handler succeeds).
+
+- **Orphaned session cookie cleanup endpoint.** `POST /auth/session/destroy-orphan` — unauthenticated endpoint for SPAs to call when `/auth/me` returns 401 but a stale session cookie is still present. Forcefully expires the cookie without requiring a valid token. Use case: database was wiped or tokens were manually deleted outside the normal lifecycle.
+
+- **`EmailVerified` event.** Fires after email verification completes at the end of the registration flow.
+
+### Fixed
+
+- **Resend verification response.** `POST /auth/email/resend-verification` returned an incorrect response body when the user's OTP had already expired. Now correctly returns the `verification_resent` message in all code paths.
+
+### New tables
+
+| Migration | Table / Column |
+|---|---|
+| `2026_05_20_000001` | `referrals` |
+| `2026_05_20_000002` | `fingerprint_hash` column on `auth_sessions_extended` |
+| `2026_05_20_000003` | `auth_user_devices` |
+
+---
+
+## v2.4.2
 
 **Tag:** `v2.4.2` | **Released:** 2026-05-17
 
@@ -138,7 +210,7 @@ No breaking changes. Run `php artisan vendor:publish --tag=auth-config --force` 
 
 ### Known issue (fixed in v2.4.2)
 
-The `deleted_accounts` migration fails on MySQL strict mode. Upgrade to v2.4.2.
+The `deleted_accounts` migration fails on MySQL strict mode. Upgrade to v2.5.0.
 
 ---
 
@@ -171,7 +243,7 @@ The `deleted_accounts` migration fails on MySQL strict mode. Upgrade to v2.4.2.
 
 ## v2.3.0 ⚠ Outdated
 
-> **Do not use.** Contains a broken `InstallCommand` (fixed in v2.3.1) and the resend-verification bug (fixed in v2.3.2). Upgrade to v2.4.2.
+> **Do not use.** Contains a broken `InstallCommand` (fixed in v2.3.1) and the resend-verification bug (fixed in v2.3.2). Upgrade to v2.5.0.
 
 **Tag:** `v2.3.0`
 
@@ -204,7 +276,7 @@ Only affects code that **instantiates** package exceptions directly. Catching th
 
 ## v2.1.1 ⚠ Outdated
 
-> **Do not use.** Missing all features introduced in v2.3.x and v2.4.x. Upgrade to v2.4.2.
+> **Do not use.** Missing all features introduced in v2.3.x and v2.4.x. Upgrade to v2.5.0.
 
 **Tag:** `v2.1.1`
 
@@ -217,7 +289,7 @@ Only affects code that **instantiates** package exceptions directly. Catching th
 
 ## v2.1.0 ⚠ Outdated
 
-> **Do not use.** Contains the `ApiTokenAuth` revocation bug fixed in v2.1.1. Missing all features from v2.3.x and v2.4.x. Upgrade to v2.4.2.
+> **Do not use.** Contains the `ApiTokenAuth` revocation bug fixed in v2.1.1. Missing all features from v2.3.x and v2.4.x. Upgrade to v2.5.0.
 
 **Tag:** `v2.1.0`
 
@@ -231,7 +303,7 @@ Only affects code that **instantiates** package exceptions directly. Catching th
 
 ## v2.0.0 ⚠ Outdated
 
-> **Do not use in production.** This version has known issues and is missing all features added in v2.1.x through v2.4.x. Upgrade to v2.4.2.
+> **Do not use in production.** This version has known issues and is missing all features added in v2.1.x through v2.4.x. Upgrade to v2.5.0.
 
 **Tag:** `v2.0.0`
 
@@ -308,7 +380,7 @@ Now returns an array with a `status` key (`'logged_in'` or `'requires_link_confi
 
 ## v1.0.1 ⚠ Outdated
 
-> **Do not use.** The 2-step registration flow in this version has a known pre-account takeover vulnerability (fixed in v2.0.0). Upgrade to v2.4.2.
+> **Do not use.** The 2-step registration flow in this version has a known pre-account takeover vulnerability (fixed in v2.0.0). Upgrade to v2.5.0.
 
 **Tag:** `v1.0.1`
 
@@ -327,7 +399,7 @@ Six bugs found during integration testing:
 
 ## v1.0.0 ⚠ Outdated
 
-> **Do not use.** The 2-step registration flow has a known pre-account takeover vulnerability (fixed in v2.0.0). Also contains all bugs fixed in v1.0.1. Upgrade to v2.4.2.
+> **Do not use.** The 2-step registration flow has a known pre-account takeover vulnerability (fixed in v2.0.0). Also contains all bugs fixed in v1.0.1. Upgrade to v2.5.0.
 
 **Tag:** `v1.0.0`
 

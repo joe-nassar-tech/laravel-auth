@@ -68,4 +68,18 @@ return [
     'account_deactivation_disabled' => 'Account deactivation is currently disabled.',
     'account_status_invalid'        => 'The provided account status is not valid.',
     'account_password_mismatch'     => 'The provided password is incorrect.',
+
+    // Referral codes
+    'referral_code_not_found'      => 'Referral code not found.',
+    'referral_self_referral'       => 'You cannot use your own referral code.',
+    'referral_already_redeemed'    => 'You have already redeemed a referral code.',
+    'referral_window_expired'      => 'Referral code can no longer be redeemed. The redemption window has passed.',
+    'referral_blocked_same_device' => 'This referral code cannot be used from this device.',
+    'referral_blocked_same_ip'     => 'This referral code cannot be used from this network.',
+    'referral_blocked'             => 'This referral code cannot be redeemed.',
+    'referral_status_invalid'      => 'The provided referral status is not valid.',
+    'referral_not_found'           => 'Referral not found.',
+
+    // Device history
+    'device_not_found'             => 'Device not found.',
 ];

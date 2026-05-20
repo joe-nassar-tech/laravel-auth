@@ -27,6 +27,7 @@ class AuthSessionExtended extends Model
         'device_marketing_name',
         'device_code',
         'device_platform',
+        'fingerprint_hash',
         'ip_address',
         'country',
         'city',

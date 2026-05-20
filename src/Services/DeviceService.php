@@ -19,15 +19,61 @@ class DeviceService implements DeviceResolverContract
             $mobile = $this->parseMobileHeader($request);
             if ($mobile !== null) {
                 $location = $this->resolveLocation($request->ip() ?? '');
+                $hash     = $this->resolveFingerprintHash($request, $mobile);
 
-                return array_merge($mobile, $location, ['ip_address' => $request->ip()]);
+                return array_merge($mobile, $location, [
+                    'ip_address'       => $request->ip(),
+                    'fingerprint_hash' => $hash,
+                ]);
             }
         }
 
         $ua       = $this->parseUserAgent($request);
         $location = $this->resolveLocation($request->ip() ?? '');
+        $hash     = $this->resolveFingerprintHash($request, $ua);
 
-        return array_merge($ua, $location, ['ip_address' => $request->ip()]);
+        return array_merge($ua, $location, [
+            'ip_address'       => $request->ip(),
+            'fingerprint_hash' => $hash,
+        ]);
+    }
+
+    /**
+     * Resolve the strong device-level fingerprint hash used by the referral
+     * anti-abuse system.
+     *
+     * Web/SPA: the frontend computes a hash from device-level signals
+     * (canvas, WebGL, screen, timezone, audio) and sends it via the
+     * X-Browser-Fingerprint header. We accept it verbatim.
+     *
+     * Mobile: the app sends `device_id` inside X-Device-Info (UUID stored
+     * in iOS Keychain or ANDROID_ID on Android). We use that.
+     *
+     * If neither is present, returns null — the fingerprint check
+     * downgrades to IP-only and the package silently allows IP-only
+     * matching to be the abuse signal. This is by design so the package
+     * works before the frontend implements the JS snippet.
+     *
+     * @param array<string, mixed> $context  Parsed UA or mobile header data.
+     */
+    public function resolveFingerprintHash(Request $request, array $context): ?string
+    {
+        $header = (string) config('auth_system.referral_code.browser_fingerprint_header', 'X-Browser-Fingerprint');
+        $hash   = trim((string) $request->header($header, ''));
+
+        if ($hash !== '') {
+            return substr($hash, 0, 191);
+        }
+
+        // Mobile fallback: explicit device_id wins because it's the
+        // stable, secure-storage-backed identifier the app controls.
+        $deviceId = $context['device_id'] ?? null;
+
+        if (is_string($deviceId) && $deviceId !== '') {
+            return substr($deviceId, 0, 191);
+        }
+
+        return null;
     }
 
     public function parseMobileHeader(Request $request): ?array
@@ -50,6 +96,14 @@ class DeviceService implements DeviceResolverContract
             'device_marketing_name' => $data['name'] ?? $this->resolveMarketingName($data['model'] ?? ''),
             'device_code'           => $this->resolveT2sCode($data['model'] ?? '', $data['t2s_code'] ?? null),
             'device_platform'       => strtolower($data['platform'] ?? ''),
+            // Stable, secure-storage-backed identifier from the mobile app:
+            //   iOS:     UUID kept in Keychain (survives uninstall)
+            //   Android: ANDROID_ID (Settings.Secure.ANDROID_ID)
+            // Used by the referral anti-abuse system to detect when a user
+            // tries to self-refer with a fresh install of the app.
+            'device_id'             => isset($data['device_id']) && is_string($data['device_id']) && $data['device_id'] !== ''
+                ? $data['device_id']
+                : null,
             'browser'               => null,
             'os'                    => null,
         ];
@@ -76,6 +130,7 @@ class DeviceService implements DeviceResolverContract
             'device_marketing_name' => null,
             'device_code'           => null,
             'device_platform'       => null,
+            'device_id'             => null,
         ];
     }
 

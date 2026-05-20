@@ -19,7 +19,13 @@ class RegisterRequest extends FormRequest
     public function rules(): array
     {
         $base = [
-            'email' => ['required', 'email', 'max:255'],
+            'email'         => ['required', 'email', 'max:255'],
+            // Optional. When the referral feature is enabled (and a code is
+            // submitted) the package looks it up and stores the relationship
+            // at the end of registration. Validation here is just type+length
+            // — the "code exists" check happens in ReferralService so we
+            // return a localised error envelope instead of a 422 form-error.
+            'referral_code' => ['nullable', 'string', 'max:64'],
         ];
 
         /** @var array<string, mixed> $extra */

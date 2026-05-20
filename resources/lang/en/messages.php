@@ -57,4 +57,14 @@ return [
     'account_status_updated' => 'Account status updated.',
     'account_deactivated'    => 'Account deactivated. Log in any time to reactivate.',
     'account_reactivated'    => 'Welcome back — your account has been reactivated.',
+
+    // Referral codes
+    'referral_redeemed'        => 'Referral code submitted.',
+    'referrals_retrieved'      => 'Referrals retrieved.',
+    'referral_stats_retrieved' => 'Referral stats retrieved.',
+    'referral_status_updated'  => 'Referral status updated.',
+
+    // Device history
+    'devices_retrieved'        => 'Devices retrieved.',
+    'device_forgotten'         => 'Device forgotten.',
 ];

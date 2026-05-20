@@ -190,16 +190,61 @@ return [
     |   Useful when you need deterministic codes, vanity prefixes, or
     |   integration with an existing system.
     |
+    | reward_handler:
+    |   FQCN of a class implementing ReferralRewardHandlerContract. When a
+    |   referral becomes "valid" (passes abuse checks), the package calls
+    |   handle(Referral $referral) on this class. The developer owns the
+    |   reward logic — credit a wallet, send a subscription, issue a
+    |   discount coupon, etc. Leave null to fire events only.
+    |
+    | redeem_window_minutes:
+    |   How long after registration the new user can call the redeem
+    |   endpoint to submit a code they forgot to enter. Outside this
+    |   window the endpoint returns a clear error. Default: 120 (2 hours).
+    |
+    | allowed_clients:
+    |   Restrict referral submission/redemption to specific client types.
+    |   - "both"   → web/SPA + mobile (default)
+    |   - "web"    → only browser/SPA requests (no X-Client-Type: mobile)
+    |   - "mobile" → only requests with X-Client-Type: mobile
+    |   Requests from disallowed client types fail silently (success
+    |   response, nothing stored, no event fired).
+    |
+    | abuse.on_same_ip / on_same_device / on_same_ip_and_device:
+    |   How to react when the new user's fingerprint matches the referrer.
+    |   - "block"  → store referral with status=blocked, no reward
+    |   - "flag"   → store referral with status=suspicious, no reward,
+    |               fires SuspiciousReferralDetected event for admin review
+    |   - "ignore" → treat as a valid referral, reward fires
+    |   Registration is NEVER blocked — only the reward.
+    |
     | Example:
     |   AUTH_REFERRAL_CODE_ENABLED=true
     |   AUTH_REFERRAL_CODE_LENGTH=8
+    |   AUTH_REFERRAL_REWARD_HANDLER=App\Auth\GiveCreditReward
+    |   AUTH_REFERRAL_ALLOWED_CLIENTS=both
     */
     'referral_code' => [
-        'enabled'   => (bool) env('AUTH_REFERRAL_CODE_ENABLED', false),
-        'column'    => env('AUTH_REFERRAL_CODE_COLUMN', 'referral_code'),
-        'length'    => (int) env('AUTH_REFERRAL_CODE_LENGTH', 10),
-        'uppercase' => (bool) env('AUTH_REFERRAL_CODE_UPPERCASE', true),
-        'generator' => env('AUTH_REFERRAL_CODE_GENERATOR', null),
+        'enabled'               => (bool) env('AUTH_REFERRAL_CODE_ENABLED', false),
+        'column'                => env('AUTH_REFERRAL_CODE_COLUMN', 'referral_code'),
+        'length'                => (int) env('AUTH_REFERRAL_CODE_LENGTH', 10),
+        'uppercase'             => (bool) env('AUTH_REFERRAL_CODE_UPPERCASE', true),
+        'generator'             => env('AUTH_REFERRAL_CODE_GENERATOR', null),
+        'reward_handler'        => env('AUTH_REFERRAL_REWARD_HANDLER', null),
+        'redeem_window_minutes' => (int) env('AUTH_REFERRAL_REDEEM_WINDOW', 120),
+        'allowed_clients'       => env('AUTH_REFERRAL_ALLOWED_CLIENTS', 'both'),
+
+        'abuse' => [
+            'on_same_ip'            => env('AUTH_REFERRAL_ABUSE_SAME_IP', 'flag'),
+            'on_same_device'        => env('AUTH_REFERRAL_ABUSE_SAME_DEVICE', 'block'),
+            'on_same_ip_and_device' => env('AUTH_REFERRAL_ABUSE_BOTH', 'block'),
+        ],
+
+        // Header the frontend uses to send a strong browser fingerprint hash
+        // computed client-side (canvas + WebGL + screen + timezone, etc.).
+        // The package never computes this — see docs/referral-codes.md for
+        // the JS snippet to drop into your frontend.
+        'browser_fingerprint_header' => env('AUTH_REFERRAL_FP_HEADER', 'X-Browser-Fingerprint'),
     ],
 
     /*
@@ -276,6 +321,17 @@ return [
         'account_deactivation_disabled' => null,
         'account_status_invalid'       => null,
         'account_password_mismatch'    => null,
+        // Referral codes
+        'referral_code_not_found'      => null,
+        'referral_self_referral'       => null,
+        'referral_already_redeemed'    => null,
+        'referral_window_expired'      => null,
+        'referral_blocked_same_device' => null,
+        'referral_blocked_same_ip'     => null,
+        'referral_blocked'             => null,
+        'referral_not_found'           => null,
+        // Device history
+        'device_not_found'             => null,
     ],
 
     'messages' => [
@@ -305,6 +361,14 @@ return [
         'account_status_updated' => null,
         'account_deactivated'    => null,
         'account_reactivated'    => null,
+        // Referral codes
+        'referral_redeemed'      => null,
+        'referrals_retrieved'    => null,
+        'referral_stats_retrieved' => null,
+        'referral_status_updated'  => null,
+        // Device history
+        'devices_retrieved'        => null,
+        'device_forgotten'         => null,
     ],
 
     /*

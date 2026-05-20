@@ -6,6 +6,119 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and 
 
 ---
 
+## [2.5.0] — 2026-05-20
+
+Permanent device history, browser/mobile fingerprinting, and a full
+referral code system with config-driven anti-abuse detection.
+
+### Added
+
+- **Permanent device history.** Every successful login upserts a row in the
+  new `auth_user_devices` table. Records survive logout and session revocation,
+  giving users a full audit trail of every device that has ever accessed their
+  account.
+  - `GET /auth/devices` — list every historical device with first/last seen timestamps.
+  - `DELETE /auth/devices/{id}` — forget a device and revoke any active sessions
+    whose `fingerprint_hash` matches that device's record.
+
+- **Browser and mobile fingerprinting.** `DeviceService` now reads a
+  `fingerprint_hash` from the `X-Browser-Fingerprint` header (browser/SPA) or
+  from the `device_id` field inside the `X-Device-Info` header (mobile). The
+  hash is stored on both `auth_sessions_extended` (new `fingerprint_hash` column)
+  and `auth_user_devices`. A `device_signature` is derived by priority:
+  fingerprint hash → device code SHA-256 → browser+OS+platform SHA-256, which
+  de-duplicates records across reinstalls and browser-clears on the same physical
+  device.
+
+- **Referral code system.** Config-driven referral system with anti-abuse
+  fingerprinting:
+  - Auto-generate a unique referral code per user at registration (configurable
+    length, uppercase toggle, custom generator via `ReferralCodeGeneratorContract`).
+  - `POST /auth/referrals/redeem` — submit a referral code after registration.
+    Must be redeemed within the configurable `AUTH_REFERRAL_REDEEM_WINDOW` window.
+  - `GET /auth/referrals` — list the authenticated user's outgoing referrals and
+    their statuses.
+  - `GET /auth/referrals/stats` — aggregate counts per status for quick
+    dashboard display.
+  - `GET /auth/admin/referrals` — paginated list of all referrals, filterable by
+    `?status=`.
+  - `PATCH /auth/admin/referrals/{id}` — admin override of referral status and
+    note. Transitioning to `valid` with no prior `redeemed_at` triggers the
+    reward handler automatically.
+  - **Anti-abuse detection.** On redemption the new user's IP and device
+    fingerprint are compared against the referrer's **full device history**
+    (not just the latest session) so a referrer who logs out before the redemption
+    is still detected.
+  - **Per-signal abuse policy**, each independently configurable to `block`,
+    `flag`, or `ignore`: `on_same_ip`, `on_same_device`, `on_same_ip_and_device`.
+  - **Client restriction.** `AUTH_REFERRAL_ALLOWED_CLIENTS` accepts `web`,
+    `mobile`, or `both`. A request from a disallowed client type fails silently
+    (200 response, nothing persisted).
+  - **Pluggable reward handler.** Implement
+    `ReferralRewardHandlerContract::handle(Referral $referral): void` and set the
+    FQCN in config. If the handler throws, the referral reverts to `pending` for
+    retry via the `ReferralCreated` event listener.
+
+- **Three new events:** `ReferralCreated`, `ReferralRedeemed`,
+  `SuspiciousReferralDetected` (carries a `$reason` string).
+
+- **Orphaned session cookie cleanup.** `POST /auth/session/destroy-orphan` is an
+  unauthenticated endpoint for SPAs to call when `/auth/me` returns 401 but a
+  stale session cookie is still present (e.g. after a manual database wipe).
+  Forces the cookie to expire without requiring a valid token.
+
+- **`EmailVerified` event.** Now fired after email verification completes at the
+  end of the registration flow.
+
+- **New translation keys.**
+  - Errors: `referral_code_not_found`, `referral_self_referral`,
+    `referral_already_redeemed`, `referral_window_expired`,
+    `referral_blocked_same_device`, `referral_blocked_same_ip`, `referral_blocked`,
+    `referral_status_invalid`, `referral_not_found`, `device_not_found`.
+  - Messages: `referral_redeemed`, `referrals_retrieved`,
+    `referral_stats_retrieved`, `referral_status_updated`, `devices_retrieved`,
+    `device_forgotten`.
+
+### Fixed
+
+- `POST /auth/email/resend-verification` returned an incorrect response body when
+  the user's existing OTP had already expired. Now correctly returns the
+  `verification_resent` message in all code paths.
+
+### Migrations
+
+| File | Creates / Alters |
+|---|---|
+| `2026_05_20_000001_create_referrals_table` | `referrals` table |
+| `2026_05_20_000002_add_fingerprint_hash_to_auth_sessions_extended` | `fingerprint_hash` column on `auth_sessions_extended` |
+| `2026_05_20_000003_create_auth_user_devices_table` | `auth_user_devices` table |
+
+---
+
+## [2.4.2] — 2026-05-17
+
+### Fixed
+
+- **MySQL strict mode migration error.** The `deleted_accounts` table migration
+  declared two timestamp columns without a default value, which MySQL strict mode
+  rejects with `SQLSTATE[22007]`. Both `deleted_at` and `scheduled_purge_at` are
+  now `->nullable()`.
+
+---
+
+## [2.4.1] — 2026-05-16
+
+### Added
+
+- **Configurable route prefix.** Package routes can now be mounted at any URL
+  prefix. Set `AUTH_ROUTES_PREFIX=api/v1/auth` in `.env` or `routes.prefix` in
+  `config/auth_system.php`. Previously hardcoded to `auth`.
+- **Route auto-register toggle.** Set `AUTH_ROUTES_REGISTER=false` to disable
+  automatic route mounting and include the route file manually inside your own
+  `Route::group()`.
+
+---
+
 ## [2.4.0] — 2026-05-17
 
 Account lifecycle: configurable status workflow + self-service deletion with

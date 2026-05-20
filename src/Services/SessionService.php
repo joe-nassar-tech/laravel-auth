@@ -15,6 +15,7 @@ class SessionService
 {
     public function __construct(
         private readonly DeviceService $deviceService,
+        private readonly UserDeviceService $userDeviceService,
     ) {}
 
     public function create(User $user, Request $request, ?int $sanctumTokenId = null): AuthSessionExtended
@@ -25,6 +26,12 @@ class SessionService
         if (empty($fingerprint)) {
             $fingerprint = $this->deviceService->fingerprint($request);
         }
+
+        // Permanent device history. Lives outside the active-sessions
+        // table so it survives logout and powers both the security
+        // audit endpoint (GET /auth/devices) and the referral abuse
+        // check (any device the referrer has EVER used is a match).
+        $this->userDeviceService->record($user, $request);
 
         $sessionId = null;
 
@@ -47,6 +54,7 @@ class SessionService
             'device_marketing_name' => $fingerprint['device_marketing_name'] ?? null,
             'device_code'           => $fingerprint['device_code'] ?? null,
             'device_platform'       => $fingerprint['device_platform'] ?? null,
+            'fingerprint_hash'      => $fingerprint['fingerprint_hash'] ?? null,
             'ip_address'            => $fingerprint['ip_address'] ?? $request->ip(),
             'country'               => $fingerprint['country'] ?? null,
             'city'                  => $fingerprint['city'] ?? null,
