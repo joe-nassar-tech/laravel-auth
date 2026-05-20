@@ -141,14 +141,6 @@ If you **throw** package exceptions in your own code (unusual), update the const
 
 - **Three new events:** `ReferralCreated` (on every submission), `SuspiciousReferralDetected` (carries `$reason` string), `ReferralRedeemed` (fires after reward handler succeeds).
 
-- **Orphaned session cookie cleanup endpoint.** `POST /auth/session/destroy-orphan` — unauthenticated endpoint for SPAs to call when `/auth/me` returns 401 but a stale session cookie is still present. Forcefully expires the cookie without requiring a valid token. Use case: database was wiped or tokens were manually deleted outside the normal lifecycle.
-
-- **`EmailVerified` event.** Fires after email verification completes at the end of the registration flow.
-
-### Fixed
-
-- **Resend verification response.** `POST /auth/email/resend-verification` returned an incorrect response body when the user's OTP had already expired. Now correctly returns the `verification_resent` message in all code paths.
-
 ### New tables
 
 | Migration | Table / Column |

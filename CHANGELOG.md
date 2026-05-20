@@ -19,71 +19,53 @@ referral code system with config-driven anti-abuse detection.
   account.
   - `GET /auth/devices` — list every historical device with first/last seen timestamps.
   - `DELETE /auth/devices/{id}` — forget a device and revoke any active sessions
-    whose `fingerprint_hash` matches that device's record.
-
-- **Browser and mobile fingerprinting.** `DeviceService` now reads a
+    whose `fingerprint_hash` matches that device record.
+- **Browser and mobile fingerprinting.** `DeviceService` reads a
   `fingerprint_hash` from the `X-Browser-Fingerprint` header (browser/SPA) or
-  from the `device_id` field inside the `X-Device-Info` header (mobile). The
-  hash is stored on both `auth_sessions_extended` (new `fingerprint_hash` column)
-  and `auth_user_devices`. A `device_signature` is derived by priority:
-  fingerprint hash → device code SHA-256 → browser+OS+platform SHA-256, which
-  de-duplicates records across reinstalls and browser-clears on the same physical
-  device.
-
-- **Referral code system.** Config-driven referral system with anti-abuse
-  fingerprinting:
+  from `device_id` inside the `X-Device-Info` header (mobile). The hash is
+  stored on both `auth_sessions_extended` (new `fingerprint_hash` column) and
+  `auth_user_devices`. A `device_signature` is derived by priority: fingerprint
+  hash → device code SHA-256 → browser+OS+platform SHA-256, which de-duplicates
+  records across reinstalls and browser-clears on the same physical device.
+- **Referral code system.**
   - Auto-generate a unique referral code per user at registration (configurable
     length, uppercase toggle, custom generator via `ReferralCodeGeneratorContract`).
   - `POST /auth/referrals/redeem` — submit a referral code after registration.
-    Must be redeemed within the configurable `AUTH_REFERRAL_REDEEM_WINDOW` window.
-  - `GET /auth/referrals` — list the authenticated user's outgoing referrals and
-    their statuses.
-  - `GET /auth/referrals/stats` — aggregate counts per status for quick
-    dashboard display.
-  - `GET /auth/admin/referrals` — paginated list of all referrals, filterable by
-    `?status=`.
+    Must be redeemed within `AUTH_REFERRAL_REDEEM_WINDOW` minutes.
+  - `GET /auth/referrals` — list the authenticated user's outgoing referrals
+    and their statuses.
+  - `GET /auth/referrals/stats` — aggregate counts per status.
+  - `GET /auth/admin/referrals` — paginated list of all referrals, filterable
+    by `?status=`.
   - `PATCH /auth/admin/referrals/{id}` — admin override of referral status and
     note. Transitioning to `valid` with no prior `redeemed_at` triggers the
     reward handler automatically.
-  - **Anti-abuse detection.** On redemption the new user's IP and device
-    fingerprint are compared against the referrer's **full device history**
-    (not just the latest session) so a referrer who logs out before the redemption
-    is still detected.
+  - **Anti-abuse detection.** New user's IP and device fingerprint are compared
+    against the referrer's full device history (not only the latest session), so
+    a referrer who logs out before redemption is still detected.
   - **Per-signal abuse policy**, each independently configurable to `block`,
     `flag`, or `ignore`: `on_same_ip`, `on_same_device`, `on_same_ip_and_device`.
   - **Client restriction.** `AUTH_REFERRAL_ALLOWED_CLIENTS` accepts `web`,
     `mobile`, or `both`. A request from a disallowed client type fails silently
     (200 response, nothing persisted).
   - **Pluggable reward handler.** Implement
-    `ReferralRewardHandlerContract::handle(Referral $referral): void` and set the
-    FQCN in config. If the handler throws, the referral reverts to `pending` for
-    retry via the `ReferralCreated` event listener.
-
+    `ReferralRewardHandlerContract::handle(Referral $referral): void` and set
+    the FQCN in config. If the handler throws, the referral reverts to `pending`
+    for retry.
 - **Three new events:** `ReferralCreated`, `ReferralRedeemed`,
   `SuspiciousReferralDetected` (carries a `$reason` string).
-
-- **Orphaned session cookie cleanup.** `POST /auth/session/destroy-orphan` is an
-  unauthenticated endpoint for SPAs to call when `/auth/me` returns 401 but a
-  stale session cookie is still present (e.g. after a manual database wipe).
-  Forces the cookie to expire without requiring a valid token.
-
-- **`EmailVerified` event.** Now fired after email verification completes at the
-  end of the registration flow.
-
 - **New translation keys.**
   - Errors: `referral_code_not_found`, `referral_self_referral`,
     `referral_already_redeemed`, `referral_window_expired`,
-    `referral_blocked_same_device`, `referral_blocked_same_ip`, `referral_blocked`,
-    `referral_status_invalid`, `referral_not_found`, `device_not_found`.
+    `referral_blocked_same_device`, `referral_blocked_same_ip`,
+    `referral_blocked`, `referral_status_invalid`, `referral_not_found`,
+    `device_not_found`.
   - Messages: `referral_redeemed`, `referrals_retrieved`,
     `referral_stats_retrieved`, `referral_status_updated`, `devices_retrieved`,
     `device_forgotten`.
-
-### Fixed
-
-- `POST /auth/email/resend-verification` returned an incorrect response body when
-  the user's existing OTP had already expired. Now correctly returns the
-  `verification_resent` message in all code paths.
+- **Documentation.** `docs/referral-codes.md` — 15-section guide covering
+  all referral flows, anti-abuse scenarios, browser and mobile fingerprint
+  integration, reward handler examples, and admin override workflow.
 
 ### Migrations
 
@@ -95,18 +77,65 @@ referral code system with config-driven anti-abuse detection.
 
 ---
 
-## [2.4.2] — 2026-05-17
+## [2.4.7] — 2026-05-20
+
+### Added
+
+- **Orphaned session cookie cleanup.** `POST /auth/session/destroy-orphan` is
+  an unauthenticated endpoint for SPAs to call when `/auth/me` returns 401 but a
+  stale session cookie is still present (e.g. after a manual database wipe or
+  violated lifecycle). Forces the cookie to expire without requiring a valid token.
+
+---
+
+## [2.4.6] — 2026-05-19
+
+### Fixed
+
+- `POST /auth/email/resend-verification` returned an incorrect response body
+  when the user's existing OTP had already expired. Now correctly returns the
+  `verification_resent` message in all code paths.
+
+---
+
+## [2.4.5] — 2026-05-19
+
+### Added
+
+- **`EmailVerified` event.** Fired after email verification completes at the
+  end of the registration flow. Listeners can use this event to trigger
+  post-verification workflows (welcome emails, onboarding jobs, etc.).
+
+---
+
+## [2.4.3] — 2026-05-18
+
+### Changed
+
+- **Complete documentation rewrite.** All files under `docs/` were rewritten
+  from scratch with full detail: installation walkthrough, configuration
+  reference for every key, customization guide for all six contracts, events
+  reference, localization guide, account status and deletion guides, and
+  upgrading notes. `docs/AI_Context.md` added as a full repo snapshot for
+  AI assistants.
+- **`docs/` excluded from Composer archive.** The `archive.exclude` block in
+  `composer.json` now excludes `docs/`, `tests/`, and Postman collections so
+  production installs do not include documentation files.
+
+---
+
+## [2.4.2] — 2026-05-18
 
 ### Fixed
 
 - **MySQL strict mode migration error.** The `deleted_accounts` table migration
-  declared two timestamp columns without a default value, which MySQL strict mode
-  rejects with `SQLSTATE[22007]`. Both `deleted_at` and `scheduled_purge_at` are
-  now `->nullable()`.
+  declared `deleted_at` and `scheduled_purge_at` without a default value, which
+  MySQL strict mode rejects with `SQLSTATE[22007]`. Both columns are now
+  `->nullable()`.
 
 ---
 
-## [2.4.1] — 2026-05-16
+## [2.4.1] — 2026-05-17
 
 ### Added
 
@@ -115,368 +144,333 @@ referral code system with config-driven anti-abuse detection.
   `config/auth_system.php`. Previously hardcoded to `auth`.
 - **Route auto-register toggle.** Set `AUTH_ROUTES_REGISTER=false` to disable
   automatic route mounting and include the route file manually inside your own
-  `Route::group()`.
+  `Route::group()`. Useful for host apps that wrap all routes in a versioned
+  API group.
 
 ---
 
 ## [2.4.0] — 2026-05-17
 
-Account lifecycle: configurable status workflow + self-service deletion with
-grace-period auto-restore on login.
+> **Git tag:** `v2.4` (tagged without the `.0` patch suffix).
+
+Account lifecycle: configurable status workflow, timed bans, self-service
+deactivation, soft-delete with grace-period auto-restore, and a full admin
+audit log.
 
 ### Added
 
-- **Account status.** New `account_status` column on users (`active`,
-  `disabled`, `suspended`, `deleted`; extensible via config). Login is
-  rejected when status is in `account.status.login_blocked`. A new
-  `auth.active` middleware enforces the status on every authenticated
-  request so a mid-session ban is immediate.
+- **Account status system.** Five built-in statuses (`active`, `suspended`,
+  `disabled`, `deactivated`, `deleted`; extensible via config). Login is
+  rejected when the status is in `account.status.login_blocked`. The new
+  `auth.active` middleware enforces the status on every authenticated request
+  so a mid-session ban takes effect immediately.
 - **Admin status endpoints.** `GET|POST /auth/admin/users/{id}/status`,
   gated by the role(s) in `account.status.admin_ability`. Status changes
-  optionally revoke all of the user's sanctum tokens and sessions.
-- **Self-service account deletion.** `DELETE /auth/account` snapshots the
-  user row into a new `deleted_accounts` table (JSON snapshot +
-  queryable email/username), soft-deletes the user, sets a configurable
-  grace window (default 30 days).
-- **Auto-restore on login.** A normal credential check on a
-  `status=deleted` user inside the grace window transparently restores the
-  account — no separate restore endpoint, no signed links. The
-  `deleted_accounts` row is dropped, status flips back to `active`, the
-  user is logged in.
-- **Purge worker.** `PurgeExpiredAccountDeletions` runs hourly. After the
-  grace expires it nulls every single-column unique index on the users
-  row (configurable; auto-discovered via `Schema::getIndexes()`) so the
-  email/username can be reclaimed, optionally hard-deletes the users row,
-  and keeps the `deleted_accounts` row forever for foreign-key audit.
-- **Timed bans (auto-unban).** The admin status endpoint now accepts an
-  optional `expires_at` (ISO 8601 absolute) **or** `duration_minutes`
-  (relative integer). When the moment arrives the package flips the user
-  back to `active` automatically through two cooperating paths:
-    1. **Lazy revert** inside `AccountStatusService::current()` — every
-       login, every middleware check synchronously reverts an expired ban
-       before reading the status, so users can log in the instant their
-       ban expires.
-    2. **Scheduled sweep** — new `RevertExpiredAccountStatuses` job runs
-       every `auto_unban.sweep_minutes` minutes (default 5), reverts
-       anything the lazy path missed, and fires `AccountStatusChanged`
-       exactly once per user per revert.
-  Returning to `active` always clears `status_expires_at` (a pardon is a
-  pardon). Null expiry on a banned account is a permanent ban (forever).
-  Toggle via `account.status.auto_unban.enabled`.
-- **Temporary-status gate.** New `account.status.auto_unban.temporary_statuses`
-  config (default `['suspended']`) whitelists which statuses can carry an
-  expiry. Statuses NOT in the list are permanent-only — sending an expiry
-  alongside them returns 422 with a clear error. Default policy: `suspended`
-  may be timed; `disabled` requires manual reactivation.
-- **`status_expires_at` column** on users (idempotent migration).
-- **`deactivated` status — Instagram-style self-pause.** New
-  `POST /auth/account/deactivate` endpoint (password required) flips the
-  user to `deactivated` and revokes every session/token. The user can come
-  back any time by logging in — the login flow auto-reactivates them
-  silently (no deadline, no separate reactivate endpoint). Distinct from
-  `deleted` (which has a 30-day grace + permanent purge). Toggle via
-  `account.deactivation.{enabled, self_service, require_password,
-  auto_reactivate_on_login}`.
-- **`disabled` framed as Meta-style violation ban.** The default config
-  keeps `disabled` out of `temporary_statuses` — it is permanent-only and
-  requires admin action to lift. The intended escape hatch is an appeal
-  workflow that will ship in a later release; for now host apps can build
-  it on top of `AccountStatusService::changeStatus()`.
-- `AccountDeactivatedNotification` + `AccountReactivatedNotification` with
-  publishable Blade views + FQCN overrides. Both default on.
-- **Audit log (multi-admin context).** New `account_status_logs` table
-  persists every status transition + free-form admin notes so multi-admin
-  teams can see who did what and why without coordinating out of band.
-  Each row records actor (`admin` / `user` / `system` + id), action,
-  from/to status, reason, comment, source tag (`admin_endpoint`,
-  `self_deactivate`, `auto_unban_lazy`, `login_auto_restore`,
-  `purge_worker`, etc.), expiry, IP, user agent. New admin endpoints:
-  `GET /auth/admin/users/{id}/status/history` (paginated, filterable by
-  actor_type / action / date range) and `POST /auth/admin/users/{id}/notes`
-  for standalone notes. Status endpoint now accepts an optional `comment`
-  field alongside `reason`. Configurable via `account.audit.*` — every
-  part is opt-out: master switch, system-action toggle, request-meta
-  capture, per-endpoint enable flags, custom table name, retention.
-- **Account notifications.** `AccountDeletedNotification`,
-  `AccountRestoredNotification`, `AccountPurgedNotification`,
-  `AccountStatusChangedNotification`. Each has a publishable Blade view
-  and a config-driven FQCN override, same pattern as the OTP / magic-link
-  notifications.
-- **Events.** `AccountStatusChanged`, `AccountDeleted`, `AccountRestored`,
-  `AccountPurged` for host-side integration.
-- **HasAccountStatus trait** for the User model (optional sugar).
-- **Translation keys.** `account_disabled`, `account_suspended`,
-  `account_deletion_disabled`, `account_status_invalid`,
-  `account_password_mismatch`, `account_deleted`, `account_restored`,
-  `account_status_updated`. English + Arabic shipped.
-- **Docs.** `docs/account-status.md`, `docs/account-deletion.md`.
+  optionally revoke all of the user's Sanctum tokens and sessions.
+- **Timed bans (auto-unban).** Admin endpoint accepts `expires_at` (ISO 8601)
+  or `duration_minutes`. Unban fires via two mechanisms: lazy revert on every
+  status read, and a scheduled sweep job every `auto_unban.sweep_minutes`
+  minutes (default 5).
+- **Self-service account deactivation.** Instagram-style pause via
+  `POST /auth/account/deactivate`. Auto-reactivates on next login.
+- **Account deletion with grace period.** `DELETE /auth/account` soft-deletes
+  with a configurable grace window (default 30 days). Login within the window
+  auto-restores the account. A purge worker nulls unique columns (auto-discovered
+  via `Schema::getIndexes()`) and optionally hard-deletes the row after grace.
+- **Account audit log.** Every status transition is written to
+  `account_status_logs`. Admins can add free-form notes. History endpoint with
+  pagination and filters at
+  `GET /auth/admin/users/{id}/status/history` and
+  `POST /auth/admin/users/{id}/notes`.
+- **`HasAccountStatus` trait** — convenience methods `isActive()`,
+  `isSuspended()`, `isDisabled()`, `isDeactivated()`, `isDeleted()` on the
+  User model (optional).
+- **Events:** `AccountStatusChanged`, `AccountDeleted`, `AccountRestored`,
+  `AccountPurged`.
+- **Notifications:** `AccountDeletedNotification`, `AccountRestoredNotification`,
+  `AccountPurgedNotification`, `AccountStatusChangedNotification`,
+  `AccountDeactivatedNotification`, `AccountReactivatedNotification`. All have
+  publishable Blade views and FQCN config overrides.
+- **New translation keys.** `account_disabled`, `account_suspended`,
+  `account_deletion_disabled`, `account_deactivation_disabled`,
+  `account_status_invalid`, `account_password_mismatch`, `account_deleted`,
+  `account_restored`, `account_status_updated`, `account_deactivated`,
+  `account_reactivated`.
+- **Documentation.** `docs/account-status.md`, `docs/account-deletion.md`.
 
 ### Changed
 
-- **Login flow** now includes soft-deleted users in the email lookup when
-  the User model uses `SoftDeletes`, so auto-restore can kick in. Without
-  the trait the behavior is unchanged.
-- **`InstallCommand`** next-steps note recommends adding the `SoftDeletes`
+- Login flow now includes soft-deleted users in the email lookup when the User
+  model uses `SoftDeletes`, enabling auto-restore on credential match within the
+  grace window.
+- `InstallCommand` next-steps output now recommends adding the `SoftDeletes`
   trait to the host User model.
 
-### Migration notes
+### Migrations
 
-- Two new idempotent migrations are loaded by the package
-  (`add_account_status_to_users_table`, `create_deleted_accounts_table`).
-- Existing host columns named `account_status` are preserved.
-- For the purge worker to be able to null unique columns post-grace, those
-  columns on the users table must be `nullable`. See
-  [docs/account-deletion.md](docs/account-deletion.md#why-null-the-unique-columns)
-  for the rationale.
-- The feature is **opt-out**: set `account.status.enabled=false` and
-  `account.deletion.enabled=false` to keep pre-v2.4 behavior.
+- `add_account_status_to_users_table` — adds `account_status`,
+  `status_changed_at`, `status_reason`, `status_expires_at`, `deleted_at`.
+- `create_deleted_accounts_table` — stores user snapshots during the grace
+  period.
+- `create_account_status_logs_table` — audit trail for status transitions.
+
+---
+
+## [2.3.2] — 2026-05-16
+
+### Fixed
+
+- `POST /auth/email/resend-verification` did not create a new OTP record when
+  the user's existing OTP had already expired, causing the resent email to
+  contain an invalid code. The controller now forces a fresh OTP before sending.
+
+---
+
+## [2.3.1] — 2026-05-15
+
+### Fixed
+
+- **`InstallCommand` rewrite.** `php artisan auth:install` now runs steps in
+  the correct dependency order, prints clear error messages when a required
+  package is missing instead of throwing a cryptic exception, and is safe to
+  re-run on an already-installed app.
+- **`AuthRolesSeeder` pre-flight.** The seeder now checks for the `roles` table
+  before running and prints a helpful hint (run migrations first) instead of
+  crashing with a raw SQL error.
+- Minor fix to device column handling in `AuthSessionExtended`.
+- `docs/installation.md` added.
 
 ---
 
 ## [2.3.0] — 2026-05-15
 
-Localization pass. Every user-facing string the package returns — success
-messages **and** error messages — now flows through Laravel's translation
-system, with a static per-key config override still available for apps
-that prefer single-locale customization.
+Customisation and localization pass. Every user-facing string the package
+returns flows through Laravel's translation system. Three opt-in registration
+customisation features added.
 
 ### Added
 
-- **Translatable success messages.** Resolution order on every controller
-  response message is now:
-    1. `config('auth_system.messages.<key>')` — static override (unchanged).
-    2. `trans('auth_system::messages.<key>')` — per-locale via the host's
-       current `app()->getLocale()`.
-    3. The hardcoded English default in the controller call.
-- **Translatable error messages.** Exception classes (`AuthException` and
-  subtypes) now carry an `errorKey()` + `errorReplacements()` pair. The
-  controller boundary (`ResolvesMessages::err()`) resolves the message via
-  the same 3-step lookup against `auth_system::errors.<key>`. Placeholders
-  are interpolated using Laravel's standard `:name` syntax (e.g.
-  `:provider` in social errors, `:seconds` in the account-lockout error).
-- **English language files** ship with the package at
-  `resources/lang/en/{messages,errors,validation}.php` and load
-  automatically under the `auth_system` namespace.
-- **Arabic** sample translation (`resources/lang/ar/`) included as a
-  reference for RTL locales.
-- **New publish tag** `auth-lang`. Running
-  `php artisan vendor:publish --tag=auth-lang` copies the package's
-  language files into either `lang/vendor/auth_system/<locale>/` (Laravel
-  9+ skeleton) or `resources/lang/vendor/auth_system/<locale>/` (older
-  skeleton), automatically detecting which the host app uses.
-- **`config('auth_system.errors')` block** — 26 keys, each defaulting to
-  `null`. Set any key to a non-empty string to force a static, locale-
-  independent override.
-- **Renderable `AuthenticationException` handler** now consults the same
-  pipeline for `auth_system::errors.unauthenticated`, so 401 responses on
-  auth routes are also localizable.
+- **Multi-language support.** Every controller response message and every
+  exception message now resolves via a three-step pipeline:
+  1. `config('auth_system.messages.<key>')` / `config('auth_system.errors.<key>')` — static per-key override.
+  2. `trans('auth_system::<file>.<key>')` — per-locale translation file, respects `app()->getLocale()`.
+  3. Built-in English hardcoded fallback.
+  English and Arabic language files ship with the package. Publish with
+  `php artisan vendor:publish --tag=auth-lang`.
+- **`config('auth_system.errors')` block** — 26 keys for static, locale-independent
+  error message overrides.
+- **Extra-field validation messages.** `registration.extra_fields_messages` —
+  standard Laravel `field.rule => message` map for `extra_fields_rules` without
+  requiring a custom `FormRequest` subclass.
+- **Extra-field transformers.** `registration.extra_fields_transformers` — maps
+  a target field name to a class implementing `ExtraFieldTransformerContract`.
+  Runs post-validation, pre-persist. Useful for derivation
+  (`username_normalized = strtolower(username)`) without writing a controller.
+- **Referral code generation.** `referral_code` config block. When
+  `auth_system.referral_code.enabled=true`, the package generates a unique
+  referral code per new user during `finalizeRegistration()` and writes it to
+  the configured column (default `referral_code`). Swappable generator via
+  `ReferralCodeGeneratorContract`.
+- **`AuthException` carries `errorKey` + `replacements`.** Exception subtypes
+  now expose `errorKey()` and `errorReplacements()` for the translation pipeline.
+  Placeholder syntax: standard Laravel `:name` (e.g. `:provider`, `:seconds`).
 
-### Backward compatibility
+### Breaking change
 
-- All English wording is unchanged. Hosts that do not publish translations
-  and do not set `app()->setLocale()` see exactly the same JSON they did in
-  v2.2.0.
-- Exception constructors gained two optional parameters (`?string $errorKey`,
-  `array $replacements`) but the legacy two-arg `(string $message, int $code)`
-  signature on subtypes is removed; if a host app instantiated package
-  exceptions directly with the old positional `$code` argument, update to
-  the new signature. Internal package code is unaffected.
+`AuthException` and all subtype constructors changed:
+
+```php
+// Before (v2.1.x)
+new AuthException(string $message, int $code = 0, ?Throwable $previous = null)
+
+// After (v2.3.0)
+new AuthException(string $message, ?string $errorKey = null, array $replacements = [], ?Throwable $previous = null)
+```
+
+Only affects code that **instantiates** package exceptions directly. Catching
+them is unaffected — `$e->getMessage()` still works.
 
 ---
 
-## [2.2.0] — 2026-05-15
+## [2.1.1] — 2026-05-15
 
-Customisation pass. Three fully-additive, opt-in features so host apps can
-configure 99% of registration needs without writing a custom controller.
+### Fixed
 
-### Added
+- `ApiTokenAuth` middleware did not reject tokens that had been revoked in
+  `auth_api_tokens` when the underlying Sanctum token still existed. The
+  middleware now checks the `auth_api_tokens` revocation status directly before
+  allowing the request through.
+- Updated Postman collection to include all API token endpoints.
 
-- **Referral codes.** New `referral_code` config block. When
-  `auth_system.referral_code.enabled=true`, the package generates a unique
-  referral code per new user during `finalizeRegistration()` and writes it to
-  the configured column (default `referral_code`). The generator is
-  swappable via `auth_system.referral_code.generator` (FQCN of a class
-  implementing the new `ReferralCodeGeneratorContract`).
-- **Custom response messages.** New `messages` config block. Every hardcoded
-  English string the controllers return can now be overridden per-key (set
-  any value to `null` to keep the built-in default). Useful for
-  localisation, rebranding, or matching your app's tone of voice. Backed by
-  a new `Http\Concerns\ResolvesMessages` trait.
-- **Extra-field validation messages.** New
-  `auth_system.registration.extra_fields_messages` config — standard
-  Laravel `field.rule` → message map. Lets host apps customise validation
-  error wording for `extra_fields_rules` without reaching for
-  `request_class`.
-- **Extra-field transformers.** New
-  `auth_system.registration.extra_fields_transformers` config — maps a
-  target field name to a class implementing the new
-  `ExtraFieldTransformerContract`. Runs after validation, before the field
-  is persisted. Useful for derivation (`username_normalized = strtolower(username)`)
-  and normalisation without writing a controller.
+---
 
-### Backward compatibility
+## [2.1.0] — 2026-05-15
 
-- All four features default to off / null. Existing apps see no behavioural
-  change after upgrading.
+### Fixed
+
+- `GET /auth/register/verify-magic/{token}` was registered with the wrong HTTP
+  method and returned `405 Method Not Allowed`. Fixed.
+- `PasswordResetController` did not correctly handle a signed URL that had
+  already been consumed. Now returns a clean `422` instead of a `500`.
+- `EmailVerificationController::resend()` did not return a response when the
+  user was already verified. Now returns `200` with the `verification_resent`
+  message.
 
 ---
 
 ## [2.0.0] — 2026-05-09
 
-Security hardening pass. Many fixes are breaking — review before upgrading.
+Security hardening pass. Several breaking changes — review carefully before
+upgrading.
 
 ### Breaking
 
-- `POST /auth/register` no longer returns 409 when the email already exists. The
-  response shape is now identical for new and existing emails (a registered
-  email instead receives an "you already have an account" notification
-  out-of-band). This closes the registration enumeration oracle.
-- Social-auth (`/auth/social/google/callback`) no longer auto-links a Google
-  identity to a local account that shares the same email. The endpoint now
-  returns 202 + `requires_link_confirmation` and emails a signed confirmation
-  link to the registered address. Add a route handler for the new
-  `/auth/social/{provider}/link/confirm/{token}` callback to your frontend.
-- Magic-link click endpoints (`/auth/register/verify-magic`,
-  `/auth/password/reset/magic`) now 302-redirect to the configured
-  `frontend_verify_url` / `frontend_reset_url` (with `completion_token=` /
-  `reset_token=` in the query) when the request comes from a browser. Set
-  these env vars to keep the click-through flow working.
-- `EmailVerificationController::resend` no longer returns the
-  `temp_token_hint` field — it leaked the existence of pending registrations.
-- `AuthService::logoutAll(User $user)` now requires `Request $request`
-  as a second argument so it can preserve the calling session/token.
-- `ConditionalCsrf` no longer exempts requests based on the `X-Client-Type`
-  header (which any browser request can set). Only bearer-token requests
-  bypass CSRF.
-- `auth_refresh_tokens` schema gains `family_id`, `parent_id`, `revoked_at`,
-  `revoked_reason` columns and a FK on `user_id`. `auth_otp_codes` gains
-  `failed_attempts`. Run migrations.
-- Minimum supported Laravel is now 12 (testbench 9/Laravel 11 path is dropped).
+- **3-step registration.** Passwords are no longer accepted in
+  `POST /auth/register` and are no longer cached before email verification.
+  This eliminates the pre-account takeover attack vector present in v1.x.
+
+  **Old flow (v1.x):**
+  ```
+  POST /auth/register   { email, password }  → send OTP/magic
+  POST /auth/register/verify-otp { email, otp } → create user
+  ```
+
+  **New flow (v2.0):**
+  ```
+  POST /auth/register            { email }
+  POST /auth/register/verify-otp { email, otp }    → completion_token
+  POST /auth/register/complete   { completion_token, password }
+  ```
+
+- **Refresh tokens moved to `auth_refresh_tokens`.** Atomic rotation with
+  one-time use. Existing v1.x refresh tokens are invalid — users must log in
+  again. Run `php artisan migrate`.
+- **OTP codes stored as SHA-256 hashes.** Existing plaintext OTP records from
+  v1.x will not match any hash lookup. Clear `auth_otp_codes` before upgrading.
+- **`EmailVerified` event** — `sanctumToken` parameter removed.
+  Remove any `$event->sanctumToken` usage from your listeners.
+- **`SocialAuthService::redirectUrl`** now requires `Request $request` as a
+  second argument.
+- **`SocialAuthService::handleCallback`** now returns an array with a `status`
+  key (`'logged_in'` or `'requires_link_confirmation'`). Check the `status`
+  key before reading `user` / `token`.
+- **Social account auto-linking by email removed.** Matching email alone is
+  insufficient proof of ownership. The callback now returns `202` +
+  `requires_link_confirmation` and emails a signed confirmation link. Handle
+  the new `GET /auth/social/{provider}/link/confirm/{token}` in your frontend.
+- **Magic-link endpoints** now 302-redirect to the configured
+  `frontend_verify_url` / `frontend_reset_url` (with token in the query string)
+  when the request comes from a browser. Set these env vars to keep the
+  click-through flow working.
+- `AuthService::logoutAll(User $user)` now requires `Request $request` as a
+  second argument.
+- `ConditionalCsrf` no longer exempts requests based on `X-Client-Type`.
+  Only Bearer-token requests bypass CSRF.
+- Minimum supported Laravel raised to `^12.0`.
 
 ### Security fixes
 
-- **OTP brute-force defense.** `OtpService::validateOtp` now atomically
-  increments `failed_attempts` on each wrong submission and invalidates the
-  active OTP after `auth_system.verification.otp_max_attempts` (default 5).
-  New `auth.ratelimit:otp_verify` middleware (default `10:5`) is applied to
-  `register/verify-otp`, `password/reset/otp`, and `password/reset/confirm`.
-  In v1 the 6-digit OTP space was open to unlimited guessing.
-- **Refresh-token rotation with reuse detection.** `TokenService::refresh`
-  now tracks a `family_id`/`parent_id` lineage on every refresh token. A
-  consumed token presented again revokes the entire family, killing both the
-  attacker's and the legitimate client's current session — standard
-  refresh-token-rotation hygiene.
-- **`RateLimitAuth` no longer auto-clears the limiter on every 2xx response.**
-  In v1 this defeated the limiter on always-200 endpoints (forgot-password,
-  resend-verification). The clear is now triggered explicitly in
-  `AuthService::login` only on a confirmed credential match.
-- **`logoutAll` preserves the calling token/session** so the response itself
-  is not 401'd. Previously, calling `/auth/logout/all` revoked the caller's
-  own bearer token before the response was even returned.
-- **Social account auto-linking by email is gone.** Email-match alone is
-  insufficient proof of ownership; v2 requires the legitimate inbox owner
-  to click a signed confirmation link before the link is created.
-- **New-user social signup checks `email_verified` from the provider** when
-  the OAuth payload carries it. Refuses signup for unverified provider emails.
-- **Mass-assignment denylist.** `extra_fields` flowing into `User::create()`
-  during registration are now stripped of `role`, `roles`, `is_admin`,
-  `admin`, `email_verified_at`, `password`, and `password_change_required`
-  before the create call.
-- **`finalizeRegistration` is now wrapped in a DB transaction** so a failure
-  mid-way no longer leaves a half-formed user.
-- **Constant-time `forgotPassword`** for unknown emails (does a real
-  `Hash::make` instead of a silent return) so timing does not leak whether
-  the email exists.
-- **`OtpService::generateOtp`** clamps `otp_length` to [4,8] before computing
-  `str_repeat('9', N)`, avoiding integer overflow on misconfigured length.
-- **`AuthServiceProvider::boot` validates `verification.otp_length` ∈ [4,8]**
-  on boot and throws if misconfigured.
-
-### Other
-
-- `auth.feature:<name>` middleware gates feature-flagged routes at request
-  time instead of at route-cache build time, so `php artisan route:cache`
-  is now safe regardless of when feature flags are toggled.
-- Fixed `auth_system.api_token.abilities_default` typo (was singular,
-  config key is plural `api_tokens.abilities_default`).
-- `auth_api_tokens.token_hash` is `char(64)` instead of `varchar(255)`.
-- `AuthServiceProvider::boot` registers a default `api` named rate limiter
-  and Spatie permission middleware aliases (`role`, `permission`,
-  `role_or_permission`) when the host app has not already registered them.
-- `CleanExpiredRefreshTokens` now also reaps consumed/revoked rows older
-  than 7 days.
-- `SessionService::deleteAll` collapses to a single delete pass (no TOCTOU
-  window between read and delete).
-- `AuthService::isNewDevice` matches on `device_code` for mobile clients
-  and on `platform+browser+os` for web — fewer false positives than
-  v1's browser+os-only check.
-- New tests for OTP brute-force defense, registration enumeration parity,
-  refresh-token reuse detection, rate-limit no-clear-on-success,
-  social link takeover defense, and `logoutAll` self-preservation.
-- `composer.json` adds a `scripts.test` shortcut.
+- **OTP brute-force defense.** Atomically increments `failed_attempts` on each
+  wrong submission and invalidates the OTP after `otp_max_attempts` (default 5).
+- **Refresh-token reuse detection.** Family-based rotation: a consumed token
+  presented again revokes the entire family, logging out both attacker and
+  legitimate client.
+- **Rate limiter no longer auto-clears on 2xx.** In v1 this defeated the limiter
+  on always-200 endpoints (forgot-password, resend-verification).
+- **`logoutAll` preserves the calling token/session** so the response is not
+  401'd before it returns.
+- **Mass-assignment denylist.** `extra_fields` are stripped of `role`, `roles`,
+  `is_admin`, `admin`, `email_verified_at`, `password`, and
+  `password_change_required` before `User::create()`.
+- **`finalizeRegistration` wrapped in a DB transaction.**
+- **Constant-time `forgotPassword`** for unknown emails (performs a real
+  `Hash::make` to prevent timing-based email enumeration).
 
 ---
 
-## [1.0.0] — 2025-05-08
+## [1.0.1] — 2026-05-08
+
+### Fixed
+
+Six bugs found during integration testing:
+
+- `AuthServiceProvider` did not correctly register package routes when the host
+  app had custom route caching.
+- Missing `use` imports in two controller classes caused `500` errors in PHP 8.3
+  strict mode.
+- `OtpService::create()` did not clean up expired records before inserting a new
+  one, causing unique constraint violations on high-traffic apps.
+- `TokenService::issueRefreshToken()` returned `null` on first-time logins.
+- `SessionService` did not handle a missing `jenssegers/agent` gracefully.
+  Now falls back to the raw User-Agent string.
+- `AuthRolesSeeder` threw when the `roles` table did not exist. Now prints a
+  clear error with instructions.
+
+---
+
+## [1.0.0] — 2026-05-08
+
+Initial public release.
 
 ### Added
 
-**Core authentication (M1)**
-- `POST /auth/register` — initiates registration, stores credentials in cache, sends OTP + magic link simultaneously, returns `temp_token`
-- `POST /auth/register/verify-otp` — completes registration via numeric OTP code
-- `GET /auth/register/verify-magic/{token}` — completes registration via signed magic link
-- `POST /auth/email/resend-verification` — resends OTP/magic link without revealing whether the email exists
-- `POST /auth/login` — authenticates verified users, issues Sanctum Bearer token or session cookie depending on `AUTH_MODE`
-- `POST /auth/logout` — revokes current token/session
-- `POST /auth/logout/all` — revokes all sessions across all devices
-- `GET /auth/me` — returns user profile, roles, permissions, and active session count
+**Core authentication**
+- `POST /auth/register` — initiates registration, sends OTP + magic link
+  simultaneously, returns `temp_token`.
+- `POST /auth/register/verify-otp` — completes registration via OTP code.
+- `GET /auth/register/verify-magic/{token}` — completes registration via
+  signed magic link.
+- `POST /auth/email/resend-verification` — resends OTP/magic link
+  (email-enumeration-safe).
+- `POST /auth/login` — authenticates verified users, issues Sanctum Bearer
+  token or session cookie depending on `AUTH_MODE`.
+- `POST /auth/logout` — revokes current token/session.
+- `POST /auth/logout/all` — revokes all sessions across all devices.
+- `GET /auth/me` — returns user profile, roles, permissions, and active session
+  count.
 
-**Password management (M4)**
-- `POST /auth/password/forgot` — sends OTP + magic link for password reset (email-enumeration-safe)
-- `POST /auth/password/reset/otp` — resets password by submitting OTP + new password in one call
-- `GET /auth/password/reset/magic/{token}` — validates signed reset URL, returns short-lived `reset_token`
-- `POST /auth/password/reset/confirm` — sets new password using `reset_token`; revokes all existing sessions
-- `POST /auth/password/change` — changes password for authenticated user; optional `logout_all` flag
+**Password management**
+- `POST /auth/password/forgot` — sends OTP + magic link for password reset
+  (email-enumeration-safe).
+- `POST /auth/password/reset/otp` — validates OTP, issues `reset_token`.
+- `GET /auth/password/reset/magic/{token}` — validates signed URL, issues
+  `reset_token`.
+- `POST /auth/password/reset/confirm` — sets new password using `reset_token`,
+  revokes all existing sessions.
+- `POST /auth/password/change` — changes password for authenticated user.
 
-**Session & device tracking (M2)**
-- `GET /auth/sessions` — lists all active sessions with device, browser, OS, IP, and geo info
-- `DELETE /auth/sessions/{id}` — revokes a specific session by ID
-- Device detection from `User-Agent` (web) and `X-Device-Info` header (mobile)
-- ~500-model device lookup via `resources/devices.json`
-- Geo-location from `ip-api.com` (city + country, fails silently)
+**Session & device tracking**
+- `GET /auth/sessions` — lists all active sessions with device, browser, OS,
+  IP, and geo info.
+- `DELETE /auth/sessions/{id}` — revokes a specific session by ID.
+- Device detection from `User-Agent` (web) and `X-Device-Info` header (mobile).
+- ~500-model device lookup via `resources/devices.json`.
 
-**API token system (M3)**
-- `GET /auth/api-tokens` — lists all API tokens for the authenticated user
-- `POST /auth/api-tokens` — creates a scoped, optionally expiring API token (`auth_at_` prefix)
-- `DELETE /auth/api-tokens/{id}` — revokes a user-owned token
-- `GET /auth/admin/api-tokens` — admin: lists all tokens across all users
-- `POST /auth/admin/api-tokens` — admin: creates a token not tied to any user
-- `PATCH /auth/admin/api-tokens/{id}` — admin: updates abilities or expiry
-- `DELETE /auth/admin/api-tokens/{id}` — admin: revokes any token
-- `ApiTokenAuth` middleware with per-ability checks (`auth.api-token:read,orders`)
+**API token system**
+- `GET|POST|DELETE /auth/api-tokens` — user-scoped token management.
+- `GET|POST|PATCH|DELETE /auth/admin/api-tokens` — admin token management.
+- `ApiTokenAuth` middleware with per-ability checks.
 
-**Google OAuth (M5)**
-- `GET /auth/social/google/redirect` — returns Google authorization URL
-- `GET /auth/social/google/callback` — handles OAuth exchange; creates, links, or logs in user automatically
+**Google OAuth**
+- `GET /auth/social/google/redirect` — returns Google authorization URL.
+- `GET /auth/social/google/callback` — handles OAuth exchange; creates, links,
+  or logs in user.
 
-**Real-time verification via Reverb (M6)**
-- Broadcasts `EmailVerified` event on `auth.verification.{temp_token}` private channel when enabled
-- Frontend receives Sanctum token in real time without polling
-- `auth:install` appends Reverb channel stub to host app's `routes/channels.php`
+**Real-time verification via Reverb**
+- Broadcasts `EmailVerified` on `auth.verification.{temp_token}` private channel
+  when Reverb is enabled.
 
-**Security hardening (M7)**
-- Dual-layer rate limiting: per-IP and per-email independently, on all public endpoints
-- Account lockout: cumulative failure tracking across rate-limit windows (`AUTH_LOCKOUT_MAX`, `AUTH_LOCKOUT_DECAY`)
-- New-device detection: `SuspiciousLoginDetected` event + `NewDeviceLoginNotification` email
-- `RequireEmailVerified` middleware
-- `DeviceFingerprint` middleware
+**Security**
+- Dual-layer rate limiting per-IP and per-email on all public endpoints.
+- Account lockout with configurable threshold and decay window.
+- New-device detection: `SuspiciousLoginDetected` event + `NewDeviceLoginNotification`.
+- `RequireEmailVerified` and `DeviceFingerprint` middleware.
 
 **Infrastructure**
-- `AuthServiceProvider` with auto-discovery (zero manual registration required)
-- `php artisan auth:install` — publishes config, migrations, seeder, channel stub
-- `AuthRolesSeeder` — creates `super-admin`, `admin`, `user` roles via Spatie Permission
-- `CleanExpiredOtpRecords` job (every 5 min) and `CleanExpiredApiTokens` job (every hour)
-- Customisable response envelope via `ResponseFormatterContract`
-- Customisable OTP delivery via `OtpChannelContract` (swap email for SMS, WhatsApp, etc.)
-- Full Pest test suite: unit + feature tests with `Mail::fake()` and `Queue::fake()`
-- `declare(strict_types=1)` and return types on every method; Octane singleton-safe services
+- `AuthServiceProvider` with Laravel auto-discovery.
+- `php artisan auth:install` — publishes config, migrations, seeder, channel stub.
+- `AuthRolesSeeder` — creates `super-admin`, `admin`, `user` roles.
+- `CleanExpiredOtpRecords` (every 5 min) and `CleanExpiredApiTokens` (every hour).
+- Customisable response envelope via `ResponseFormatterContract`.
+- Customisable OTP delivery via `OtpChannelContract`.
+- Full Pest test suite with `Mail::fake()` and `Queue::fake()`.
