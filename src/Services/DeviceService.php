@@ -18,7 +18,10 @@ class DeviceService implements DeviceResolverContract
         if ($request->hasHeader(config('auth_system.device.header', 'X-Device-Info'))) {
             $mobile = $this->parseMobileHeader($request);
             if ($mobile !== null) {
-                $location = $this->resolveLocation($request->ip() ?? '');
+                // Country/city are resolved asynchronously by BackfillSessionLocation
+// after the session row exists. Stay out of the auth hot path — the
+// session is fully usable while the GeoIP service is slow or down.
+$location = ['country' => null, 'city' => null];
                 $hash     = $this->resolveFingerprintHash($request, $mobile);
 
                 return array_merge($mobile, $location, [
@@ -29,7 +32,10 @@ class DeviceService implements DeviceResolverContract
         }
 
         $ua       = $this->parseUserAgent($request);
-        $location = $this->resolveLocation($request->ip() ?? '');
+        // Country/city are resolved asynchronously by BackfillSessionLocation
+// after the session row exists. Stay out of the auth hot path — the
+// session is fully usable while the GeoIP service is slow or down.
+$location = ['country' => null, 'city' => null];
         $hash     = $this->resolveFingerprintHash($request, $ua);
 
         return array_merge($ua, $location, [
@@ -61,8 +67,8 @@ class DeviceService implements DeviceResolverContract
         $header = (string) config('auth_system.referral_code.browser_fingerprint_header', 'X-Browser-Fingerprint');
         $hash   = trim((string) $request->header($header, ''));
 
-        if ($hash !== '') {
-            return substr($hash, 0, 191);
+        if ($hash !== '' && $this->isValidFingerprintHash($hash)) {
+            return $hash;
         }
 
         // Mobile fallback: explicit device_id wins because it's the
@@ -74,6 +80,27 @@ class DeviceService implements DeviceResolverContract
         }
 
         return null;
+    }
+
+    /**
+     * The browser fingerprint is advisory — it is provided by the client
+     * and MUST NOT be treated as proof of device identity. We only accept
+     * it as a hex digest of a bounded length so an attacker cannot stuff
+     * arbitrary payloads (long blobs, control chars, SQL fragments) into
+     * the stored column.
+     */
+    private function isValidFingerprintHash(string $hash): bool
+    {
+        $min = (int) config('auth_system.referral_code.browser_fingerprint_min_length', 32);
+        $max = (int) config('auth_system.referral_code.browser_fingerprint_max_length', 128);
+
+        $len = strlen($hash);
+
+        if ($len < $min || $len > $max) {
+            return false;
+        }
+
+        return ctype_xdigit($hash);
     }
 
     public function parseMobileHeader(Request $request): ?array
@@ -160,8 +187,14 @@ class DeviceService implements DeviceResolverContract
             return ['country' => null, 'city' => null];
         }
 
+        $endpoint = (string) config(
+            'auth_system.device.location_endpoint',
+            'https://ip-api.com/json/{ip}',
+        );
+        $url = str_replace('{ip}', rawurlencode($ip), $endpoint);
+
         try {
-            $response = Http::timeout(3)->get("http://ip-api.com/json/{$ip}", [
+            $response = Http::timeout(3)->get($url, [
                 'fields' => 'status,country,city',
             ]);
 

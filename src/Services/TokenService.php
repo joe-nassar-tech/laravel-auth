@@ -7,7 +7,9 @@ namespace Joe404\LaravelAuth\Services;
 use Illuminate\Foundation\Auth\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Joe404\LaravelAuth\Exceptions\AccountInactiveException;
 use Joe404\LaravelAuth\Exceptions\AuthException;
+use Joe404\LaravelAuth\Exceptions\EmailNotVerifiedException;
 use Joe404\LaravelAuth\Exceptions\TokenExpiredException;
 use Joe404\LaravelAuth\Models\AuthRefreshToken;
 use Laravel\Sanctum\PersonalAccessToken;
@@ -76,49 +78,35 @@ class TokenService
      */
     public function refresh(string $rawRefreshToken, string $clientType = 'mobile'): array
     {
-        // First, look up the token state OUTSIDE the rotation transaction so
-        // that reuse-detection side effects (revoking the whole family) are
-        // committed even when we throw afterwards.
-        /** @var AuthRefreshToken|null $record */
-        $record = AuthRefreshToken::where('token_hash', hash('sha256', $rawRefreshToken))->first();
+        $hash = hash('sha256', $rawRefreshToken);
 
-        if ($record === null) {
-            throw new AuthException('Invalid refresh token.', 'refresh_token_invalid');
-        }
+        // The locked transaction either rotates successfully or returns a
+        // typed outcome describing what to do next. We never throw from
+        // inside the transaction — throwing would roll back side effects
+        // like the reuse-detection family revoke, which MUST commit.
+        $outcome = DB::transaction(function () use ($hash, $clientType): array {
+            /** @var AuthRefreshToken|null $locked */
+            $locked = AuthRefreshToken::where('token_hash', $hash)->lockForUpdate()->first();
 
-        if ($record->isRevoked()) {
-            throw new AuthException('Refresh token has been revoked. Please log in again.', 'refresh_token_revoked');
-        }
-
-        if ($record->isConsumed()) {
-            // Reuse detected — revoke the whole family so an attacker who
-            // replayed an already-rotated token cannot continue using the
-            // most recent descendant either.
-            $this->revokeFamily((string) $record->family_id, 'reuse_detected');
-
-            throw new AuthException('Refresh token reuse detected. All sessions for this family have been revoked.', 'refresh_token_reused');
-        }
-
-        if ($record->isExpired()) {
-            $record->update(['revoked_at' => now(), 'revoked_reason' => 'expired']);
-            throw new TokenExpiredException('Refresh token has expired. Please log in again.', 'refresh_token_expired');
-        }
-
-        // Now perform the rotation atomically. Re-select with FOR UPDATE so
-        // two concurrent refreshes cannot both pass the consumed check.
-        return DB::transaction(function () use ($record, $clientType): array {
-            /** @var AuthRefreshToken $locked */
-            $locked = AuthRefreshToken::where('id', $record->getKey())->lockForUpdate()->first();
-
-            if ($locked === null || $locked->isConsumed() || $locked->isRevoked()) {
-                throw new AuthException('Invalid refresh token.', 'refresh_token_invalid');
+            if ($locked === null) {
+                return ['status' => 'invalid'];
             }
 
-            $locked->update(['consumed_at' => now()]);
+            if ($locked->isRevoked()) {
+                return ['status' => 'revoked'];
+            }
 
-            // Revoke only the paired access token; other sessions stay intact.
-            if ($locked->access_token_id !== null) {
-                PersonalAccessToken::find($locked->access_token_id)?->delete();
+            if ($locked->isConsumed()) {
+                // Strict RFC 6749 §10.4 rotation: any presentation of an
+                // already-consumed refresh token nukes the family. Covers
+                // both attacker replay and concurrent legit retry that
+                // lost the lock race.
+                return ['status' => 'reused', 'family_id' => (string) $locked->family_id];
+            }
+
+            if ($locked->isExpired()) {
+                $locked->update(['revoked_at' => now(), 'revoked_reason' => 'expired']);
+                return ['status' => 'expired'];
             }
 
             /** @var class-string<User> $userModel */
@@ -128,14 +116,76 @@ class TokenService
             $user = $userModel::find($locked->user_id);
 
             if ($user === null) {
-                throw new AuthException('Invalid refresh token.', 'refresh_token_invalid');
+                return ['status' => 'invalid'];
             }
 
-            $tokenData         = $this->issueInFamily($user, $clientType, (string) $locked->family_id, (int) $locked->getKey());
-            $tokenData['user'] = $user;
+            // Re-validate the account is still allowed to authenticate.
+            // Without this, a suspended/disabled/soft-deleted user keeps
+            // minting fresh access tokens for the lifetime of their
+            // refresh token. Status exceptions propagate; the rotation
+            // never happened so rollback is the correct outcome.
+            $this->assertUserCanRefresh($user);
 
-            return $tokenData;
+            $locked->update(['consumed_at' => now()]);
+
+            // Revoke only the paired access token; other sessions stay intact.
+            if ($locked->access_token_id !== null) {
+                PersonalAccessToken::find($locked->access_token_id)?->delete();
+            }
+
+            $tokenData                      = $this->issueInFamily($user, $clientType, (string) $locked->family_id, (int) $locked->getKey());
+            $tokenData['user']              = $user;
+            $tokenData['previous_token_id'] = $locked->access_token_id;
+
+            return ['status' => 'ok', 'data' => $tokenData];
         });
+
+        return match ($outcome['status']) {
+            'ok'      => $outcome['data'],
+            'invalid' => throw new AuthException('Invalid refresh token.', 'refresh_token_invalid'),
+            'revoked' => throw new AuthException('Refresh token has been revoked. Please log in again.', 'refresh_token_revoked'),
+            'expired' => throw new TokenExpiredException('Refresh token has expired. Please log in again.', 'refresh_token_expired'),
+            'reused'  => $this->handleReuse((string) $outcome['family_id']),
+        };
+    }
+
+    /**
+     * @return never
+     */
+    private function handleReuse(string $familyId): array
+    {
+        // Run AFTER the rotation transaction commits so the revoke writes
+        // can never be rolled back by the throw that follows.
+        $this->revokeFamily($familyId, 'reuse_detected');
+
+        throw new AuthException(
+            'Refresh token reuse detected. All sessions for this family have been revoked.',
+            'refresh_token_reused',
+        );
+    }
+
+    /**
+     * Hard gate on the account state before re-issuing tokens.
+     *
+     * Delegates the status column check to AccountStatusService so timed
+     * bans auto-unban consistently with the login path. Resolved lazily
+     * to avoid a constructor cycle (AccountStatusService depends on us).
+     */
+    private function assertUserCanRefresh(User $user): void
+    {
+        if (method_exists($user, 'trashed') && $user->trashed()) {
+            throw new AccountInactiveException();
+        }
+
+        if (
+            (bool) config('auth_system.verification.required_for_refresh', true)
+            && method_exists($user, 'hasVerifiedEmail')
+            && ! $user->hasVerifiedEmail()
+        ) {
+            throw new EmailNotVerifiedException();
+        }
+
+        app(AccountStatusService::class)->assertCanLogin($user);
     }
 
     public function revokeFamily(string $familyId, string $reason): void

@@ -53,8 +53,8 @@ return new class extends Migration
 
             // first_seen never moves after insert; last_seen updates on every
             // touch. Both are surfaced in GET /auth/devices.
-            $table->timestamp('first_seen_at');
-            $table->timestamp('last_seen_at');
+            $table->timestamp('first_seen_at')->useCurrent();
+            $table->timestamp('last_seen_at')->useCurrent();
 
             $table->index('user_id');
             $table->index('fingerprint_hash');

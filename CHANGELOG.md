@@ -6,6 +6,101 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and 
 
 ---
 
+## [2.5.1] — 2026-05-22
+
+Security and correctness pass on the refresh-token flow, plus a handful of
+hardening fixes around device fingerprinting, error responses, and config
+validation. **No breaking changes**, no migrations.
+
+### Fixed
+
+- **Refresh now re-validates account status.** `TokenService::refresh()` used
+  to mint new tokens without re-checking whether the user was still allowed
+  to authenticate — a suspended, disabled, or soft-deleted user could keep
+  rotating tokens for the lifetime of the refresh window. The flow now
+  re-runs `AccountStatusService::assertCanLogin()`, `hasVerifiedEmail()` (if
+  enabled), and `trashed()` before issuing the new pair.
+- **Refresh rotation is now properly atomic.** Reuse detection used to read
+  the token row outside the rotation transaction, so two concurrent legitimate
+  refreshes could both pass the `consumed` check and only one would get
+  through — the other returned a generic "Invalid refresh token" without
+  triggering family revocation. The row is now `lockForUpdate`-selected
+  inside the transaction; any presentation of a consumed token revokes the
+  whole family, matching RFC 6749 §10.4 strict rotation.
+- **Refresh now updates the session record.** Previously, `AuthService::refreshToken()`
+  rotated the Sanctum token but left `auth_sessions_extended.sanctum_token_id`
+  pointing at the now-deleted old token — so `/auth/sessions`, session
+  revocation, and last-active tracking silently broke after the first
+  refresh. The session row is now re-pointed at the new token (or created
+  if missing).
+- **`isAuthRoute()` honors the configured route prefix.** The exception
+  renderer used to hardcode `auth/`, so hosts mounting the package under a
+  custom prefix (`api/v1/auth`, etc.) lost the JSON envelope around
+  `ValidationException` and `AuthenticationException`. It now reads
+  `auth_system.routes.prefix`; for root-mounted setups it falls back to
+  matching named routes starting with `auth.`.
+- **Frontend magic-link URL is now validated.** When `magic_link_target=frontend`
+  but `frontend_verify_url` / `frontend_reset_url` was empty or malformed,
+  emails went out with broken links (`?token=...` with no host). The package
+  now throws the new `AuthConfigurationException` at link-generation time.
+- **`ApiTokenAuth` no longer leaks internal exception messages.** Unknown
+  exceptions during token validation used to be returned verbatim in the
+  response body — exposing SQL fragments, file paths, or stack-trace hints
+  to the caller. Known `AuthException` instances still pass through with
+  their safe message; unknown errors are logged and replaced with a
+  generic `"Invalid API token."`.
+- **Browser fingerprint header is now format-validated.** The
+  `X-Browser-Fingerprint` value used to be accepted verbatim (truncated to
+  191 chars). It must now be a hex digest within `[min, max]` characters
+  (defaults 32 and 128), otherwise it is treated as absent — preventing
+  arbitrary binary blobs, control characters, or oversized payloads from
+  being stored in the column. **The fingerprint is still advisory and
+  must not be treated as proof of device identity.**
+- **GeoIP lookup no longer blocks the auth path and uses HTTPS.** The
+  third-party IP-to-location call (off by default) was made over `http://`
+  on the synchronous request path, adding up to 3s of latency per login.
+  It is now dispatched as the new `BackfillSessionLocation` job, which
+  fills `country` and `city` on the session row after creation; the
+  default endpoint is `https://ip-api.com/json/{ip}` and is overridable.
+- **Removed unused `use Mockery;` in `tests/Feature/Auth/SocialAuthTest.php`**
+  — PHP was emitting a noisy "use statement … has no effect" warning on
+  every test run.
+
+### Added
+
+- **`AuthConfigurationException`** — thrown for programmer-facing
+  configuration errors (currently: missing frontend magic-link URL).
+  Subclass of `AuthException`, default error key `auth_misconfigured`.
+- **`BackfillSessionLocation` job** — queues the GeoIP lookup off the
+  auth request path. Dispatched by `SessionService::create()` only when
+  `auth_system.device.resolve_location=true`, the IP is public, and the
+  session row was not pre-populated by a host-app resolver.
+
+### New optional config keys
+
+All have safe defaults — nothing to change unless you want to override:
+
+```php
+'verification' => [
+    // When true (default), TokenService::refresh refuses to mint new
+    // tokens for an unverified user. Set false to keep the legacy
+    // behavior where verification is only enforced at login.
+    'required_for_refresh' => true,
+],
+
+'referral_code' => [
+    'browser_fingerprint_min_length' => 32,
+    'browser_fingerprint_max_length' => 128,
+],
+
+'device' => [
+    'location_endpoint' => 'https://ip-api.com/json/{ip}',
+    'location_queue'    => 'default',
+],
+```
+
+---
+
 ## [2.5.0] — 2026-05-20
 
 Permanent device history, browser/mobile fingerprinting, and a full

@@ -364,7 +364,22 @@ class AuthServiceProvider extends ServiceProvider
 
     private function isAuthRoute(\Illuminate\Http\Request $request): bool
     {
-        return str_starts_with($request->path(), 'auth/') || $request->path() === 'auth';
+        $prefix = trim((string) config('auth_system.routes.prefix', 'auth'), '/');
+
+        if ($prefix === '') {
+            // Routes mounted at the root: every request is potentially an
+            // auth route. Fall back to checking against the named-route
+            // table so the envelope only wraps actual package routes.
+            $route = $request->route();
+
+            return $route !== null
+                && is_string($route->getName())
+                && str_starts_with($route->getName(), 'auth.');
+        }
+
+        $path = $request->path();
+
+        return $path === $prefix || str_starts_with($path, $prefix . '/');
     }
 
     private function configureSocialite(): void

@@ -5,7 +5,6 @@ declare(strict_types=1);
 use Joe404\LaravelAuth\Models\AuthSocialAccount;
 use Joe404\LaravelAuth\Tests\Fixtures\User;
 use Laravel\Socialite\Facades\Socialite;
-use Mockery;
 
 function fakeSocialUser(string $id = 'google_uid_123', string $email = 'social@example.com', string $name = 'Social User'): object
 {

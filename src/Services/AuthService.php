@@ -491,6 +491,29 @@ class AuthService
         $clientType = $this->resolveClientType($request) ?? 'mobile';
         $tokenData  = $this->tokenService->refresh($rawRefreshToken, $clientType);
 
+        // Repoint the active session row at the new access token so session
+        // listings, /auth/sessions, and revoke-by-session keep working after
+        // rotation. Falls back to creating a row when none exists (rotation
+        // through a client that never went through the session-creating
+        // login path on this device).
+        $previousTokenId = $tokenData['previous_token_id'] ?? null;
+        $newTokenId      = $tokenData['token']->id;
+
+        $session = $previousTokenId !== null
+            ? AuthSessionExtended::where('user_id', $tokenData['user']->getKey())
+                ->where('sanctum_token_id', $previousTokenId)
+                ->first()
+            : null;
+
+        if ($session !== null) {
+            $session->update([
+                'sanctum_token_id' => $newTokenId,
+                'last_active_at'   => now(),
+            ]);
+        } else {
+            $this->sessionService->create($tokenData['user'], $request, $newTokenId);
+        }
+
         return [
             'user'          => $tokenData['user']->toArray(),
             'token'         => $tokenData['plain_text_token'],

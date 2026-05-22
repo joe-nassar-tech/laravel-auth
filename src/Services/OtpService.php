@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Str;
 use Joe404\LaravelAuth\Contracts\CombinedOtpChannelContract;
 use Joe404\LaravelAuth\Contracts\OtpChannelContract;
+use Joe404\LaravelAuth\Exceptions\AuthConfigurationException;
 use Joe404\LaravelAuth\Exceptions\OtpExpiredException;
 use Joe404\LaravelAuth\Exceptions\OtpInvalidException;
 use Joe404\LaravelAuth\Models\AuthOtpCode;
@@ -226,7 +227,16 @@ class OtpService
                 ? 'auth_system.verification.frontend_reset_url'
                 : 'auth_system.verification.frontend_verify_url';
 
-            $link = rtrim((string) config($configKey, ''), '/') . '?token=' . $uuid;
+            $base = trim((string) config($configKey, ''));
+
+            if ($base === '' || filter_var($base, FILTER_VALIDATE_URL) === false) {
+                throw new AuthConfigurationException(
+                    "Magic-link target is set to 'frontend' but [{$configKey}] is missing or not a valid URL.",
+                    'magic_link_frontend_url_missing',
+                );
+            }
+
+            $link = rtrim($base, '/') . '?token=' . $uuid;
         } else {
             $routeName = match ($type) {
                 'magic_link_reset' => 'auth.password.reset.magic',

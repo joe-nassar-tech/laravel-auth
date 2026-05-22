@@ -7,7 +7,9 @@ namespace Joe404\LaravelAuth\Http\Middleware;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 use Joe404\LaravelAuth\Contracts\ResponseFormatterContract;
+use Joe404\LaravelAuth\Exceptions\AuthException;
 use Joe404\LaravelAuth\Services\ApiTokenService;
 
 /**
@@ -32,9 +34,23 @@ class ApiTokenAuth
 
         try {
             $token = $this->service->validate($bearer);
-        } catch (\Throwable $e) {
+        } catch (AuthException $e) {
+            // Typed package exceptions carry a safe, user-facing message.
             return response()->json(
                 app(ResponseFormatterContract::class)->format(false, $e->getMessage(), [], []),
+                401,
+            );
+        } catch (\Throwable $e) {
+            // Unknown failure — never echo $e->getMessage() to the client,
+            // it can contain SQL fragments, file paths, or stack-trace
+            // hints. Log it for ops and return a generic 401.
+            Log::error('ApiTokenAuth: unexpected validation failure', [
+                'exception' => $e::class,
+                'message'   => $e->getMessage(),
+            ]);
+
+            return response()->json(
+                app(ResponseFormatterContract::class)->format(false, 'Invalid API token.', [], []),
                 401,
             );
         }

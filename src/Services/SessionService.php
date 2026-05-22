@@ -7,6 +7,7 @@ namespace Joe404\LaravelAuth\Services;
 use Illuminate\Foundation\Auth\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use Joe404\LaravelAuth\Jobs\BackfillSessionLocation;
 use Joe404\LaravelAuth\Models\AuthRefreshToken;
 use Joe404\LaravelAuth\Models\AuthSessionExtended;
 use Laravel\Sanctum\PersonalAccessToken;
@@ -43,7 +44,7 @@ class SessionService
             }
         }
 
-        return AuthSessionExtended::create([
+        $session = AuthSessionExtended::create([
             'user_id'               => $user->getKey(),
             'session_id'            => $sessionId,
             'sanctum_token_id'      => $sanctumTokenId,
@@ -60,6 +61,23 @@ class SessionService
             'city'                  => $fingerprint['city'] ?? null,
             'last_active_at'        => now(),
         ]);
+
+        // Resolve country/city out-of-band so a slow GeoIP provider can
+        // never delay the login response. Only dispatch when location
+        // resolution is enabled AND the session was not pre-populated
+        // (e.g. by a host-app fingerprint resolver) and we actually have
+        // a usable public IP.
+        $ip = (string) ($session->ip_address ?? '');
+        if (
+            (bool) config('auth_system.device.resolve_location', false)
+            && $session->country === null
+            && $session->city === null
+            && filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) !== false
+        ) {
+            BackfillSessionLocation::dispatch((int) $session->getKey(), $ip);
+        }
+
+        return $session;
     }
 
     public function listForUser(User $user, Request $request): Collection

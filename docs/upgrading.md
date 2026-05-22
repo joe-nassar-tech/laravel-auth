@@ -8,7 +8,8 @@ Version history for `joe-404/laravel-auth`. Every release is documented — what
 
 ## Table of Contents
 
-- [v2.5.0 — Current stable](#v250----current-stable)
+- [v2.5.1 — Current stable](#v251----current-stable)
+- [v2.5.0](#v250)
 - [v2.4.2](#v242)
 - [v2.4.1](#v241)
 - [v2.4.0](#v240)
@@ -24,6 +25,59 @@ Version history for `joe-404/laravel-auth`. Every release is documented — what
 ---
 
 ## Upgrading steps
+
+### Upgrading to v2.5.1 from v2.5.0
+
+**No breaking changes, no migrations.** This is a security and correctness pass on the refresh-token flow plus a handful of hardening fixes.
+
+```bash
+composer require joe-404/laravel-auth:^2.5
+php artisan vendor:publish --tag=auth-config --force   # pick up new optional keys
+```
+
+**Behavior changes you should be aware of:**
+
+1. **Refresh now re-checks account state.** A suspended, disabled, soft-deleted, or unverified user calling `POST /auth/refresh` will be rejected — they used to get a fresh token pair. Frontends should handle the same error responses they already handle on login.
+
+2. **Refresh now keeps the session row in sync.** After rotation, `auth_sessions_extended.sanctum_token_id` is repointed at the new access token. Sessions listings, `DELETE /auth/sessions/{id}`, and last-active tracking now keep working past the first refresh.
+
+3. **GeoIP lookup is now queued.** If you have `auth_system.device.resolve_location=true`, the country/city resolution is now dispatched as a `BackfillSessionLocation` job. The session row is created with `country`/`city` = null and the values fill in once the queue worker runs. **A queue worker must be running for the columns to populate.** The endpoint is now HTTPS (`https://ip-api.com/json/{ip}` by default).
+
+4. **`X-Browser-Fingerprint` is now format-validated.** Values that are not hex digests within `[32, 128]` characters are silently ignored (treated as absent). If your frontend was sending something other than a hex digest, switch to one — e.g. SHA-256 of the canvas/WebGL/screen signals.
+
+5. **`ApiTokenAuth` no longer echoes raw exception messages.** Clients calling endpoints behind `auth.api-token` will see `"Invalid API token."` for unknown errors instead of the underlying exception message. The original is logged via `Log::error`.
+
+6. **`isAuthRoute()` now respects `AUTH_ROUTES_PREFIX`.** If you mounted the package under a custom prefix (e.g. `api/v1/auth`) on v2.5.0 or earlier, validation and authentication failures on those routes were not being wrapped in the package JSON envelope. They are now.
+
+**New optional `.env` / config keys (safe to leave at defaults):**
+
+```env
+# When true (default), POST /auth/refresh rejects unverified users.
+# Set false to keep legacy behavior (verification only enforced at login).
+AUTH_VERIFICATION_REQUIRED_FOR_REFRESH=true
+```
+
+```php
+// config/auth_system.php
+
+'verification' => [
+    'required_for_refresh' => env('AUTH_VERIFICATION_REQUIRED_FOR_REFRESH', true),
+],
+
+'referral_code' => [
+    'browser_fingerprint_min_length' => 32,
+    'browser_fingerprint_max_length' => 128,
+],
+
+'device' => [
+    'location_endpoint' => 'https://ip-api.com/json/{ip}',
+    'location_queue'    => 'default',
+],
+```
+
+> The free `ip-api.com` plan only allows HTTP. If you are using the free plan, either override `device.location_endpoint` back to `http://ip-api.com/json/{ip}` (note: cleartext transport) or switch to a provider that supports HTTPS on the free tier.
+
+---
 
 ### Upgrading to v2.5.0 from v2.4.x
 
@@ -119,7 +173,44 @@ If you **throw** package exceptions in your own code (unusual), update the const
 
 ---
 
-## v2.5.0 — Current stable
+## v2.5.1 — Current stable
+
+**Tag:** `v2.5.1` | **Released:** 2026-05-22
+
+### Fixed
+
+- **Refresh now re-validates account status.** `TokenService::refresh()` used to mint new tokens without re-checking whether the user was still allowed to authenticate, so a suspended, disabled, or soft-deleted user could keep rotating tokens for the lifetime of the refresh window. The flow now re-runs `AccountStatusService::assertCanLogin()`, `hasVerifiedEmail()` (gated by the new `verification.required_for_refresh` key), and `trashed()` before issuing the new pair.
+- **Refresh rotation is now properly atomic.** Reuse detection used to read the token row outside the rotation transaction, which let two concurrent legitimate refreshes both pass the `consumed` check and produced "Invalid refresh token" without the family revoke. The row is now `lockForUpdate`-selected inside the transaction; any presentation of a consumed token revokes the whole family (RFC 6749 §10.4 strict rotation). The revoke runs *after* the rotation transaction commits, so its writes cannot be rolled back by the throw that follows.
+- **Refresh now updates the session record.** Previously, `AuthService::refreshToken()` rotated the Sanctum token but left `auth_sessions_extended.sanctum_token_id` pointing at the now-deleted old token, silently breaking `/auth/sessions`, session revocation, and last-active tracking after the first refresh. The session row is now re-pointed (or created if missing) and `last_active_at` is bumped.
+- **Exception renderer honors the configured route prefix.** `AuthServiceProvider::isAuthRoute()` used to hardcode `auth/`, so hosts mounted under `api/v1/auth` lost the JSON envelope around `ValidationException` and `AuthenticationException`. It now reads `auth_system.routes.prefix`; for root-mounted setups it falls back to matching named routes that start with `auth.`.
+- **Frontend magic-link URL is now validated.** Setting `magic_link_target=frontend` with an empty or malformed `frontend_verify_url` / `frontend_reset_url` used to produce emails with broken links (`?token=...` and no host). The package now throws `AuthConfigurationException` at link-generation time so misconfigurations fail loudly in staging instead of silently in production.
+- **`ApiTokenAuth` no longer leaks raw exception messages.** Unknown exceptions during token validation used to be returned verbatim in the response body — exposing SQL fragments, file paths, or stack-trace hints. Known `AuthException` subclasses still pass through with their safe message; everything else is logged and replaced with a generic `"Invalid API token."`.
+- **Browser fingerprint header is format-validated.** `X-Browser-Fingerprint` used to be accepted verbatim (truncated to 191 chars). It must now be a hex digest within `[browser_fingerprint_min_length, browser_fingerprint_max_length]` characters (defaults 32–128) — otherwise it is treated as absent. **The fingerprint is still advisory and must not be treated as proof of device identity.**
+- **GeoIP lookup no longer blocks the auth path and uses HTTPS.** The third-party IP-to-location call (off by default) used to run synchronously over `http://` on every login, adding up to 3s of latency per request. It now runs as the new `BackfillSessionLocation` queued job, which fills `country`/`city` on the session row after it is created. The default endpoint is `https://ip-api.com/json/{ip}` and is overridable via `auth_system.device.location_endpoint`.
+- **Removed an unused `use Mockery;`** statement in `tests/Feature/Auth/SocialAuthTest.php` that was producing a PHP warning on every test run (`Mockery` is in the root namespace, so the import had no effect).
+
+### Added
+
+- **`AuthConfigurationException`** — typed exception for programmer-facing misconfiguration. Default error key: `auth_misconfigured`.
+- **`BackfillSessionLocation`** job — queues GeoIP lookups off the auth request path. Dispatched only when `device.resolve_location=true`, the IP is public, and the session row was not pre-populated by a host-app resolver.
+
+### New optional config keys
+
+| Key | Default | Purpose |
+|---|---|---|
+| `verification.required_for_refresh` | `true` | Whether `POST /auth/refresh` requires a verified email. Legacy behavior was `false` (verification only at login). |
+| `referral_code.browser_fingerprint_min_length` | `32` | Minimum accepted length for `X-Browser-Fingerprint`. |
+| `referral_code.browser_fingerprint_max_length` | `128` | Maximum accepted length for `X-Browser-Fingerprint`. |
+| `device.location_endpoint` | `https://ip-api.com/json/{ip}` | URL template for the GeoIP lookup. `{ip}` is replaced. |
+| `device.location_queue` | `default` | Queue name for `BackfillSessionLocation`. |
+
+### Who must upgrade
+
+Anyone on v2.5.0. The refresh-flow fixes (sessions, status re-check, atomic reuse detection) and the API-token error-leak fix are security-relevant.
+
+---
+
+## v2.5.0
 
 **Tag:** `v2.5.0` | **Released:** 2026-05-20
 
