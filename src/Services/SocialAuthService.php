@@ -21,6 +21,7 @@ class SocialAuthService
     public function __construct(
         private readonly TokenService $tokenService,
         private readonly SessionService $sessionService,
+        private readonly ReferralService $referralService,
     ) {}
 
     public function redirectUrl(string $provider, Request $request): string
@@ -109,10 +110,193 @@ class SocialAuthService
             }
         }
 
+        // 3a. Profile completion (v2.6). When the host requires custom fields
+        // that Google cannot supply, do NOT create the user yet. Stash the
+        // verified social profile against a short-lived completion token and
+        // ask the frontend to collect the required fields, mirroring the
+        // 3-step email flow (no user row exists until completion).
+        if ((bool) config('auth_system.social.profile_completion.enabled', false)) {
+            $completionToken = $this->stashProfileCompletion($provider, $socialUser);
+
+            return [
+                'status'           => 'requires_profile_completion',
+                'completion_token' => $completionToken,
+                'prefill'          => [
+                    'email'  => $email,
+                    'name'   => $socialUser->getName(),
+                    'avatar' => $socialUser->getAvatar(),
+                ],
+            ];
+        }
+
         $newUser = $this->createUserFromSocial($provider, $socialUser);
         $this->createSocialAccount($newUser, $provider, $socialUser);
 
         return ['status' => 'logged_in'] + $this->loginSocialUser($newUser, $request);
+    }
+
+    /**
+     * Finalize a social registration: validate-side already done by the
+     * SocialRegisterCompleteRequest; here we create the user from the stashed
+     * social profile + the submitted required fields, link the social account,
+     * and log in. Mirrors AuthService::finalizeRegistration for the OAuth path.
+     *
+     * @param  array<string, mixed>  $fields  Validated payload (extras + optional referral_code)
+     * @return array{status: string, user: array<string,mixed>, token: ?string, refresh_token: ?string, referral_error?: array<string,mixed>}
+     */
+    public function finalizeSocialRegistration(string $completionToken, array $fields, Request $request): array
+    {
+        $data = Cache::pull("auth:social_complete:{$completionToken}");
+
+        if ($data === null) {
+            throw new AuthException('Invalid or expired completion token. Please sign in with Google again.', 'completion_token_invalid');
+        }
+
+        $provider   = (string) $data['provider'];
+        $providerId = (string) $data['provider_id'];
+        $email      = (string) $data['provider_email'];
+
+        $userModel = config('auth.providers.users.model', \App\Models\User::class);
+
+        // Race guard: an account (or link) may have appeared between callback
+        // and completion. If the social account now exists, just log in.
+        $existingLink = AuthSocialAccount::where('provider', $provider)
+            ->where('provider_id', $providerId)
+            ->with('user')
+            ->first();
+
+        if ($existingLink !== null) {
+            return ['status' => 'logged_in'] + $this->loginSocialUser($existingLink->user, $request);
+        }
+
+        if ($email !== '' && $userModel::where('email', $email)->exists()) {
+            throw new AuthException('This email is already registered.', 'email_already_registered');
+        }
+
+        // Pull out the optional incoming referral code before treating the
+        // rest of the payload as user attributes.
+        $incomingReferral = null;
+        if (isset($fields['referral_code']) && is_string($fields['referral_code']) && trim($fields['referral_code']) !== '') {
+            $incomingReferral = trim($fields['referral_code']);
+        }
+        unset($fields['referral_code'], $fields['completion_token']);
+
+        $extraFields = $this->applyExtraFieldTransformers(
+            $this->stripPrivilegedFields($fields),
+            $email,
+        );
+
+        // Generate this user's own referral code if the feature is enabled.
+        if ((bool) config('auth_system.referral_code.enabled', false)) {
+            $column = (string) config('auth_system.referral_code.column', 'referral_code');
+            if (! array_key_exists($column, $extraFields) || $extraFields[$column] === null) {
+                $extraFields[$column] = app(\Joe404\LaravelAuth\Contracts\ReferralCodeGeneratorContract::class)->generate();
+            }
+        }
+
+        $name = ($data['name'] ?? '') !== '' ? (string) $data['name'] : Str::before($email, '@');
+
+        /** @var \Illuminate\Foundation\Auth\User $user */
+        $user = $userModel::create(array_merge([
+            'name'              => $name,
+            'email'             => $email,
+            'password'          => Hash::make(Str::random(64)),
+            'email_verified_at' => now(),
+        ], $extraFields));
+
+        $defaultRole = (string) config('auth_system.roles.default_role', 'user');
+        if (method_exists($user, 'assignRole')) {
+            $user->assignRole($defaultRole);
+        }
+
+        AuthSocialAccount::create([
+            'user_id'        => $user->getKey(),
+            'provider'       => $provider,
+            'provider_id'    => $providerId,
+            'provider_email' => $email,
+            'avatar'         => $data['avatar'] ?? null,
+        ]);
+
+        // Apply an incoming referral code (best-effort — never block signup).
+        $referralError = null;
+        if ($incomingReferral !== null && (bool) config('auth_system.referral_code.enabled', false)) {
+            try {
+                $this->referralService->applyAtRegistration($user, $incomingReferral, $request);
+            } catch (AuthException $e) {
+                $referralError = ['key' => $e->errorKey(), 'message' => $e->getMessage()];
+            } catch (\Throwable) {
+                $referralError = ['key' => 'referral_unknown_error', 'message' => 'Referral could not be applied.'];
+            }
+        }
+
+        $result = ['status' => 'logged_in'] + $this->loginSocialUser($user, $request);
+
+        if ($referralError !== null) {
+            $result['referral_error'] = $referralError;
+        }
+
+        return $result;
+    }
+
+    private function stashProfileCompletion(string $provider, object $socialUser): string
+    {
+        $token = Str::uuid()->toString();
+        $ttl   = max(1, (int) config('auth_system.social.profile_completion.ttl_minutes', 15));
+
+        Cache::put("auth:social_complete:{$token}", [
+            'provider'       => $provider,
+            'provider_id'    => $socialUser->getId(),
+            'provider_email' => $socialUser->getEmail() ?? '',
+            'name'           => $socialUser->getName() ?? '',
+            'avatar'         => $socialUser->getAvatar(),
+        ], now()->addMinutes($ttl));
+
+        return $token;
+    }
+
+    /**
+     * @param  array<string, mixed>  $fields
+     * @return array<string, mixed>
+     */
+    private function stripPrivilegedFields(array $fields): array
+    {
+        foreach (['role', 'roles', 'is_admin', 'admin', 'email_verified_at', 'password', 'password_change_required'] as $key) {
+            unset($fields[$key]);
+        }
+
+        return $fields;
+    }
+
+    /**
+     * @param  array<string, mixed>  $extraFields
+     * @return array<string, mixed>
+     */
+    private function applyExtraFieldTransformers(array $extraFields, string $email): array
+    {
+        /** @var array<string, class-string> $transformers */
+        $transformers = (array) config('auth_system.registration.extra_fields_transformers', []);
+
+        if ($transformers === []) {
+            return $extraFields;
+        }
+
+        $input = array_merge($extraFields, ['email' => $email]);
+
+        foreach ($transformers as $targetField => $transformerClass) {
+            if (! is_string($transformerClass) || ! class_exists($transformerClass)) {
+                continue;
+            }
+
+            $instance = app($transformerClass);
+
+            if (! $instance instanceof \Joe404\LaravelAuth\Contracts\ExtraFieldTransformerContract) {
+                continue;
+            }
+
+            $extraFields[$targetField] = $instance->transform($input);
+        }
+
+        return $this->stripPrivilegedFields($extraFields);
     }
 
     /**

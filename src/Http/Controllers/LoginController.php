@@ -39,6 +39,16 @@ class LoginController extends Controller
             return $this->failure($this->err($e), [], 401);
         }
 
+        // v2.6 — 2FA gate: when AuthService::login returns requires_2fa it
+        // means credentials checked out but the user must complete a 2FA
+        // challenge before any token is issued.
+        if (($result['requires_2fa'] ?? false) === true) {
+            return $this->success(
+                $this->msg('two_factor_challenge_required', '2FA verification required.'),
+                $result,
+            );
+        }
+
         return $this->success($this->msg('login_success', 'Logged in successfully.'), $result);
     }
 

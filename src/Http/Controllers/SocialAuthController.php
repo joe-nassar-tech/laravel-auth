@@ -12,6 +12,7 @@ use Joe404\LaravelAuth\Exceptions\AccountInactiveException;
 use Joe404\LaravelAuth\Exceptions\AuthException;
 use Joe404\LaravelAuth\Http\Concerns\ResolvesMessages;
 use Joe404\LaravelAuth\Http\Concerns\RespondsWithJson;
+use Joe404\LaravelAuth\Http\Requests\SocialRegisterCompleteRequest;
 use Joe404\LaravelAuth\Services\SocialAuthService;
 
 class SocialAuthController extends Controller
@@ -57,9 +58,52 @@ class SocialAuthController extends Controller
             );
         }
 
+        // v2.6 — brand-new user whose profile needs the host's required
+        // fields before the account can be created. Return the completion
+        // token + prefill so the frontend can show an onboarding form.
+        if (($result['status'] ?? null) === 'requires_profile_completion') {
+            return $this->success(
+                $this->msg('social_profile_completion_required', 'A few more details are needed to finish creating your account.'),
+                [
+                    'requires_profile_completion' => true,
+                    'completion_token'            => $result['completion_token'] ?? null,
+                    'prefill'                     => $result['prefill'] ?? [],
+                ],
+                202,
+            );
+        }
+
         unset($result['status']);
 
         return $this->success('Logged in with Google successfully.', $result);
+    }
+
+    /**
+     * Finalize a social sign-up for a brand-new user by collecting the host's
+     * required registration fields. Only reachable when
+     * `social.profile_completion.enabled` is true.
+     */
+    public function complete(SocialRegisterCompleteRequest $request): JsonResponse
+    {
+        if (! (bool) config('auth_system.social.profile_completion.enabled', false)) {
+            return $this->failure('Social profile completion is not enabled.', [], 404);
+        }
+
+        try {
+            $result = $this->socialAuthService->finalizeSocialRegistration(
+                (string) $request->string('completion_token'),
+                $request->validated(),
+                $request,
+            );
+        } catch (AccountInactiveException $e) {
+            return $this->failure($this->err($e), [], 403);
+        } catch (AuthException $e) {
+            return $this->failure($this->err($e), [], 422);
+        }
+
+        unset($result['status']);
+
+        return $this->success($this->msg('register_complete', 'Account created. Logged in successfully.'), $result);
     }
 
     public function confirmLink(string $provider, string $token, Request $request): JsonResponse|RedirectResponse

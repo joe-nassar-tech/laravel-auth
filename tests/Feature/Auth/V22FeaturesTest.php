@@ -78,13 +78,18 @@ it('generates a unique referral code on finalizeRegistration when enabled', func
         ->and($user->referral_code)->toBe(strtoupper($user->referral_code));
 });
 
-it('does not overwrite a referral code already supplied as an extra field', function (): void {
+it('does not overwrite a referral code already set on the user (e.g. by a transformer)', function (): void {
+    // NOTE: a `referral_code` submitted to /auth/register is interpreted as
+    // the INCOMING referrer's code (who referred this user), not the new
+    // user's own code — the package extracts and consumes it separately. The
+    // supported way to pre-set the user's OWN code is a transformer writing to
+    // the referral_code column; finalizeRegistration must then leave it alone.
     config()->set('auth_system.referral_code.enabled', true);
-    config()->set('auth_system.registration.extra_fields_rules', [
-        'referral_code' => 'nullable|string',
+    config()->set('auth_system.registration.extra_fields_transformers', [
+        'referral_code' => PresetReferralTransformer::class,
     ]);
 
-    $user = completeRegistrationFlow('preset-ref@example.com', ['referral_code' => 'KEEPME0001']);
+    $user = completeRegistrationFlow('preset-ref@example.com');
 
     expect($user->referral_code)->toBe('KEEPME0001');
 });
@@ -202,6 +207,14 @@ class UsernameLowercaseTransformer implements ExtraFieldTransformerContract
     public function transform(array $validated): mixed
     {
         return strtolower(trim((string) ($validated['username'] ?? '')));
+    }
+}
+
+class PresetReferralTransformer implements ExtraFieldTransformerContract
+{
+    public function transform(array $validated): mixed
+    {
+        return 'KEEPME0001';
     }
 }
 

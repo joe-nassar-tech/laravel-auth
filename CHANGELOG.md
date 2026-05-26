@@ -6,6 +6,118 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and 
 
 ---
 
+## [2.6.0] — 2026-05-23
+
+Adds phone capture + verification, full Two-Factor Authentication (TOTP /
+Email / SMS), backup codes, and a trusted-device system with time-based
+trust levels. New `Require2FA` middleware provides GitHub-style step-up
+authentication for sensitive endpoints. **Additive only** — existing users
+without 2FA enrolled see no flow changes.
+
+### Added
+
+- **Phone number support** at registration (config-driven required/optional).
+  Adds `phone`, `phone_verified_at`, `two_factor_required` columns to the
+  users table.
+- **Phone verification driver system** with five built-in drivers (log,
+  infobip, messagecentral, twilio, firebase) and a `PhoneDriverContract` for
+  custom drivers. Per-channel (sms/voice/whatsapp) provider selection with
+  optional fallback driver. Default `log` driver writes codes to the Laravel
+  log for safe local development.
+- **Two-Factor Authentication** with three equal methods:
+  - **TOTP**: RFC 6238 authenticator apps via `pragmarx/google2fa`. QR codes
+    generated server-side via `bacon/bacon-qr-code`.
+  - **Email**: OTP via the existing email channel.
+  - **SMS**: OTP via the phone driver system. Requires verified phone first.
+    Users can enroll in multiple methods and pick any one at challenge time.
+- **Backup codes** (8 codes × 10 chars, configurable) generated on first
+  successful 2FA enrollment. Single-use, hashed at rest, regeneratable.
+- **Challenge flow at login**: when the user has at least one verified 2FA
+  method and the current device is not trusted at the configured threshold,
+  login returns `{ requires_2fa: true, challenge_token, available_methods }`
+  instead of a Sanctum token. The real token is only issued after
+  `POST /auth/2fa/challenge` succeeds. Mirrors GitHub/Stripe/Auth0.
+- **Trusted devices** with auto-progression:
+  - Registration device auto-trusted at level `high`.
+  - User-opt-in trust on login via `trust_device: true` flag at challenge.
+  - Time-based progression `low (15d) → medium (60d) → high (90d)`.
+  - Three assignment modes (`time`, `time_consistent`, `time_admin`).
+  - Revocation matrix: medium can revoke low, high can revoke low+medium,
+    any trusted device can revoke all.
+- **`Require2FA` middleware (`auth.2fa`)** for sensitive endpoints. Three
+  fallback behaviors when the user has no 2FA enrolled: `block`,
+  `force_enroll`, `password_confirm` (sudo mode, default).
+- **Password sudo mode**: `POST /auth/password/confirm` issues a 15-minute
+  step-up window that the `Require2FA` middleware accepts in lieu of a 2FA
+  challenge.
+- **`Request::authContext()`** macro returning a read-only snapshot:
+  `{ 2fa_enabled, 2fa_verified, trust_level, phone_verified, sudo_active }`.
+- **New endpoints**:
+  - `POST /auth/phone/send-otp`, `POST /auth/phone/verify`
+  - `GET /auth/2fa/methods`, `POST /auth/2fa/enroll/{method}/{start|verify}`,
+    `DELETE /auth/2fa/methods/{id}`, `POST /auth/2fa/methods/{id}/default`
+  - `GET /auth/2fa/backup-codes`, `POST /auth/2fa/backup-codes/regenerate`
+  - `POST /auth/2fa/challenge`, `POST /auth/2fa/challenge/switch`,
+    `POST /auth/2fa/challenge/resend`
+  - `POST /auth/password/confirm`
+  - `GET /auth/trusted-devices`, `DELETE /auth/trusted-devices`,
+    `DELETE /auth/trusted-devices/{id}`
+- **`auth:install --upgrade`** flag for migrating existing installations from
+  v2.5.x. Runs only the new v2.6 migrations and prints a changelog summary.
+- **Social profile completion** — `social.profile_completion.enabled` makes a
+  brand-new OAuth (Google) user complete the host's required registration
+  fields via `POST /auth/social/complete` before the account is created,
+  enforcing the same `registration.extra_fields_rules` + phone rules as the
+  email flow. No user row is created until completion. New config keys
+  `AUTH_SOCIAL_PROFILE_COMPLETION` / `AUTH_SOCIAL_PROFILE_COMPLETION_TTL`.
+
+### Changed (compared to v2.5)
+
+- `UserLoggedIn` still fires at credential success — even when 2FA is required
+  and no token is issued yet — so existing listeners (audit, "user logged in"
+  notifications) continue to fire on the credential leg. The new
+  `TwoFactorChallengeIssued` event fires at the same boundary when a challenge
+  is created, and `TwoFactorVerified` fires once the user completes the
+  challenge.
+
+### Security
+
+- **Trusted-device 2FA bypass now requires a server-issued token, not just a
+  fingerprint match.** Each trusted device gets a one-time random
+  `trusted_device_token` at trust time (returned in the registration response
+  and in `/auth/2fa/challenge` responses when `trust_device=true`). The
+  client must echo it back as `X-Trusted-Device-Token` on subsequent logins
+  for the bypass to apply. Fingerprint alone — which is client-supplied —
+  no longer grants MFA bypass.
+- **Default `bypass_2fa_min_level` raised from `medium` to `high`** so the
+  bypass requires the strongest trust signal (registration device, 90 days
+  of usage, or admin grant). Hosts that intentionally want the looser
+  v2.6.0-rc semantics can override with `AUTH_TRUST_BYPASS_MIN=medium`.
+
+### New dependencies
+
+- `pragmarx/google2fa: ^8.0`
+- `bacon/bacon-qr-code: ^3.0`
+
+### Migration notes
+
+All v2.6 migrations are stamped `2025_v260_*`. Existing installations:
+
+```bash
+composer update joe-404/laravel-auth
+php artisan auth:install --upgrade
+```
+
+Then add the three new columns to your User model's `$fillable`:
+
+```php
+protected $fillable = [/* …existing… */, 'phone', 'phone_verified_at', 'two_factor_required'];
+```
+
+See the "Upgrading to v2.6.0 from v2.5.x" section in `docs/upgrading.md` for the full guide.
+
+---
+
 ## [2.5.1] — 2026-05-22
 
 Security and correctness pass on the refresh-token flow, plus a handful of
@@ -164,11 +276,11 @@ referral code system with config-driven anti-abuse detection.
 
 ### Migrations
 
-| File | Creates / Alters |
-|---|---|
-| `2026_05_20_000001_create_referrals_table` | `referrals` table |
+| File                                                               | Creates / Alters                                      |
+| ------------------------------------------------------------------ | ----------------------------------------------------- |
+| `2026_05_20_000001_create_referrals_table`                         | `referrals` table                                     |
 | `2026_05_20_000002_add_fingerprint_hash_to_auth_sessions_extended` | `fingerprint_hash` column on `auth_sessions_extended` |
-| `2026_05_20_000003_create_auth_user_devices_table` | `auth_user_devices` table |
+| `2026_05_20_000003_create_auth_user_devices_table`                 | `auth_user_devices` table                             |
 
 ---
 
@@ -350,8 +462,8 @@ customisation features added.
   1. `config('auth_system.messages.<key>')` / `config('auth_system.errors.<key>')` — static per-key override.
   2. `trans('auth_system::<file>.<key>')` — per-locale translation file, respects `app()->getLocale()`.
   3. Built-in English hardcoded fallback.
-  English and Arabic language files ship with the package. Publish with
-  `php artisan vendor:publish --tag=auth-lang`.
+     English and Arabic language files ship with the package. Publish with
+     `php artisan vendor:publish --tag=auth-lang`.
 - **`config('auth_system.errors')` block** — 26 keys for static, locale-independent
   error message overrides.
 - **Extra-field validation messages.** `registration.extra_fields_messages` —
@@ -425,12 +537,14 @@ upgrading.
   This eliminates the pre-account takeover attack vector present in v1.x.
 
   **Old flow (v1.x):**
+
   ```
   POST /auth/register   { email, password }  → send OTP/magic
   POST /auth/register/verify-otp { email, otp } → create user
   ```
 
   **New flow (v2.0):**
+
   ```
   POST /auth/register            { email }
   POST /auth/register/verify-otp { email, otp }    → completion_token
@@ -510,6 +624,7 @@ Initial public release.
 ### Added
 
 **Core authentication**
+
 - `POST /auth/register` — initiates registration, sends OTP + magic link
   simultaneously, returns `temp_token`.
 - `POST /auth/register/verify-otp` — completes registration via OTP code.
@@ -525,6 +640,7 @@ Initial public release.
   count.
 
 **Password management**
+
 - `POST /auth/password/forgot` — sends OTP + magic link for password reset
   (email-enumeration-safe).
 - `POST /auth/password/reset/otp` — validates OTP, issues `reset_token`.
@@ -535,6 +651,7 @@ Initial public release.
 - `POST /auth/password/change` — changes password for authenticated user.
 
 **Session & device tracking**
+
 - `GET /auth/sessions` — lists all active sessions with device, browser, OS,
   IP, and geo info.
 - `DELETE /auth/sessions/{id}` — revokes a specific session by ID.
@@ -542,26 +659,31 @@ Initial public release.
 - ~500-model device lookup via `resources/devices.json`.
 
 **API token system**
+
 - `GET|POST|DELETE /auth/api-tokens` — user-scoped token management.
 - `GET|POST|PATCH|DELETE /auth/admin/api-tokens` — admin token management.
 - `ApiTokenAuth` middleware with per-ability checks.
 
 **Google OAuth**
+
 - `GET /auth/social/google/redirect` — returns Google authorization URL.
 - `GET /auth/social/google/callback` — handles OAuth exchange; creates, links,
   or logs in user.
 
 **Real-time verification via Reverb**
+
 - Broadcasts `EmailVerified` on `auth.verification.{temp_token}` private channel
   when Reverb is enabled.
 
 **Security**
+
 - Dual-layer rate limiting per-IP and per-email on all public endpoints.
 - Account lockout with configurable threshold and decay window.
 - New-device detection: `SuspiciousLoginDetected` event + `NewDeviceLoginNotification`.
 - `RequireEmailVerified` and `DeviceFingerprint` middleware.
 
 **Infrastructure**
+
 - `AuthServiceProvider` with Laravel auto-discovery.
 - `php artisan auth:install` — publishes config, migrations, seeder, channel stub.
 - `AuthRolesSeeder` — creates `super-admin`, `admin`, `user` roles.

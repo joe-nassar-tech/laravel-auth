@@ -46,7 +46,7 @@ Set a mail driver and `AUTH_MODE` in `.env`, and you're ready.
 
 ## What gets installed automatically
 
-`composer require joe-404/laravel-auth` installs these four packages as hard dependencies — you do **not** need to require them separately:
+`composer require joe-404/laravel-auth` installs these packages as hard dependencies — you do **not** need to require them separately:
 
 | Package | Purpose |
 |---|---|
@@ -54,6 +54,8 @@ Set a mail driver and `AUTH_MODE` in `.env`, and you're ready.
 | `laravel/socialite ^5.0` | Google OAuth flow |
 | `spatie/laravel-permission ^6.0` | Roles and permissions (`HasRoles`, `assignRole`, `User::role('admin')`) |
 | `jenssegers/agent ^2.6` | User-Agent parsing for session device tracking |
+| `pragmarx/google2fa ^8.0` *(v2.6)* | TOTP authenticator-app 2FA (RFC 6238) |
+| `bacon/bacon-qr-code ^3.0` *(v2.6)* | Server-rendered QR codes for TOTP enrollment |
 
 Their service providers are discovered automatically — no `config/app.php` edit needed.
 
@@ -70,7 +72,12 @@ After `auth:install` runs, your database has these tables:
 | `auth_api_tokens` | `joe-404/laravel-auth` |
 | `account_status_logs` | `joe-404/laravel-auth` |
 | `deleted_accounts` | `joe-404/laravel-auth` |
-| `users` (altered: `last_login_at`, `is_active`, `account_status`, `status_changed_at`, `status_reason`, `status_expires_at`, `deleted_at`) | `joe-404/laravel-auth` |
+| `auth_two_factor_methods` *(v2.6)* | `joe-404/laravel-auth` |
+| `auth_two_factor_backup_codes` *(v2.6)* | `joe-404/laravel-auth` |
+| `auth_two_factor_challenges` *(v2.6)* | `joe-404/laravel-auth` |
+| `auth_trusted_devices` *(v2.6)* | `joe-404/laravel-auth` |
+| `auth_phone_otp_codes` *(v2.6)* | `joe-404/laravel-auth` |
+| `users` (altered: `last_login_at`, `is_active`, `account_status`, `status_changed_at`, `status_reason`, `status_expires_at`, `deleted_at`, and *(v2.6)* `phone`, `phone_verified_at`, `two_factor_required`) | `joe-404/laravel-auth` |
 | `personal_access_tokens` | `laravel/sanctum` |
 | `roles`, `permissions`, `model_has_roles`, `role_has_permissions`, `model_has_permissions` | `spatie/laravel-permission` |
 
@@ -144,6 +151,20 @@ use Spatie\Permission\Traits\HasRoles;
 class User extends Authenticatable
 {
     use HasApiTokens, HasFactory, HasRoles, Notifiable, SoftDeletes, HasAccountStatus;
+
+    protected $fillable = [
+        'name', 'email', 'password',
+        // …your fields…
+        // v2.6 — required if you enable the phone / 2FA features:
+        'phone', 'phone_verified_at', 'two_factor_required',
+    ];
+
+    protected $casts = [
+        'email_verified_at'   => 'datetime',
+        // v2.6:
+        'phone_verified_at'   => 'datetime',
+        'two_factor_required' => 'bool',
+    ];
 }
 ```
 
@@ -155,6 +176,8 @@ class User extends Authenticatable
 | `HasRoles` | `User::role('admin')` throws; `assignRole()` fails |
 | `SoftDeletes` | The account deletion auto-restore flow cannot work |
 | `HasAccountStatus` | Optional — convenience methods (`$user->isActive()`, `$user->isSuspended()`, etc.) won't be available, but the package reads/writes the status column directly either way |
+
+> **v2.6 columns must be `$fillable`.** The package writes `phone` during registration and `phone_verified_at` / `two_factor_required` during the phone + 2FA flows via mass-assignment. If you enable those features without adding the columns to `$fillable`, the writes are silently dropped by Laravel's guard. The columns are harmless to add even if you leave the features disabled.
 
 ### 2. Set Sanctum stateful domains (SPA / cookie auth only)
 

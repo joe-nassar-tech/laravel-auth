@@ -26,6 +26,7 @@ use Joe404\LaravelAuth\Http\Middleware\DeviceFingerprint;
 use Joe404\LaravelAuth\Http\Middleware\FeatureFlag;
 use Joe404\LaravelAuth\Http\Middleware\RejectRefreshToken;
 use Joe404\LaravelAuth\Http\Middleware\RateLimitAuth;
+use Joe404\LaravelAuth\Http\Middleware\Require2FA;
 use Joe404\LaravelAuth\Http\Middleware\RequireActiveAccount;
 use Joe404\LaravelAuth\Http\Middleware\RequireEmailVerified;
 use Joe404\LaravelAuth\Jobs\CleanExpiredApiTokens;
@@ -109,6 +110,12 @@ class AuthServiceProvider extends ServiceProvider
 
             return $this->app->make(DefaultResponseFormatter::class);
         });
+
+        // v2.6 — Phone driver manager (singleton: caches resolved providers
+        // and remembers host-registered custom drivers across requests).
+        $this->app->singleton(\Joe404\LaravelAuth\Phone\PhoneDriverManager::class, function ($app) {
+            return new \Joe404\LaravelAuth\Phone\PhoneDriverManager($app);
+        });
     }
 
     public function boot(): void
@@ -122,10 +129,26 @@ class AuthServiceProvider extends ServiceProvider
         $this->loadMigrationsFrom(__DIR__ . '/../database/migrations');
         $this->registerRoutes();
         $this->registerMiddleware();
+        $this->registerRequestMacros();
         $this->registerCommands();
         $this->registerSchedule();
         $this->registerEvents();
         $this->registerExceptionHandlers();
+    }
+
+    /**
+     * v2.6 — Expose Request::authContext() so host code (policies, middleware,
+     * controllers) can inspect 2FA + trust-level state without coupling to the
+     * services directly. Read-only snapshot of session/token + cache.
+     */
+    private function registerRequestMacros(): void
+    {
+        if (! \Illuminate\Http\Request::hasMacro('authContext')) {
+            \Illuminate\Http\Request::macro('authContext', function () {
+                /** @var \Illuminate\Http\Request $this */
+                return \Joe404\LaravelAuth\Support\AuthContext::forRequest($this);
+            });
+        }
     }
 
     /**
@@ -151,6 +174,24 @@ class AuthServiceProvider extends ServiceProvider
             throw new \InvalidArgumentException(
                 "auth_system.verification.otp_length must be between 4 and 8, got {$otpLength}.",
             );
+        }
+
+        // v2.6 — warn at boot if the log phone driver is wired up anywhere
+        // other than local/testing. It writes plain OTP codes to the Laravel
+        // log; the driver itself hard-fails at send time outside local/testing
+        // (see LogPhoneDriver), but this surfaces the misconfiguration early.
+        if (! app()->environment('local', 'testing') && (bool) config('auth_system.phone.enabled', false)) {
+            foreach (['sms', 'voice', 'whatsapp'] as $channel) {
+                $provider = (string) config("auth_system.phone.channels.{$channel}.provider", '');
+                if ($provider === 'log') {
+                    \Illuminate\Support\Facades\Log::warning(
+                        "[laravel-auth] Phone channel '{$channel}' is configured to use the 'log' driver "
+                        . 'outside local/testing. The log driver writes plaintext OTP codes to the '
+                        . 'application log and will REFUSE to send in this environment. '
+                        . 'Switch to a real provider (infobip, twilio, messagecentral, …).',
+                    );
+                }
+            }
         }
     }
 
@@ -239,6 +280,7 @@ class AuthServiceProvider extends ServiceProvider
         $router->aliasMiddleware('auth.api-token', ApiTokenAuth::class);
         $router->aliasMiddleware('auth.feature', FeatureFlag::class);
         $router->aliasMiddleware('auth.active', RequireActiveAccount::class);
+        $router->aliasMiddleware('auth.2fa', Require2FA::class);
 
         // Spatie's PermissionServiceProvider stopped auto-registering middleware
         // aliases in Laravel 11. We register them here so package routes

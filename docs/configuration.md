@@ -36,9 +36,12 @@ php artisan vendor:publish --tag=auth-config
 22. [account.deletion](#22-accountdeletion)
 23. [account.deactivation](#23-accountdeactivation)
 24. [account.audit](#24-accountaudit)
-25. [messages](#25-messages)
-26. [errors](#26-errors)
-27. [Complete .env reference](#27-complete-env-reference)
+25. [phone (v2.6)](#25-phone-v26)
+26. [two_factor (v2.6)](#26-two_factor-v26)
+27. [trusted_devices (v2.6)](#27-trusted_devices-v26)
+28. [messages](#28-messages)
+29. [errors](#29-errors)
+30. [Complete .env reference](#30-complete-env-reference)
 
 ---
 
@@ -572,6 +575,10 @@ Custom notification class takes priority over the Blade view for the same email 
 | `google.client_secret` | `AUTH_GOOGLE_CLIENT_SECRET` | From Google Cloud Console |
 | `google.redirect` | `AUTH_GOOGLE_REDIRECT` | Must match the URI registered in Google Cloud Console |
 | `frontend_url` | `AUTH_SOCIAL_FRONTEND_URL` | After a social account-link confirmation email is clicked, where to redirect. `null` = return JSON instead of redirecting. |
+| `profile_completion.enabled` *(v2.6)* | `AUTH_SOCIAL_PROFILE_COMPLETION` | When true, a brand-new Google user who is missing the host's required registration fields is NOT created/logged-in immediately. The callback returns `requires_profile_completion` + a `completion_token`; the frontend collects the required fields and POSTs them to `/auth/social/complete`. Default `false` (legacy behavior: create + log in from the Google profile alone). |
+| `profile_completion.ttl_minutes` *(v2.6)* | `AUTH_SOCIAL_PROFILE_COMPLETION_TTL` | Minutes the completion token stays valid. Default `15`. |
+
+> **Why this exists.** OAuth supplies identity (email, name) but never your app's custom fields (username, phone, country…). With `profile_completion` enabled, the social path enforces the **same** `registration.extra_fields_rules` + phone rules as the email flow — no user row is created until the required fields are submitted, so an abandoned onboarding leaves nothing behind. Only `required` fields block; optional ones can be filled later. Phone is captured here and verified afterward via the normal `/auth/phone` flow.
 
 **Setup steps:**
 1. Go to [console.cloud.google.com](https://console.cloud.google.com)
@@ -899,7 +906,132 @@ Controls the account status audit log written to `account_status_logs`.
 
 ---
 
-## 25. `messages`
+## 25. `phone` (v2.6)
+
+Optional phone capture at registration plus phone verification via SMS, voice, or WhatsApp. Phone is **not** used for login in this release — it is stored on the user, optionally verified, and feeds the `sms` 2FA method.
+
+```php
+'phone' => [
+    'enabled'  => env('AUTH_PHONE_ENABLED', false),
+    'required' => env('AUTH_PHONE_REQUIRED', false),
+    'column'   => env('AUTH_PHONE_COLUMN', 'phone'),
+    'verification' => [
+        'required_at_registration' => env('AUTH_PHONE_VERIFY_AT_REG', false),
+        'default_channel'          => env('AUTH_PHONE_VERIFY_CHANNEL', 'sms'),
+        'otp_length'               => env('AUTH_PHONE_OTP_LENGTH', 6),
+        'otp_expiry_minutes'       => env('AUTH_PHONE_OTP_EXPIRY', 5),
+        'max_attempts'             => env('AUTH_PHONE_OTP_MAX_ATTEMPTS', 5),
+    ],
+    'providers' => [ /* log | infobip | messagecentral | twilio | firebase | custom */ ],
+    'channels'  => [ /* sms | voice | whatsapp → provider + optional fallback */ ],
+],
+```
+
+| Key | Default | What it does |
+|-----|---------|--------------|
+| `enabled` | `false` | Master switch. When false the registration form ignores the phone field and the verification endpoints return 404. |
+| `required` | `false` | When true, registration fails without a valid phone. When false, phone is optional. |
+| `column` | `phone` | Users-table column storing the E.164 phone (added by the v2.6 migration). |
+| `verification.required_at_registration` | `false` | When true the user must verify the phone before the account is fully usable; when false phone is saved unverified and verified later via `/auth/phone/send-otp`. |
+| `verification.default_channel` | `sms` | Channel used when none is specified: `sms`, `voice`, or `whatsapp`. |
+| `verification.otp_length` | `6` | Digits in the phone OTP (4–10). |
+| `verification.otp_expiry_minutes` | `5` | Minutes the phone OTP is valid. |
+| `verification.max_attempts` | `5` | Wrong-code attempts before the active code is invalidated. |
+
+**Providers and channels.** Each channel picks a provider; each provider maps to a driver class implementing `PhoneDriverContract`. The default `log` driver writes codes to the Laravel log (dev only — the package logs a warning if `log` is active in production). Channels may declare a `fallback` provider used if the primary throws.
+
+```php
+'channels' => [
+    'sms'      => ['provider' => env('AUTH_PHONE_SMS_PROVIDER', 'log'),      'fallback' => env('AUTH_PHONE_SMS_FALLBACK')],
+    'voice'    => ['provider' => env('AUTH_PHONE_VOICE_PROVIDER', 'log'),    'fallback' => env('AUTH_PHONE_VOICE_FALLBACK')],
+    'whatsapp' => ['provider' => env('AUTH_PHONE_WHATSAPP_PROVIDER', 'log'), 'fallback' => env('AUTH_PHONE_WHATSAPP_FALLBACK')],
+],
+```
+
+Custom providers are registered at runtime — see `docs/customization.md` (Custom phone driver). Each built-in provider reads its own credentials from `auth_system.phone.providers.<key>` (e.g. `INFOBIP_API_KEY`, `TWILIO_SID`/`TWILIO_TOKEN`/`TWILIO_FROM`, `MC_CUSTOMER_ID`/`MC_PASSWORD`).
+
+---
+
+## 26. `two_factor` (v2.6)
+
+Two-factor authentication with three equal, parallel-enrollable methods: `totp` (authenticator app), `email` (OTP), `sms` (OTP via the phone driver).
+
+```php
+'two_factor' => [
+    'enabled'        => env('AUTH_2FA_ENABLED', true),
+    'required'       => env('AUTH_2FA_REQUIRED', false),
+    'methods'        => ['totp', 'email', 'sms'],
+    'default_method' => env('AUTH_2FA_DEFAULT', 'totp'),
+    'challenge' => [
+        'ttl_seconds'          => env('AUTH_2FA_CHALLENGE_TTL', 300),
+        'max_attempts'         => env('AUTH_2FA_CHALLENGE_MAX_ATTEMPTS', 5),
+        'burst_max_per_minute' => env('AUTH_2FA_CHALLENGE_BURST', 10),
+    ],
+    'codes' => [
+        'totp'  => ['issuer' => env('AUTH_2FA_TOTP_ISSUER', env('APP_NAME')), 'digits' => 6, 'period' => 30, 'window' => 1],
+        'email' => ['length' => 6, 'expiry_minutes' => 10],
+        'sms'   => ['length' => 6, 'expiry_minutes' => 5, 'channel' => 'sms'],
+    ],
+    'backup_codes' => ['enabled' => true, 'count' => 8, 'length' => 10],
+    'middleware_behavior' => env('AUTH_2FA_MIDDLEWARE', 'password_confirm'),
+    'sudo_ttl_minutes'    => env('AUTH_2FA_SUDO_TTL', 15),
+    'rate_limits' => ['challenge' => '5:5', 'enroll' => '5:10'],
+],
+```
+
+| Key | Default | What it does |
+|-----|---------|--------------|
+| `enabled` | `true` | Master switch for the 2FA feature and its endpoints. |
+| `required` | `false` | When true, every user must enroll in ≥1 method on next login. Combine with the per-user `users.two_factor_required` flag for targeted enforcement. |
+| `methods` | all three | Which methods are offered for enrollment. |
+| `default_method` | `totp` | Method challenged first at login (user can switch). |
+| `challenge.ttl_seconds` | `300` | Challenge lifetime. |
+| `challenge.max_attempts` | `5` | Wrong codes before the challenge is invalidated (user must log in again). |
+| `challenge.burst_max_per_minute` | `10` | Per-`challenge_token` burst limit — caps brute force on a leaked token regardless of source IP. |
+| `codes.totp.window` | `1` | Accepted ± time-steps (RFC 6238). |
+| `codes.email.expiry_minutes` | `10` | Email OTP lifetime. |
+| `codes.sms.expiry_minutes` / `channel` | `5` / `sms` | SMS OTP lifetime and delivery channel. |
+| `backup_codes.{enabled,count,length}` | `true` / `8` / `10` | Single-use recovery codes generated on first enrollment, returned once. |
+| `middleware_behavior` | `password_confirm` | Fallback used by `auth.2fa` when the user has no 2FA enrolled: `block`, `force_enroll`, or `password_confirm`. |
+| `sudo_ttl_minutes` | `15` | How long a completed 2FA / password-confirm step satisfies `auth.2fa`. |
+
+See `docs/middleware.md` for the `auth.2fa` decision flow and `docs/upgrading.md` (v2.6 section) for the enrollment + challenge endpoints.
+
+---
+
+## 27. `trusted_devices` (v2.6)
+
+A trusted device skips the 2FA challenge at login when its current trust level meets `bypass_2fa_min_level` **and** the client presents the server-issued device token.
+
+```php
+'trusted_devices' => [
+    'enabled'                        => env('AUTH_TRUSTED_DEVICES_ENABLED', true),
+    'level_assignment'               => env('AUTH_TRUST_LEVEL_MODE', 'time'),
+    'auto_trust_registration_device' => env('AUTH_TRUST_REG_DEVICE', true),
+    'bypass_2fa_min_level'           => env('AUTH_TRUST_BYPASS_MIN', 'high'),
+    'token_header'                   => env('AUTH_TRUST_TOKEN_HEADER', 'X-Trusted-Device-Token'),
+    'thresholds_days' => ['low' => 15, 'medium' => 60, 'high' => 90],
+    'consistency'     => ['max_absence_days' => 30],
+    'admin_grant_high' => env('AUTH_TRUST_ADMIN_GRANT_HIGH', false),
+],
+```
+
+| Key | Default | What it does |
+|-----|---------|--------------|
+| `enabled` | `true` | Master switch for trusted devices and their endpoints. |
+| `level_assignment` | `time` | `time` (pure time-based), `time_consistent` (resets on long absence), or `time_admin` (high requires an admin grant). |
+| `auto_trust_registration_device` | `true` | Auto-trust the registration device at `high` so the first login is frictionless. |
+| `bypass_2fa_min_level` | `high` | Devices below this level always get a 2FA challenge. Raised from `medium` in v2.6 for safety. |
+| `token_header` | `X-Trusted-Device-Token` | Header the client echoes back to prove possession of the one-time device token. **Fingerprint alone never bypasses 2FA** — this token is the real proof. |
+| `thresholds_days.{low,medium,high}` | `15` / `60` / `90` | Days of trusted usage required to reach each level. |
+| `consistency.max_absence_days` | `30` | Under `time_consistent`, an absence longer than this resets trust progress. |
+| `admin_grant_high` | `false` | Under `time_admin`, whether admins may grant `high` via the admin endpoint. |
+
+**Security model.** When a device is trusted, the package issues a one-time random token (returned in the registration response and in `/auth/2fa/challenge` when `trust_device=true`) and stores only its SHA-256. The client must send the plaintext back as `token_header` on future logins. See the v2.6 section of `docs/upgrading.md` for the client integration steps and `docs/middleware.md` for how the bypass interacts with `auth.2fa` step-up.
+
+---
+
+## 28. `messages`
 
 Static per-key overrides for success response messages. Leave as `null` (default) to use the built-in English or the active locale's translation.
 
@@ -946,7 +1078,7 @@ Static per-key overrides for success response messages. Leave as `null` (default
 
 ---
 
-## 26. `errors`
+## 29. `errors`
 
 Static per-key overrides for error messages. Same resolution order as `messages`.
 
@@ -999,7 +1131,7 @@ Some keys support Laravel-style `:placeholder` replacement:
 
 ---
 
-## 27. Complete `.env` Reference
+## 30. Complete `.env` Reference
 
 ```env
 # ── Auth mode ─────────────────────────────────────────────────────────────────
@@ -1059,6 +1191,8 @@ AUTH_GOOGLE_CLIENT_ID=
 AUTH_GOOGLE_CLIENT_SECRET=
 AUTH_GOOGLE_REDIRECT=
 AUTH_SOCIAL_FRONTEND_URL=               # optional — redirect after social link confirm
+AUTH_SOCIAL_PROFILE_COMPLETION=false   # v2.6 — require custom fields after OAuth signup
+AUTH_SOCIAL_PROFILE_COMPLETION_TTL=15  # minutes the completion token is valid
 
 # ── Reverb ────────────────────────────────────────────────────────────────────
 AUTH_REVERB_ENABLED=false
@@ -1125,4 +1259,63 @@ AUTH_REFERRAL_CODE_COLUMN=referral_code
 AUTH_REFERRAL_CODE_LENGTH=10
 AUTH_REFERRAL_CODE_UPPERCASE=true
 AUTH_REFERRAL_CODE_GENERATOR=           # FQCN or empty
+
+# ── Phone (v2.6) ──────────────────────────────────────────────────────────────
+AUTH_PHONE_ENABLED=false
+AUTH_PHONE_REQUIRED=false               # true = registration fails without a phone
+AUTH_PHONE_COLUMN=phone
+AUTH_PHONE_VERIFY_AT_REG=false          # true = must verify phone before account is usable
+AUTH_PHONE_VERIFY_CHANNEL=sms           # sms | voice | whatsapp
+AUTH_PHONE_OTP_LENGTH=6
+AUTH_PHONE_OTP_EXPIRY=5                  # minutes
+AUTH_PHONE_OTP_MAX_ATTEMPTS=5
+AUTH_PHONE_SMS_PROVIDER=                # REQUIRED when phone enabled — infobip | messagecentral | twilio | firebase | custom | log (log = local dev only)
+AUTH_PHONE_SMS_FALLBACK=                # optional provider used if primary fails
+AUTH_PHONE_VOICE_PROVIDER=
+AUTH_PHONE_VOICE_FALLBACK=
+AUTH_PHONE_WHATSAPP_PROVIDER=
+AUTH_PHONE_WHATSAPP_FALLBACK=
+# Note: the `log` driver writes plaintext OTP codes to the Laravel log and
+# REFUSES to run outside local/testing. There is no default provider — set one
+# explicitly. Use `log` only for local development.
+# Provider credentials (only set the ones you use):
+INFOBIP_API_KEY=
+INFOBIP_BASE_URL=https://api.infobip.com
+INFOBIP_SENDER=
+MC_CUSTOMER_ID=
+MC_PASSWORD=
+MC_BASE_URL=https://cpaas.messagecentral.com
+TWILIO_SID=
+TWILIO_TOKEN=
+TWILIO_FROM=
+FIREBASE_PROJECT_ID=
+FIREBASE_CREDENTIALS=
+
+# ── Two-factor authentication (v2.6) ──────────────────────────────────────────
+AUTH_2FA_ENABLED=true
+AUTH_2FA_REQUIRED=false                 # true = force all users to enroll
+AUTH_2FA_DEFAULT=totp                   # totp | email | sms
+AUTH_2FA_CHALLENGE_TTL=300              # seconds
+AUTH_2FA_CHALLENGE_MAX_ATTEMPTS=5       # wrong codes before challenge invalidated
+AUTH_2FA_CHALLENGE_BURST=10            # per-challenge_token burst cap per minute
+AUTH_2FA_TOTP_ISSUER=                   # defaults to APP_NAME
+AUTH_2FA_BACKUP_ENABLED=true
+AUTH_2FA_BACKUP_COUNT=8
+AUTH_2FA_BACKUP_LENGTH=10
+AUTH_2FA_MIDDLEWARE=password_confirm    # block | force_enroll | password_confirm
+AUTH_2FA_SUDO_TTL=15                    # minutes a completed step satisfies auth.2fa
+AUTH_2FA_RATE_CHALLENGE=5:5
+AUTH_2FA_RATE_ENROLL=5:10
+
+# ── Trusted devices (v2.6) ────────────────────────────────────────────────────
+AUTH_TRUSTED_DEVICES_ENABLED=true
+AUTH_TRUST_LEVEL_MODE=time              # time | time_consistent | time_admin
+AUTH_TRUST_REG_DEVICE=true              # auto-trust the registration device at 'high'
+AUTH_TRUST_BYPASS_MIN=high              # low | medium | high — min level to skip 2FA
+AUTH_TRUST_TOKEN_HEADER=X-Trusted-Device-Token
+AUTH_TRUST_LOW_DAYS=15
+AUTH_TRUST_MEDIUM_DAYS=60
+AUTH_TRUST_HIGH_DAYS=90
+AUTH_TRUST_MAX_ABSENCE=30               # days (time_consistent mode)
+AUTH_TRUST_ADMIN_GRANT_HIGH=false       # time_admin mode
 ```
