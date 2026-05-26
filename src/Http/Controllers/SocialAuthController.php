@@ -73,9 +73,36 @@ class SocialAuthController extends Controller
             );
         }
 
+        // #1 — the social user has 2FA enrolled and the device isn't trusted:
+        // no token is issued until they pass the 2FA challenge, same as login.
+        if (($result['status'] ?? null) === 'requires_2fa') {
+            return $this->twoFactorChallengeResponse($result);
+        }
+
         unset($result['status']);
 
         return $this->success('Logged in with Google successfully.', $result);
+    }
+
+    /**
+     * Render the standard 2FA-challenge envelope returned by the social flows
+     * when the user must complete /auth/2fa/challenge before a token is issued.
+     *
+     * @param array<string,mixed> $result
+     */
+    private function twoFactorChallengeResponse(array $result): JsonResponse
+    {
+        return $this->success(
+            $this->msg('two_factor_challenge_required', '2FA verification required.'),
+            [
+                'requires_2fa'      => true,
+                'challenge_token'   => $result['challenge_token'] ?? null,
+                'method'            => $result['method'] ?? null,
+                'available_methods' => $result['available_methods'] ?? [],
+                'masked_target'     => $result['masked_target'] ?? null,
+                'expires_in'        => $result['expires_in'] ?? null,
+            ],
+        );
     }
 
     /**
@@ -101,6 +128,10 @@ class SocialAuthController extends Controller
             return $this->failure($this->err($e), [], 422);
         }
 
+        if (($result['status'] ?? null) === 'requires_2fa') {
+            return $this->twoFactorChallengeResponse($result);
+        }
+
         unset($result['status']);
 
         return $this->success($this->msg('register_complete', 'Account created. Logged in successfully.'), $result);
@@ -120,17 +151,31 @@ class SocialAuthController extends Controller
             return $this->failure($this->err($e), [], 401);
         }
 
+        // If the linked account has 2FA, finish via the challenge (no token in
+        // the redirect yet) rather than redirecting with credentials.
+        if (($result['status'] ?? null) === 'requires_2fa') {
+            return $this->twoFactorChallengeResponse($result);
+        }
+
         $frontendUrl = (string) config('auth_system.social.frontend_url', '');
 
         if ($frontendUrl !== '' && ! $request->wantsJson()) {
-            $params = ['linked' => 'true', 'provider' => $provider];
+            // Non-sensitive status flags can stay in the query string; the
+            // access/refresh tokens go in the URL FRAGMENT (#) so they never
+            // reach server/proxy logs or the Referer header. The SPA reads the
+            // tokens from window.location.hash.
+            $query = http_build_query(['linked' => 'true', 'provider' => $provider]);
+
+            $url = rtrim($frontendUrl, '/') . '?' . $query;
 
             if (! empty($result['token'])) {
-                $params['token']         = $result['token'];
-                $params['refresh_token'] = $result['refresh_token'];
+                $url .= '#' . http_build_query([
+                    'token'         => $result['token'],
+                    'refresh_token' => $result['refresh_token'],
+                ]);
             }
 
-            return redirect()->away(rtrim($frontendUrl, '/') . '?' . http_build_query($params));
+            return redirect()->away($url);
         }
 
         return $this->success('Account linked. Logged in successfully.', $result);

@@ -31,7 +31,7 @@ function seedResetOtp(string $email, string $rawOtp = '424242'): AuthOtpCode
     return AuthOtpCode::create([
         'email'      => $email,
         'type'       => 'password_reset',
-        'token'      => hash('sha256', $rawOtp),
+        'token'      => authOtpHash($rawOtp),
         'temp_token' => Str::uuid()->toString(),
         'expires_at' => now()->addMinutes(10),
     ]);
@@ -78,7 +78,7 @@ it('verify-otp with an expired OTP returns 422', function (): void {
     AuthOtpCode::create([
         'email'      => 'reset@example.com',
         'type'       => 'password_reset',
-        'token'      => hash('sha256', '111111'),
+        'token'      => authOtpHash('111111'),
         'temp_token' => Str::uuid()->toString(),
         'expires_at' => now()->subMinutes(5),
     ]);
@@ -93,7 +93,7 @@ it('verify-otp with an already-used OTP returns 422', function (): void {
     AuthOtpCode::create([
         'email'      => 'reset@example.com',
         'type'       => 'password_reset',
-        'token'      => hash('sha256', '222222'),
+        'token'      => authOtpHash('222222'),
         'temp_token' => Str::uuid()->toString(),
         'expires_at' => now()->addMinutes(10),
         'used_at'    => now(),
@@ -111,7 +111,7 @@ it('magic link redirect with a valid signature returns a reset_token', function 
     AuthOtpCode::create([
         'email'      => 'reset@example.com',
         'type'       => 'magic_link_reset',
-        'token'      => hash('sha256', $rawUuid),
+        'token'      => authOtpHash($rawUuid),
         'temp_token' => Str::uuid()->toString(),
         'expires_at' => now()->addMinutes(30),
     ]);

@@ -545,7 +545,13 @@ return [
     |
     | Rules enforced when a user registers or changes their password.
     |
-    | min_length:         Minimum number of characters. Default: 8.
+    | min_length:         Minimum number of characters. Default: 15.
+    |                      Aligns with NIST SP 800-63B-4, which recommends a
+    |                      15-character minimum for single-factor passwords (and
+    |                      discourages forced composition rules). This package
+    |                      allows single-factor login, so 15 is the safe default.
+    |                      Lower it with AUTH_PASSWORD_MIN if you need to (the
+    |                      hard floor enforced at boot is 8).
     | require_uppercase:  Must contain at least one capital letter (A-Z).
     | require_number:     Must contain at least one number (0-9).
     | require_special:    Must contain at least one symbol (!@#$%...).
@@ -563,7 +569,7 @@ return [
     |   AUTH_PASSWORD_SPECIAL=true
     */
     'password' => [
-        'min_length'          => (int) env('AUTH_PASSWORD_MIN', 8),
+        'min_length'          => (int) env('AUTH_PASSWORD_MIN', 15),
         'require_uppercase'   => (bool) env('AUTH_PASSWORD_UPPERCASE', false),
         'require_number'      => (bool) env('AUTH_PASSWORD_NUMBER', false),
         'require_special'     => (bool) env('AUTH_PASSWORD_SPECIAL', false),
@@ -992,6 +998,13 @@ return [
             'revoke_sessions_on_change' => (bool) env('AUTH_ACCOUNT_STATUS_REVOKE_ON_CHANGE', true),
             'admin_ability'             => env('AUTH_ACCOUNT_STATUS_ABILITY', 'super-admin|admin'),
 
+            // When true, the admin "change status" endpoint also requires a
+            // fresh step-up (sudo password or 2FA per two_factor.step_up_mode)
+            // on top of the role gate. Default false to stay backward-
+            // compatible — enabling it is a behavior change for admin clients,
+            // which must call POST /auth/password/confirm first.
+            'require_step_up'           => (bool) env('AUTH_ACCOUNT_STATUS_REQUIRE_STEP_UP', false),
+
             /*
             | Timed bans — admins can suspend / disable a user "until X" by
             | passing `expires_at` (ISO 8601) or `duration_minutes` to the
@@ -1303,6 +1316,19 @@ return [
 
         'middleware_behavior' => env('AUTH_2FA_MIDDLEWARE', 'password_confirm'),
         'sudo_ttl_minutes'    => (int) env('AUTH_2FA_SUDO_TTL', 15),
+
+        // How the `auth.step-up` middleware re-verifies identity before a
+        // sensitive action (remove a 2FA method, regenerate backup codes,
+        // change phone, admin status change):
+        //   "password_confirm" → user re-enters their password via
+        //                        POST /auth/password/confirm (15-min sudo
+        //                        window). Works for users with or without 2FA.
+        //   "two_factor"       → user must pass a fresh 2FA challenge (falls
+        //                        back to password_confirm when the user has no
+        //                        2FA method enrolled).
+        // A recent successful 2FA challenge (the login sudo stamp) also
+        // satisfies the gate in both modes.
+        'step_up_mode' => env('AUTH_2FA_STEP_UP_MODE', 'password_confirm'),
 
         'rate_limits' => [
             'challenge' => env('AUTH_2FA_RATE_CHALLENGE', '5:5'),

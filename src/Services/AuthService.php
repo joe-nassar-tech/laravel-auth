@@ -350,7 +350,7 @@ class AuthService
         $trustDeviceToken = $trustedDevice?->getAttribute('plain_secret');
 
         $result = [
-            'user'          => $user,
+            'user'          => $this->safeUserArray($user),
             'token'         => $tokenData['plain_text_token'] ?? null,
             'refresh_token' => $tokenData['plain_refresh_token'] ?? null,
         ];
@@ -462,25 +462,40 @@ class AuthService
         $this->rateLimitService->clear('login', (string) $request->ip());
         $this->rateLimitService->clear('login', $email);
 
+        // Post-credential gate + issuance is shared with the social-login and
+        // password-reset flows so all three enforce the 2FA challenge and
+        // issue tokens identically. See issueOrChallenge().
+        return $this->issueOrChallenge($user, $request);
+    }
+
+    /**
+     * Shared "credentials/identity are proven — now gate on 2FA and issue".
+     *
+     * Used by password login, social login, and password-reset auto-login so
+     * none of them can skip the 2FA challenge. Callers are responsible for the
+     * checks that precede this point (status/lockout/verification); this method
+     * assumes the user is allowed to authenticate.
+     *
+     * Returns either a `requires_2fa` challenge envelope (when the user has a
+     * verified 2FA method and the device is not trusted at the bypass level)
+     * or a normal token/session envelope.
+     *
+     * @return array<string,mixed>
+     */
+    public function issueOrChallenge(User $user, Request $request): array
+    {
         $isNewDevice = $this->isNewDevice($user, $request);
+        $clientType  = $this->resolveClientType($request);
 
-        $clientType = $this->resolveClientType($request);
-
-        // v2.6 — 2FA gate. If the user has at least one verified 2FA method
-        // and the current device is NOT a trusted device at the bypass level,
-        // we short-circuit before issuing any real session/token: return a
-        // challenge_token instead and let the client call /auth/2fa/challenge.
         $twoFactorEnabled = (bool) config('auth_system.two_factor.enabled', true);
 
         if ($twoFactorEnabled
             && $this->twoFactorService->hasAnyVerifiedMethod($user)
             && ! $this->trustedDeviceService->shouldBypass2fa($user, $request)
         ) {
-            // Credential success still updates last_login_at and dispatches the
-            // pre-v2.6 UserLoggedIn event — listeners that audit "user passed
-            // the password check" continue to fire even when the user does
-            // not complete 2FA. TwoFactorVerified is dispatched separately
-            // by completeTwoFactorChallenge() on the second leg.
+            // Credential/identity success still updates last_login_at and fires
+            // UserLoggedIn (so audit listeners run even if 2FA is not yet
+            // completed). TwoFactorVerified fires later on challenge success.
             $user->update(['last_login_at' => now()]);
             UserLoggedIn::dispatch($user, $request);
 
@@ -504,7 +519,6 @@ class AuthService
         }
 
         $user->update(['last_login_at' => now()]);
-
         UserLoggedIn::dispatch($user, $request);
 
         if ($clientType !== null) {
@@ -518,7 +532,7 @@ class AuthService
             }
 
             return [
-                'user'          => $user->toArray(),
+                'user'          => $this->safeUserArray($user),
                 'token'         => $tokenData['plain_text_token'],
                 'refresh_token' => $tokenData['plain_refresh_token'],
             ];
@@ -526,7 +540,6 @@ class AuthService
 
         Auth::login($user);
         $request->session()->regenerate();
-
         $this->sessionService->create($user, $request, null);
 
         if ($isNewDevice) {
@@ -534,7 +547,7 @@ class AuthService
         }
 
         return [
-            'user'          => $user->toArray(),
+            'user'          => $this->safeUserArray($user),
             'token'         => null,
             'refresh_token' => null,
         ];
@@ -586,7 +599,7 @@ class AuthService
             }
 
             $result = [
-                'user'          => $user->toArray(),
+                'user'          => $this->safeUserArray($user),
                 'token'         => $tokenData['plain_text_token'],
                 'refresh_token' => $tokenData['plain_refresh_token'],
             ];
@@ -609,7 +622,7 @@ class AuthService
         }
 
         $result = [
-            'user'          => $user->toArray(),
+            'user'          => $this->safeUserArray($user),
             'token'         => null,
             'refresh_token' => null,
         ];
@@ -816,10 +829,28 @@ class AuthService
         UserLoggedOut::dispatch();
     }
 
+    /**
+     * #13 — serialize a user for a response with a defensive safety net:
+     * `password` and `remember_token` are stripped even if the host's User
+     * model forgot to declare them in $hidden. Other sensitive material (2FA
+     * secrets, backup codes) lives in separate tables and is never part of the
+     * user row, so this denylist is sufficient.
+     *
+     * @return array<string,mixed>
+     */
+    private function safeUserArray(mixed $user): array
+    {
+        $array = $user->toArray();
+
+        unset($array['password'], $array['remember_token']);
+
+        return $array;
+    }
+
     public function me(User $user): array
     {
         return [
-            'user'            => $user,
+            'user'            => $this->safeUserArray($user),
             'roles'           => method_exists($user, 'getRoleNames') ? $user->getRoleNames() : [],
             'permissions'     => method_exists($user, 'getAllPermissions')
                 ? $user->getAllPermissions()->pluck('name')
@@ -908,42 +939,11 @@ class AuthService
 
         PasswordChanged::dispatch($user);
 
-        // Auto-login after successful reset using the same client-type detection as login.
-        $user->update(['last_login_at' => now()]);
-        UserLoggedIn::dispatch($user, $request);
-
-        $isNewDevice = $this->isNewDevice($user, $request);
-        $clientType  = $this->resolveClientType($request);
-
-        if ($clientType !== null) {
-            $tokenData      = $this->tokenService->issue($user, $clientType);
-            $sanctumTokenId = $tokenData['token']->id;
-            $this->sessionService->create($user, $request, $sanctumTokenId);
-
-            if ($isNewDevice) {
-                $this->dispatchSuspiciousLogin($user, $request);
-            }
-
-            return [
-                'user'          => $user->toArray(),
-                'token'         => $tokenData['plain_text_token'],
-                'refresh_token' => $tokenData['plain_refresh_token'],
-            ];
-        }
-
-        Auth::login($user);
-        $request->session()->regenerate();
-        $this->sessionService->create($user, $request, null);
-
-        if ($isNewDevice) {
-            $this->dispatchSuspiciousLogin($user, $request);
-        }
-
-        return [
-            'user'          => $user->toArray(),
-            'token'         => null,
-            'refresh_token' => null,
-        ];
+        // #7 — auto-login after reset goes through the SAME 2FA gate as a
+        // normal login. A user with 2FA enabled gets a challenge_token instead
+        // of being logged straight in, so an attacker who only controls the
+        // reset channel (e.g. email) still cannot bypass the second factor.
+        return $this->issueOrChallenge($user, $request);
     }
 
     public function changePassword(User $user, string $currentPassword, string $newPassword, bool $logoutAll, Request $request): void

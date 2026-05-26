@@ -5,15 +5,14 @@ declare(strict_types=1);
 namespace Joe404\LaravelAuth\Services;
 
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
-use Joe404\LaravelAuth\Events\UserLoggedIn;
 use Joe404\LaravelAuth\Exceptions\AccountInactiveException;
 use Joe404\LaravelAuth\Exceptions\AuthException;
 use Joe404\LaravelAuth\Models\AuthSocialAccount;
 use Joe404\LaravelAuth\Notifications\SocialLinkConfirmationNotification;
+use Joe404\LaravelAuth\Support\AccountStatus;
 use Laravel\Socialite\Facades\Socialite;
 
 class SocialAuthService
@@ -22,6 +21,8 @@ class SocialAuthService
         private readonly TokenService $tokenService,
         private readonly SessionService $sessionService,
         private readonly ReferralService $referralService,
+        private readonly AuthService $authService,
+        private readonly AccountStatusService $accountStatusService,
     ) {}
 
     public function redirectUrl(string $provider, Request $request): string
@@ -73,7 +74,7 @@ class SocialAuthService
             ->first();
 
         if ($socialAccount !== null) {
-            return ['status' => 'logged_in'] + $this->loginSocialUser($socialAccount->user, $request);
+            return $this->loginSocialUser($socialAccount->user, $request);
         }
 
         $userModel = config('auth.providers.users.model', \App\Models\User::class);
@@ -132,7 +133,7 @@ class SocialAuthService
         $newUser = $this->createUserFromSocial($provider, $socialUser);
         $this->createSocialAccount($newUser, $provider, $socialUser);
 
-        return ['status' => 'logged_in'] + $this->loginSocialUser($newUser, $request);
+        return $this->loginSocialUser($newUser, $request);
     }
 
     /**
@@ -166,7 +167,7 @@ class SocialAuthService
             ->first();
 
         if ($existingLink !== null) {
-            return ['status' => 'logged_in'] + $this->loginSocialUser($existingLink->user, $request);
+            return $this->loginSocialUser($existingLink->user, $request);
         }
 
         if ($email !== '' && $userModel::where('email', $email)->exists()) {
@@ -229,7 +230,7 @@ class SocialAuthService
             }
         }
 
-        $result = ['status' => 'logged_in'] + $this->loginSocialUser($user, $request);
+        $result = $this->loginSocialUser($user, $request);
 
         if ($referralError !== null) {
             $result['referral_error'] = $referralError;
@@ -386,41 +387,55 @@ class SocialAuthService
     }
 
     /**
-     * @return array{user: array<string, mixed>, token: ?string, refresh_token: ?string}
+     * Finish a social sign-in: enforce the SAME account-status gate as a
+     * password login (#2), then run the SAME 2FA gate + token issuance (#1)
+     * via AuthService::issueOrChallenge. The returned array carries a `status`
+     * of `requires_2fa` (challenge envelope) or `logged_in` (token envelope).
+     *
+     * @return array<string,mixed>
      */
     private function loginSocialUser(mixed $user, Request $request): array
+    {
+        $this->assertSocialEligibility($user);
+
+        $result = $this->authService->issueOrChallenge($user, $request);
+        $result['status'] = ($result['requires_2fa'] ?? false) ? 'requires_2fa' : 'logged_in';
+
+        return $result;
+    }
+
+    /**
+     * Mirror password login's status gate for the social path: auto-reactivate
+     * a self-deactivated account, then reject any login-blocked status
+     * (disabled/suspended) and inactive accounts. Without this, social login
+     * skipped every status check except `is_active` (#2).
+     */
+    private function assertSocialEligibility(mixed $user): void
     {
         if (isset($user->is_active) && ! $user->is_active) {
             throw new AccountInactiveException();
         }
 
-        $user->update(['last_login_at' => now()]);
-
-        UserLoggedIn::dispatch($user, $request);
-
-        $clientType = $this->resolveClientType($request);
-
-        if ($clientType !== null) {
-            $tokenData      = $this->tokenService->issue($user, $clientType);
-            $sanctumTokenId = $tokenData['token']->id;
-            $this->sessionService->create($user, $request, $sanctumTokenId);
-
-            return [
-                'user'          => $user->toArray(),
-                'token'         => $tokenData['plain_text_token'],
-                'refresh_token' => $tokenData['plain_refresh_token'],
-            ];
+        if (! (bool) config('auth_system.account.status.enabled', true)) {
+            return;
         }
 
-        Auth::login($user);
-        $request->session()->regenerate();
-        $this->sessionService->create($user, $request, null);
+        if ((bool) config('auth_system.account.deactivation.auto_reactivate_on_login', true)
+            && $this->accountStatusService->current($user) === AccountStatus::DEACTIVATED
+        ) {
+            $this->accountStatusService->changeStatus(
+                $user,
+                AccountStatus::ACTIVE,
+                'Auto-reactivate on social login.',
+                null,
+                ['actor_type' => 'system', 'source' => 'social_login_auto_reactivate'],
+            );
+            $user->refresh();
+        }
 
-        return [
-            'user'          => $user->toArray(),
-            'token'         => null,
-            'refresh_token' => null,
-        ];
+        // Throws AuthException with a per-status error key for disabled/
+        // suspended (and any other configured login_blocked status).
+        $this->accountStatusService->assertCanLogin($user);
     }
 
     private function resolveClientType(Request $request): ?string

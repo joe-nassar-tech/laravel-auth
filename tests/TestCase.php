@@ -83,6 +83,9 @@ abstract class TestCase extends OrchestraTestCase
         $app['config']->set('auth_system.roles.seeded_roles', ['super-admin', 'admin', 'user']);
         $app['config']->set('auth_system.rate_limits.register', '5:1');
         $app['config']->set('auth_system.rate_limits.login', '5:1');
+        // Pin the password floor for tests — the production default is 15
+        // (NIST single-factor posture); the suite uses shorter fixtures.
+        $app['config']->set('auth_system.password.min_length', 8);
         $app['config']->set('auth_system.token.expiration_minutes', 10080);
         $app['config']->set('auth_system.reverb.enabled', false);
 

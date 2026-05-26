@@ -29,6 +29,7 @@ use Joe404\LaravelAuth\Http\Middleware\RateLimitAuth;
 use Joe404\LaravelAuth\Http\Middleware\Require2FA;
 use Joe404\LaravelAuth\Http\Middleware\RequireActiveAccount;
 use Joe404\LaravelAuth\Http\Middleware\RequireEmailVerified;
+use Joe404\LaravelAuth\Http\Middleware\RequireStepUp;
 use Joe404\LaravelAuth\Jobs\CleanExpiredApiTokens;
 use Joe404\LaravelAuth\Jobs\CleanExpiredOtpRecords;
 use Joe404\LaravelAuth\Jobs\CleanExpiredRefreshTokens;
@@ -176,6 +177,17 @@ class AuthServiceProvider extends ServiceProvider
             );
         }
 
+        // #14 — enforce the NIST SP 800-63B hard floor for password length.
+        // The default is 15; a host may lower it via AUTH_PASSWORD_MIN, but
+        // not below 8.
+        $minLength = (int) config('auth_system.password.min_length', 15);
+
+        if ($minLength < 8) {
+            throw new \InvalidArgumentException(
+                "auth_system.password.min_length must be at least 8 (NIST 800-63B floor), got {$minLength}.",
+            );
+        }
+
         // v2.6 — warn at boot if the log phone driver is wired up anywhere
         // other than local/testing. It writes plain OTP codes to the Laravel
         // log; the driver itself hard-fails at send time outside local/testing
@@ -281,6 +293,7 @@ class AuthServiceProvider extends ServiceProvider
         $router->aliasMiddleware('auth.feature', FeatureFlag::class);
         $router->aliasMiddleware('auth.active', RequireActiveAccount::class);
         $router->aliasMiddleware('auth.2fa', Require2FA::class);
+        $router->aliasMiddleware('auth.step-up', RequireStepUp::class);
 
         // Spatie's PermissionServiceProvider stopped auto-registering middleware
         // aliases in Laravel 11. We register them here so package routes
