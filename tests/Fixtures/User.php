@@ -37,6 +37,10 @@ class User extends Authenticatable
         'status_changed_at',
         'status_reason',
         'status_expires_at',
+        // v2.6 — phone + 2FA
+        'phone',
+        'phone_verified_at',
+        'two_factor_required',
     ];
 
     protected $hidden = [
@@ -51,6 +55,8 @@ class User extends Authenticatable
         'is_active'                => 'boolean',
         'status_changed_at'        => 'datetime',
         'status_expires_at'        => 'datetime',
+        'phone_verified_at'        => 'datetime',
+        'two_factor_required'      => 'boolean',
     ];
 
     public function hasVerifiedEmail(): bool

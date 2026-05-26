@@ -56,6 +56,21 @@ All events live under the `Joe404\LaravelAuth\Events\` namespace.
 | `AccountRestored` | Login auto-restore during grace period | `$user` |
 | `AccountPurged` | Purge worker permanently anonymises the row after grace | `$userId`, `$email` (from snapshot) |
 
+### Phone, 2FA & trusted-device events (v2.6)
+
+| Event | When fired | Payload |
+|---|---|---|
+| `PhoneVerified` | A user's phone OTP is verified and `phone_verified_at` is stamped | `$user`, `$phone` |
+| `TwoFactorEnrolled` | A 2FA method is verified and activated for a user | `$user`, `$method` (`totp`/`email`/`sms`) |
+| `TwoFactorDisabled` | A 2FA method is removed | `$user`, `$method` |
+| `TwoFactorChallengeIssued` | Login (or `auth.2fa` step-up) issues/reuses a challenge for an enrolled user | `$user`, `$challengeToken`, `$method`, `$reused` |
+| `TwoFactorVerified` | A 2FA challenge is completed successfully (login finishes) | `$user`, `$method` |
+| `TwoFactorChallengeFailed` | A wrong code is submitted against an active challenge | `$user`, `$method`, `$attempts` |
+| `TrustedDeviceAdded` | A device becomes trusted (registration auto-trust, or user opt-in at challenge) | `$user`, `$deviceId`, `$level` |
+| `TrustedDeviceRevoked` | A trusted device is revoked (single or revoke-all) | `$user`, `$deviceId`, `$reason` |
+
+> **`UserLoggedIn` timing (v2.6):** when a user with 2FA enrolled submits correct credentials, `UserLoggedIn` still fires at that point (credential success) — even though no token is issued until the challenge is completed. `TwoFactorChallengeIssued` fires immediately after, and `TwoFactorVerified` fires once the challenge passes. Listeners that audited "user passed the password check" keep working unchanged.
+
 ### Payload access
 
 Event payloads are public properties on the event class:
@@ -93,6 +108,35 @@ $event->scheduledPurgeAt  // Carbon
 // AccountPurged
 $event->userId  // int — original user ID (row may be hard-deleted)
 $event->email   // string|null — from the deleted_accounts snapshot
+
+// PhoneVerified (v2.6)
+$event->user    // User
+$event->phone   // string — normalized E.164 phone
+
+// TwoFactorEnrolled / TwoFactorDisabled / TwoFactorVerified (v2.6)
+$event->user    // User
+$event->method  // string — 'totp' | 'email' | 'sms'
+
+// TwoFactorChallengeIssued (v2.6)
+$event->user            // User
+$event->challengeToken  // string — UUID the client sends to /auth/2fa/challenge
+$event->method          // string — method the code was issued for
+$event->reused          // bool — true if an existing unconsumed challenge was reused
+
+// TwoFactorChallengeFailed (v2.6)
+$event->user      // User
+$event->method    // string — method attempted (or 'backup')
+$event->attempts  // int — failed-attempt count after this failure
+
+// TrustedDeviceAdded (v2.6)
+$event->user      // User
+$event->deviceId  // int — auth_trusted_devices row id
+$event->level     // string — 'low' | 'medium' | 'high'
+
+// TrustedDeviceRevoked (v2.6)
+$event->user      // User
+$event->deviceId  // int — 0 when revoke-all
+$event->reason    // string — e.g. 'user', 'user_all'
 ```
 
 ---

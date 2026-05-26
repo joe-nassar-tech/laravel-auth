@@ -13,12 +13,17 @@ class InstallCommand extends Command
     protected $signature = 'auth:install
         {--force : Overwrite existing published files}
         {--skip-migrations : Publish only; do not run migrations}
-        {--skip-seed : Skip the AuthRolesSeeder step}';
+        {--skip-seed : Skip the AuthRolesSeeder step}
+        {--upgrade : Run only new migrations for an existing install (e.g. v2.5 → v2.6)}';
 
-    protected $description = 'One-shot installer: publishes config, dependency migrations, runs them, seeds roles, and wires the Reverb channel.';
+    protected $description = 'One-shot installer: publishes config, dependency migrations, runs them, seeds roles, and wires the Reverb channel. Use --upgrade for in-place version bumps.';
 
     public function handle(): int
     {
+        if ($this->option('upgrade')) {
+            return $this->handleUpgrade();
+        }
+
         $this->components->info('Installing joe-404/laravel-auth');
 
         if (! $this->verifyRequiredPackages()) {
@@ -78,6 +83,41 @@ class InstallCommand extends Command
         }
 
         return true;
+    }
+
+    /**
+     * Upgrade path for hosts already running an older version. Runs only the
+     * version-stamped v2.6 migrations and prints a changelog of new features.
+     * Skips publishing dependency migrations (they were published on first install).
+     */
+    private function handleUpgrade(): int
+    {
+        $this->components->info('Upgrading joe-404/laravel-auth to v2.6');
+
+        if (! $this->verifyRequiredPackages()) {
+            return self::FAILURE;
+        }
+
+        $this->components->info('Running new v2.6 migrations…');
+        $this->call('migrate', ['--force' => true]);
+
+        $this->newLine();
+        $this->components->info('Upgrade complete. v2.6 changelog:');
+        $this->line('  • Phone capture at registration + verification via driver (sms/voice/whatsapp)');
+        $this->line('  • Two-Factor Authentication (TOTP, Email, SMS) + backup codes');
+        $this->line('  • Login challenge flow: challenge_token → /auth/2fa/challenge → real token');
+        $this->line('  • Trusted devices with time-based level progression (low/medium/high)');
+        $this->line('  • Require2FA middleware ("auth.2fa") with GitHub-style sudo mode fallback');
+        $this->line('  • Request::authContext() — read 2FA + trust state from anywhere');
+        $this->newLine();
+        $this->line('Next steps:');
+        $this->line('  1. Add `phone`, `phone_verified_at`, `two_factor_required` to your User $fillable.');
+        $this->line('  2. Configure providers (.env): AUTH_PHONE_SMS_PROVIDER=infobip + INFOBIP_API_KEY.');
+        $this->line('  3. Re-publish config to see the new sections: vendor:publish --tag=auth-config --force');
+        $this->line('  4. See the v2.6 section in docs/upgrading.md for the full guide.');
+        $this->newLine();
+
+        return self::SUCCESS;
     }
 
     private function publishConfig(): void

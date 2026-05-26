@@ -338,6 +338,7 @@ return [
         'register_initiated'     => null,
         'register_verified'      => null,
         'register_complete'      => null,
+        'social_profile_completion_required' => null,
         'verification_resent'    => null,
         'login_success'          => null,
         'me_retrieved'           => null,
@@ -712,6 +713,44 @@ return [
         // When null, the library returns JSON instead of redirecting.
         // Example: AUTH_SOCIAL_FRONTEND_URL=https://myapp.com/auth/callback
         'frontend_url' => env('AUTH_SOCIAL_FRONTEND_URL', null),
+
+        /*
+        |----------------------------------------------------------------------
+        | Profile completion after social sign-in (v2.6)
+        |----------------------------------------------------------------------
+        |
+        | OAuth gives you the user's identity (email, name) but never your
+        | app's custom registration fields (username, phone, country, …).
+        | When you require such fields, a brand-new Google user has no way to
+        | supply them during the OAuth round-trip.
+        |
+        | When `enabled` is true, the social callback for a BRAND-NEW user
+        | does NOT create the account or log them in. Instead it returns:
+        |
+        |   { status: "requires_profile_completion", completion_token,
+        |     prefill: { email, name, avatar } }
+        |
+        | The frontend collects the required fields and POSTs them to
+        | `POST /auth/social/complete` with the completion_token. That endpoint
+        | validates them against the SAME `registration.extra_fields_rules`
+        | (and phone rules) the email flow uses, then creates the user, links
+        | the social account, and issues the real token. No user row is created
+        | until completion — so an abandoned onboarding leaves nothing behind,
+        | exactly like the 3-step email registration.
+        |
+        | Only fields marked `required` in extra_fields_rules (plus `phone`
+        | when phone.required=true) are enforced; optional fields can be filled
+        | later from a profile screen. Phone is captured here but verified
+        | through the normal /auth/phone flow afterward.
+        |
+        | Leave disabled (default) to keep the legacy behavior where social
+        | sign-in creates + logs in the user immediately from the Google
+        | profile alone.
+        */
+        'profile_completion' => [
+            'enabled'     => (bool) env('AUTH_SOCIAL_PROFILE_COMPLETION', false),
+            'ttl_minutes' => (int) env('AUTH_SOCIAL_PROFILE_COMPLETION_TTL', 15),
+        ],
     ],
 
     /*
@@ -1086,6 +1125,245 @@ return [
             'max_attempts'  => (int) env('AUTH_LOCKOUT_MAX', 10),
             'decay_minutes' => (int) env('AUTH_LOCKOUT_DECAY', 15),
         ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Phone Number (v2.6)
+    |--------------------------------------------------------------------------
+    |
+    | Optional phone capture at registration plus phone verification via SMS,
+    | voice, or WhatsApp. Phone is NOT used for login in this release — it is
+    | stored on the user, optionally verified, and feeds the 2FA "sms" method.
+    |
+    | enabled:
+    |   Master switch for the phone feature. When false the registration form
+    |   ignores the phone field entirely and verification endpoints 404.
+    |
+    | required:
+    |   When true, registration FAILS without a phone. When false, phone is
+    |   optional (user can submit it or omit it). MVP default: false.
+    |
+    | column:
+    |   Users-table column that stores the E.164 phone. Migration adds it.
+    |
+    | verification.required_at_registration:
+    |   When true, the user must verify the phone (OTP via the default channel)
+    |   before the account is fully active — registration response includes a
+    |   phone challenge token. When false, phone is saved unverified and the
+    |   developer can trigger verification later via /auth/phone/send-otp.
+    |
+    | providers / channels:
+    |   Per-channel provider selection with optional fallback. Each provider
+    |   maps to a driver class implementing PhoneDriverContract. Default is
+    |   the "log" driver which writes codes to the Laravel log — safe for
+    |   development. Production must override with real provider credentials.
+    |
+    | Custom provider example:
+    |   'providers' => [
+    |       'my_vonage' => [
+    |           'driver'  => \App\Phone\VonageDriver::class,
+    |           'api_key' => env('VONAGE_API_KEY'),
+    |       ],
+    |   ],
+    |   'channels' => [
+    |       'sms' => ['provider' => 'my_vonage', 'fallback' => 'log'],
+    |   ],
+    */
+    'phone' => [
+        'enabled'  => (bool) env('AUTH_PHONE_ENABLED', false),
+        'required' => (bool) env('AUTH_PHONE_REQUIRED', false),
+        'column'   => env('AUTH_PHONE_COLUMN', 'phone'),
+
+        'verification' => [
+            'required_at_registration' => (bool) env('AUTH_PHONE_VERIFY_AT_REG', false),
+            'default_channel'          => env('AUTH_PHONE_VERIFY_CHANNEL', 'sms'),
+            'otp_length'               => (int) env('AUTH_PHONE_OTP_LENGTH', 6),
+            'otp_expiry_minutes'       => (int) env('AUTH_PHONE_OTP_EXPIRY', 5),
+            'max_attempts'             => (int) env('AUTH_PHONE_OTP_MAX_ATTEMPTS', 5),
+        ],
+
+        'providers' => [
+            'log' => [
+                'driver' => \Joe404\LaravelAuth\Phone\Drivers\LogPhoneDriver::class,
+            ],
+            'infobip' => [
+                'driver'   => \Joe404\LaravelAuth\Phone\Drivers\InfobipDriver::class,
+                'api_key'  => env('INFOBIP_API_KEY'),
+                'base_url' => env('INFOBIP_BASE_URL', 'https://api.infobip.com'),
+                'sender'   => env('INFOBIP_SENDER'),
+            ],
+            'messagecentral' => [
+                'driver'      => \Joe404\LaravelAuth\Phone\Drivers\MessageCentralDriver::class,
+                'customer_id' => env('MC_CUSTOMER_ID'),
+                'password'    => env('MC_PASSWORD'),
+                'base_url'    => env('MC_BASE_URL', 'https://cpaas.messagecentral.com'),
+            ],
+            'twilio' => [
+                'driver' => \Joe404\LaravelAuth\Phone\Drivers\TwilioDriver::class,
+                'sid'    => env('TWILIO_SID'),
+                'token'  => env('TWILIO_TOKEN'),
+                'from'   => env('TWILIO_FROM'),
+            ],
+            'firebase' => [
+                'driver'         => \Joe404\LaravelAuth\Phone\Drivers\FirebaseDriver::class,
+                'project_id'     => env('FIREBASE_PROJECT_ID'),
+                'credentials'    => env('FIREBASE_CREDENTIALS'),
+            ],
+        ],
+
+        // No provider defaults to a real value on purpose: you must opt into a
+        // provider explicitly. The `log` driver writes codes to the Laravel
+        // log and only runs in local/testing — never default a real-code
+        // channel to it. Set e.g. AUTH_PHONE_SMS_PROVIDER=infobip in prod, or
+        // AUTH_PHONE_SMS_PROVIDER=log for local development.
+        'channels' => [
+            'sms' => [
+                'provider' => env('AUTH_PHONE_SMS_PROVIDER'),
+                'fallback' => env('AUTH_PHONE_SMS_FALLBACK'),
+            ],
+            'voice' => [
+                'provider' => env('AUTH_PHONE_VOICE_PROVIDER'),
+                'fallback' => env('AUTH_PHONE_VOICE_FALLBACK'),
+            ],
+            'whatsapp' => [
+                'provider' => env('AUTH_PHONE_WHATSAPP_PROVIDER'),
+                'fallback' => env('AUTH_PHONE_WHATSAPP_FALLBACK'),
+            ],
+        ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Two-Factor Authentication (v2.6)
+    |--------------------------------------------------------------------------
+    |
+    | Three methods are supported and can be enrolled in parallel:
+    |   - totp:  RFC 6238 authenticator app (Google Authenticator, Authy, 1Password)
+    |   - email: OTP delivered to the user's verified email
+    |   - sms:   OTP delivered to the user's verified phone via the phone driver
+    |
+    | At login time, the user picks any enrolled method (or supplies a backup
+    | code). Trusted devices at level >= bypass_2fa_min_level skip the challenge.
+    |
+    | required:
+    |   When true, every user must enroll in at least one 2FA method on their
+    |   next login. Combine with admin-forced flag (users.two_factor_required)
+    |   for per-user enforcement.
+    |
+    | middleware_behavior:
+    |   How the Require2FA middleware reacts when the current session has not
+    |   completed 2FA (or the user has no 2FA enrolled):
+    |     - "block"            → 403, client must redirect to enrollment
+    |     - "force_enroll"     → returns enroll_token + redirect hint
+    |     - "password_confirm" → GitHub-style sudo mode: re-enter password
+    |                            grants a confirm_token valid for sudo_ttl_minutes
+    |
+    | rate_limits:
+    |   "max_attempts:decay_minutes". Challenge invalidation also applies
+    |   independently at challenge.max_attempts (5 wrong codes → new login).
+    */
+    'two_factor' => [
+        'enabled'        => (bool) env('AUTH_2FA_ENABLED', true),
+        'required'       => (bool) env('AUTH_2FA_REQUIRED', false),
+        'methods'        => ['totp', 'email', 'sms'],
+        'default_method' => env('AUTH_2FA_DEFAULT', 'totp'),
+
+        'challenge' => [
+            'ttl_seconds'           => (int) env('AUTH_2FA_CHALLENGE_TTL', 300),
+            'max_attempts'          => (int) env('AUTH_2FA_CHALLENGE_MAX_ATTEMPTS', 5),
+            // Burst limit applied per-challenge_token (NOT per-IP) — a leaked
+            // token cannot be brute-forced even from a rotating IP pool.
+            'burst_max_per_minute'  => (int) env('AUTH_2FA_CHALLENGE_BURST', 10),
+        ],
+
+        'codes' => [
+            'totp' => [
+                'issuer' => env('AUTH_2FA_TOTP_ISSUER', env('APP_NAME', 'Laravel')),
+                'digits' => 6,
+                'period' => 30,
+                'window' => 1, // accept +/- N steps from current time
+            ],
+            'email' => [
+                'length'         => 6,
+                'expiry_minutes' => 10,
+            ],
+            'sms' => [
+                'length'         => 6,
+                'expiry_minutes' => 5,
+                'channel'        => 'sms', // sms|voice|whatsapp
+            ],
+        ],
+
+        'backup_codes' => [
+            'enabled' => (bool) env('AUTH_2FA_BACKUP_ENABLED', true),
+            'count'   => (int) env('AUTH_2FA_BACKUP_COUNT', 8),
+            'length'  => (int) env('AUTH_2FA_BACKUP_LENGTH', 10),
+        ],
+
+        'middleware_behavior' => env('AUTH_2FA_MIDDLEWARE', 'password_confirm'),
+        'sudo_ttl_minutes'    => (int) env('AUTH_2FA_SUDO_TTL', 15),
+
+        'rate_limits' => [
+            'challenge' => env('AUTH_2FA_RATE_CHALLENGE', '5:5'),
+            'enroll'    => env('AUTH_2FA_RATE_ENROLL', '5:10'),
+        ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Trusted Devices (v2.6)
+    |--------------------------------------------------------------------------
+    |
+    | A trusted device skips the 2FA challenge at login when its current trust
+    | level meets `bypass_2fa_min_level`. Trust accrues over time, can be
+    | granted explicitly by the user at the post-login prompt, and is auto-
+    | granted to the registration device (level: high) so the first login is
+    | frictionless.
+    |
+    | level_assignment:
+    |   "time"            → pure time-based progression by last_seen_at
+    |   "time_consistent" → same as "time" but resets progress if the device
+    |                       disappears for more than consistency.max_absence_days
+    |   "time_admin"      → time handles low+medium; high requires an admin
+    |                       PATCH /auth/admin/trusted-devices/{id}/level call
+    |
+    | bypass_2fa_min_level:
+    |   "low" | "medium" | "high". Devices BELOW this level still get a
+    |   challenge at every login.
+    */
+    'trusted_devices' => [
+        'enabled'                        => (bool) env('AUTH_TRUSTED_DEVICES_ENABLED', true),
+        'level_assignment'               => env('AUTH_TRUST_LEVEL_MODE', 'time'),
+        'auto_trust_registration_device' => (bool) env('AUTH_TRUST_REG_DEVICE', true),
+
+        // Devices BELOW this level get a 2FA challenge at every login. Default
+        // is `high` so the bypass requires the strongest trust signal the
+        // package recognises (90 days of usage, registration device, or admin
+        // grant) — not just "the user opted in once". Combine with the
+        // server-issued device token requirement below for true defense in
+        // depth against client-supplied-fingerprint forgery.
+        'bypass_2fa_min_level'           => env('AUTH_TRUST_BYPASS_MIN', 'high'),
+
+        // Header the client sends back to prove possession of the server-
+        // issued device token. The plaintext is returned exactly once at the
+        // moment the device is trusted (registration response, or 2FA
+        // challenge response when trust_device=true) — store it in mobile
+        // Keychain / SPA HttpOnly cookie. Without this header, fingerprint
+        // alone never grants 2FA bypass.
+        'token_header'                   => env('AUTH_TRUST_TOKEN_HEADER', 'X-Trusted-Device-Token'),
+
+        'thresholds_days' => [
+            'low'    => (int) env('AUTH_TRUST_LOW_DAYS', 15),
+            'medium' => (int) env('AUTH_TRUST_MEDIUM_DAYS', 60),
+            'high'   => (int) env('AUTH_TRUST_HIGH_DAYS', 90),
+        ],
+
+        'consistency' => [
+            'max_absence_days' => (int) env('AUTH_TRUST_MAX_ABSENCE', 30),
+        ],
+
+        'admin_grant_high' => (bool) env('AUTH_TRUST_ADMIN_GRANT_HIGH', false),
     ],
 
 ];

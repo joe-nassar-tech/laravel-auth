@@ -46,6 +46,9 @@ abstract class TestCase extends OrchestraTestCase
      */
     protected function getEnvironmentSetUp($app): void
     {
+        // Encryption key for Crypt::encryptString (used by 2FA TOTP secrets).
+        $app['config']->set('app.key', 'base64:' . base64_encode(random_bytes(32)));
+
         // Use SQLite in-memory for tests
         $app['config']->set('database.default', 'testing');
         $app['config']->set('database.connections.testing', [

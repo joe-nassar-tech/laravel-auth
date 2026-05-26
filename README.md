@@ -54,6 +54,10 @@ Every new Laravel project needs authentication. The typical options are either t
 - **Registration** — email → OTP + magic link → set password → issue token
 - **Email verification** — OTP and/or magic link, configurable per environment
 - **Login** — password + lockout after N failed attempts, auto-reactivate on login
+- **Two-factor authentication** *(v2.6)* — TOTP authenticator app, email OTP, and SMS OTP; enroll multiple methods, pick any at login; single-use backup codes
+- **Phone verification** *(v2.6)* — optional phone capture at registration, verified via SMS / voice / WhatsApp through a pluggable driver (Infobip, MessageCentral, Twilio, Firebase, or custom)
+- **Trusted devices** *(v2.6)* — time-based trust levels (low/medium/high) that skip the 2FA challenge; bypass requires a server-issued device token, not just a fingerprint
+- **Step-up auth** *(v2.6)* — `auth.2fa` middleware forces a fresh 2FA challenge (or password confirm) on sensitive endpoints
 - **Token system** — Sanctum Bearer tokens + sliding refresh tokens with family-level revocation on reuse
 - **SPA session support** — cookie-based auth via `auth:sanctum` guard
 - **Password reset** — OTP or signed magic link, configurable
@@ -69,7 +73,7 @@ Every new Laravel project needs authentication. The typical options are either t
 - **Rate limiting** — per-IP and per-email, configurable thresholds and lockout windows
 - **Localization** — all messages in `resources/lang/en/` publishable translation files
 - **Custom response format** — implement `ResponseFormatterContract` to reshape every JSON response
-- **Events** — `UserRegistered`, `EmailVerified`, `UserLoggedIn`, `UserLoggedOut`, `PasswordChanged`, `ReferralCreated`, `ReferralRedeemed`, `SuspiciousReferralDetected`
+- **Events** — registration, login, password, referral, account-lifecycle, plus *(v2.6)* `PhoneVerified`, `TwoFactorEnrolled`/`Disabled`/`Verified`, `TwoFactorChallengeIssued`/`Failed`, `TrustedDeviceAdded`/`Revoked`
 - **Reverb real-time** — optional WebSocket broadcast for OTP verification
 
 ---
@@ -179,12 +183,29 @@ Every response uses the same envelope:
 | `GET`  | `/auth/password/reset/magic/{token}` | — | Verify reset magic link → `reset_token` |
 | `POST` | `/auth/password/reset/confirm` | — | Set new password (auto-login) |
 | `POST` | `/auth/password/change` | ✓ | Change password (authenticated) |
+| `POST` | `/auth/password/confirm` | ✓ | Sudo mode — confirm password for step-up *(v2.6)* |
+| `POST` | `/auth/phone/send-otp` | ✓ | Send a phone verification code *(v2.6)* |
+| `POST` | `/auth/phone/verify` | ✓ | Verify a phone code *(v2.6)* |
+| `GET`  | `/auth/2fa/methods` | ✓ | List enrolled 2FA methods *(v2.6)* |
+| `POST` | `/auth/2fa/enroll/{method}/start` | ✓ | Begin enrolling totp/email/sms *(v2.6)* |
+| `POST` | `/auth/2fa/enroll/{method}/verify` | ✓ | Confirm enrollment (returns backup codes once) *(v2.6)* |
+| `POST` | `/auth/2fa/methods/{id}/default` | ✓ | Set default 2FA method *(v2.6)* |
+| `DELETE` | `/auth/2fa/methods/{id}` | ✓ | Remove a 2FA method *(v2.6)* |
+| `GET`  | `/auth/2fa/backup-codes` | ✓ | Backup-code summary *(v2.6)* |
+| `POST` | `/auth/2fa/backup-codes/regenerate` | ✓ | Rotate backup codes *(v2.6)* |
+| `POST` | `/auth/2fa/challenge` | challenge_token | Complete login 2FA → real token *(v2.6)* |
+| `POST` | `/auth/2fa/challenge/switch` | challenge_token | Switch to another enrolled method *(v2.6)* |
+| `POST` | `/auth/2fa/challenge/resend` | challenge_token | Re-send the current method's code *(v2.6)* |
+| `GET`  | `/auth/trusted-devices` | ✓ | List trusted devices *(v2.6)* |
+| `DELETE` | `/auth/trusted-devices/{id}` | ✓ + step-up | Revoke a trusted device *(v2.6)* |
+| `DELETE` | `/auth/trusted-devices` | ✓ + step-up | Revoke all trusted devices *(v2.6)* |
 | `GET`  | `/auth/sessions` | ✓ | List active sessions |
 | `DELETE` | `/auth/sessions/{id}` | ✓ | Revoke a session |
 | `GET`  | `/auth/devices` | ✓ | List every device that has ever logged in (permanent history) |
 | `DELETE` | `/auth/devices/{id}` | ✓ | Forget a device |
 | `GET`  | `/auth/social/google/redirect` | — | Google OAuth redirect |
 | `GET`  | `/auth/social/google/callback` | — | Google OAuth callback |
+| `POST` | `/auth/social/complete` | completion_token | Finish OAuth signup with required profile fields *(v2.6)* |
 | `GET`  | `/auth/social/{provider}/link/confirm/{token}` | — | Confirm social account link |
 | `GET`  | `/auth/api-tokens` | ✓ | List your API tokens |
 | `POST` | `/auth/api-tokens` | ✓ | Create an API token |
@@ -279,7 +300,8 @@ Yes. Login, registration, OTP verification, and password reset endpoints all hav
 |---|---|
 | [Installation](docs/installation.md) | Setup, `auth:install`, manual install, troubleshooting |
 | [Configuration](docs/configuration.md) | Every config key and `.env` variable |
-| [Customization](docs/customization.md) | Extra fields, transformers, OTP channel, response format, email templates, all contracts |
+| [Customization](docs/customization.md) | Extra fields, transformers, OTP channel, **custom phone driver**, response format, email templates, all contracts |
+| [Middleware](docs/middleware.md) | Every middleware alias, what it does, where to apply it, ordering, required Laravel built-ins |
 | [Events](docs/events.md) | All lifecycle events, payloads, listeners, queueing |
 | [Localization](docs/localization.md) | Multi-language messages, translation files, all message keys |
 | [Account Status](docs/account-status.md) | Status workflow, `auth.active` middleware, timed bans, audit log |

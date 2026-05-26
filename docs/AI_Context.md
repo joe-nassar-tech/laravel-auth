@@ -38,6 +38,10 @@ The package covers everything a backend auth system needs:
 - Multi-admin audit log for all status changes and admin notes
 - Multi-language support (translation files per locale)
 - New device login email alerts
+- **Two-factor authentication (v2.6)** — TOTP (authenticator app), email OTP, SMS OTP; multiple methods enrollable in parallel, user picks any at the login challenge; single-use backup codes; `auth.2fa` step-up middleware with password-confirm (sudo) fallback
+- **Phone capture + verification (v2.6)** — optional at registration; delivered via SMS / voice / WhatsApp through a pluggable driver system (log/infobip/messagecentral/twilio/firebase/custom) with per-channel provider + fallback
+- **Trusted devices (v2.6)** — time-based trust levels (low/medium/high) that can skip the 2FA challenge; bypass requires BOTH the device fingerprint AND a server-issued one-time device token (fingerprint alone is never sufficient); revocation matrix by level
+- **Social profile completion (v2.6)** — optional. When a host requires custom registration fields, a brand-new OAuth (Google) user is sent through a `requires_profile_completion` step (`POST /auth/social/complete`) that enforces the same `extra_fields_rules` + phone rules as the email flow; no user row is created until completion
 - Laravel Reverb WebSocket push (optional)
 - Fully customizable: response format, email templates, OTP delivery channel, referral codes, extra registration fields, field transformers
 - Referral codes with fingerprint-based anti-abuse detection (browser canvas/WebGL hash + mobile Keychain/ANDROID_ID), config-driven block/flag policy, developer-supplied reward handler (wallet, subscription, coupons, ...), admin override workflow, redeem fallback endpoint within configurable window
@@ -210,7 +214,7 @@ joe-404/laravel-auth/
 │   │   ├── DeviceService.php      ← UA parsing + new-device detection
 │   │   ├── RateLimitService.php   ← Per-IP + per-email rate limit checks
 │   │   ├── LockoutService.php     ← Per-account lockout after failed logins
-│   │   ├── SocialAuthService.php  ← Google OAuth + account linking
+│   │   ├── SocialAuthService.php  ← Google OAuth + account linking + profile completion (v2.6)
 │   │   ├── AccountStatusService.php  ← Status read/write, lazy auto-unban
 │   │   ├── AccountAuditService.php   ← Audit log writes (logStatusChange, logNote)
 │   │   ├── AccountDeletionService.php ← Soft-delete, restore, purge
@@ -235,7 +239,7 @@ joe-404/laravel-auth/
 
 | Table | Owner | Purpose |
 |---|---|---|
-| `users` | Host app (altered by package) | The main users table. Package adds: `last_login_at`, `is_active`, `account_status`, `status_changed_at`, `status_reason`, `status_expires_at` |
+| `users` | Host app (altered by package) | The main users table. Package adds: `last_login_at`, `is_active`, `account_status`, `status_changed_at`, `status_reason`, `status_expires_at`, and *(v2.6)* `phone`, `phone_verified_at`, `two_factor_required` |
 | `auth_otp_codes` | Package | SHA-256 hashed OTP codes and magic-link UUIDs. Shared between registration and password reset |
 | `auth_sessions_extended` | Package | One row per active session — device, browser, OS, IP, geo. Used by session list/revoke |
 | `auth_refresh_tokens` | Package | One-time-use refresh tokens with family tracking for reuse detection |
@@ -244,6 +248,11 @@ joe-404/laravel-auth/
 | `personal_access_tokens` | Sanctum | Standard Sanctum access tokens |
 | `account_status_logs` | Package (v2.4) | Audit log — every status change and admin note with actor/source/comment context |
 | `deleted_accounts` | Package (v2.4) | Permanent snapshot of the users row after soft-delete, kept even after hard-delete for FK integrity |
+| `auth_two_factor_methods` | Package (v2.6) | Enrolled 2FA methods per user; TOTP secret encrypted via `Crypt`, `is_default`, `verified_at` |
+| `auth_two_factor_backup_codes` | Package (v2.6) | Single-use recovery codes (HMAC-SHA256 with app-key pepper) |
+| `auth_two_factor_challenges` | Package (v2.6) | Short-lived login challenges (UUID token, attempts counter, expiry) |
+| `auth_trusted_devices` | Package (v2.6) | Trusted devices with trust level + server-issued `secret_hash` for 2FA bypass |
+| `auth_phone_otp_codes` | Package (v2.6) | Hashed phone OTPs for phone verification + SMS 2FA |
 | `roles`, `permissions`, etc. | Spatie Permission | Roles and permissions |
 
 ---
@@ -357,7 +366,7 @@ Everything lives in `config/auth_system.php`. The file is published to the host 
 | `roles` | Default role for new users, seeded roles |
 | `otp_channel` | `email` or FQCN of a custom `OtpChannelContract` implementation |
 | `mail` | Override individual notification classes; toggle lifecycle notifications on/off |
-| `social` | Google OAuth credentials + frontend redirect URL |
+| `social` | Google OAuth credentials + frontend redirect URL + profile-completion toggle (v2.6) |
 | `reverb` | Enable WebSocket real-time verification push |
 | `api_tokens` | Enable long-lived API token system |
 | `queue` | Queue connection + name for maintenance jobs |
@@ -452,17 +461,22 @@ Route::middleware(['auth:sanctum', 'auth.active', 'role:fan'])->group(function (
 
 ## Middleware registered by the package
 
-All middleware is registered in `AuthServiceProvider::boot()`:
+All middleware is registered in `AuthServiceProvider::boot()`. Full reference: `docs/middleware.md`.
 
 | Alias | Class | Purpose |
 |---|---|---|
-| `auth.mode` | `AuthMode` | Switches token vs session based on `AUTH_MODE` |
+| `auth.mode` | `AuthMode` | Restricts a route to specific `AUTH_MODE` values |
 | `auth.active` | `RequireActiveAccount` | Blocks suspended/disabled accounts per-request |
 | `auth.verified` | `RequireEmailVerified` | Blocks unverified email |
-| `auth.rate` | `RateLimitAuth` | Applies per-endpoint rate limits |
-| `auth.device` | `DeviceFingerprint` | Populates device session metadata |
-| `auth.api_token` | `ApiTokenAuth` | Authenticates `auth_at_*` API tokens |
-| `auth.feature` | `FeatureFlag` | Guards optional features (api_tokens, deactivation, deletion) |
+| `auth.ratelimit` | `RateLimitAuth` | Applies per-endpoint rate limits (per-IP + per-email) |
+| `auth.no-refresh` | `RejectRefreshToken` | Rejects refresh tokens used as access tokens |
+| `auth.device` | `DeviceFingerprint` | Populates device session metadata; touches session |
+| `auth.api-token` | `ApiTokenAuth` | Authenticates `auth_at_*` API tokens + ability checks |
+| `auth.feature` | `FeatureFlag` | Guards optional features (api_tokens, referral_code, …) |
+| `auth.2fa` *(v2.6)* | `Require2FA` | Step-up: forces a fresh 2FA challenge / password confirm on sensitive routes |
+| `role` / `permission` | Spatie | Re-aliased by this package for Laravel 11+ |
+
+**Required Laravel built-in:** `auth:sanctum` (or `auth.api-token`) must precede `auth.no-refresh`, `auth.verified`, `auth.active`, and `auth.2fa` — they read `$request->user()`. The package's own route groups already order these correctly.
 
 ---
 
@@ -511,6 +525,9 @@ These are non-negotiable — enforced by code review and static analysis:
 | v2.4.0 | Account status system (active/suspended/disabled/deactivated/deleted), timed bans + auto-unban, self-service deactivation and deletion, multi-admin audit log, admin status endpoints, `auth.active` middleware, `RevertExpiredAccountStatuses` + `PurgeExpiredAccountDeletions` jobs |
 | v2.4.1 | `routes.prefix` config option (host can mount at any URL prefix e.g. `api/v1/auth`) |
 | v2.4.2 | MySQL strict mode fix: nullable timestamps in `deleted_accounts` migration |
+| v2.5.0 | Permanent per-user device history (`auth_user_devices`), browser/mobile fingerprinting, referral-code anti-abuse |
+| v2.5.1 | Refresh-flow hardening (re-validate status, atomic rotation, session sync), prefix-aware exception renderer, queued GeoIP, fingerprint format validation |
+| v2.6.0 | **Phone capture + verification** (driver system: log/infobip/messagecentral/twilio/firebase/custom); **two-factor auth** (TOTP/email/SMS) + backup codes + login challenge flow; **trusted devices** with time-based levels and server-issued device-token bypass; `auth.2fa` step-up middleware + password sudo mode; **social profile completion** (`/auth/social/complete` for OAuth users missing required fields); `Request::authContext()`; 8 new events; `auth:install --upgrade` |
 
 ---
 

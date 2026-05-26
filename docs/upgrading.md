@@ -8,7 +8,8 @@ Version history for `joe-404/laravel-auth`. Every release is documented — what
 
 ## Table of Contents
 
-- [v2.5.1 — Current stable](#v251----current-stable)
+- [v2.6.0 — Current stable](#v260----current-stable)
+- [v2.5.1](#v251)
 - [v2.5.0](#v250)
 - [v2.4.2](#v242)
 - [v2.4.1](#v241)
@@ -25,6 +26,153 @@ Version history for `joe-404/laravel-auth`. Every release is documented — what
 ---
 
 ## Upgrading steps
+
+### Upgrading to v2.6.0 from v2.5.x
+
+v2.6 is **additive** — existing users without 2FA enrolled see no flow changes, no API breakage. The upgrade is one command plus a small User-model edit.
+
+#### 1. Composer update
+
+```bash
+composer update joe-404/laravel-auth
+```
+
+Two new dependencies are pulled in automatically:
+
+- `pragmarx/google2fa: ^8.0` — RFC 6238 TOTP implementation
+- `bacon/bacon-qr-code: ^3.0` — QR-code SVG generator for authenticator-app enrollment
+
+#### 2. Run the upgrade migrations
+
+```bash
+php artisan auth:install --upgrade
+```
+
+This runs only the new `2025_v260_*` migrations (it skips re-publishing Sanctum/Spatie migrations) and prints a feature summary. New tables:
+
+- `auth_two_factor_methods`
+- `auth_two_factor_backup_codes`
+- `auth_two_factor_challenges`
+- `auth_trusted_devices`
+- `auth_phone_otp_codes`
+
+New columns on `users`: `phone`, `phone_verified_at`, `two_factor_required`.
+
+#### 3. Update your User model
+
+```php
+protected $fillable = [
+    // …existing…
+    'phone', 'phone_verified_at', 'two_factor_required',
+];
+
+protected $casts = [
+    // …existing…
+    'phone_verified_at'   => 'datetime',
+    'two_factor_required' => 'bool',
+];
+```
+
+#### 4. (Optional) Re-publish config to see the new sections
+
+```bash
+php artisan vendor:publish --tag=auth-config --force
+```
+
+Three new sections appear — `phone`, `two_factor`, `trusted_devices`. All v2.6 features are **disabled or non-intrusive by default**; your app behaves exactly as on v2.5 until you opt in.
+
+#### 5. Enable what you want
+
+**Phone capture + verification.** Default driver is `log` (writes codes to the Laravel log — dev only). In production set a real provider:
+
+```env
+AUTH_PHONE_ENABLED=true
+AUTH_PHONE_REQUIRED=false              # nullable at registration
+AUTH_PHONE_VERIFY_AT_REG=false         # verify later, not at register
+AUTH_PHONE_SMS_PROVIDER=infobip
+INFOBIP_API_KEY=...
+INFOBIP_BASE_URL=https://api.infobip.com
+```
+
+Built-in providers: `log`, `infobip`, `messagecentral`, `twilio`, `firebase`. Custom providers register via `PhoneDriverManager::extend()` — see `docs/customization.md`.
+
+**Two-factor authentication.**
+
+```env
+AUTH_2FA_ENABLED=true                  # on by default
+AUTH_2FA_REQUIRED=false                # per-user opt-in, not forced
+AUTH_2FA_DEFAULT=totp                  # totp | email | sms
+AUTH_2FA_MIDDLEWARE=password_confirm   # block | force_enroll | password_confirm
+```
+
+Enrollment (post-login): `POST /auth/2fa/enroll/totp/start` → scan QR → `POST /auth/2fa/enroll/totp/verify`. The first method's verify response returns `backup_codes` once.
+
+Login becomes a two-step flow once 2FA is enrolled:
+
+```http
+POST /auth/login        → { requires_2fa, challenge_token, available_methods }
+POST /auth/2fa/challenge → { token, refresh_token, trusted_device_token? }
+```
+
+**Trusted devices.**
+
+```env
+AUTH_TRUSTED_DEVICES_ENABLED=true
+AUTH_TRUST_BYPASS_MIN=high             # devices >= high skip the 2FA challenge
+AUTH_TRUST_LEVEL_MODE=time             # time | time_consistent | time_admin
+```
+
+**Trusted-device 2FA bypass requires two signals — not fingerprint alone.** When a device is trusted, the package issues a one-time `trusted_device_token` (returned in the registration response and in `/auth/2fa/challenge` when `trust_device=true`). The client must send it back as the **`X-Trusted-Device-Token`** header — together with `X-Browser-Fingerprint` — for the bypass to apply. Fingerprint is client-controlled and never bypasses on its own. Store the token in mobile Keychain or an HttpOnly cookie; it is returned exactly once.
+
+**Social sign-in when you require custom fields.** OAuth (Google) gives you the user's email + name but never your app's required fields (username, phone, country…). Enable profile completion so a brand-new social user is asked for those fields before the account is created:
+
+```env
+AUTH_SOCIAL_PROFILE_COMPLETION=true      # default false (legacy: create + log in immediately)
+AUTH_SOCIAL_PROFILE_COMPLETION_TTL=15    # minutes the completion token is valid
+```
+
+With it on, the callback for a brand-new user returns a completion step instead of a token:
+
+```http
+GET /auth/social/google/callback
+  → 202 { requires_profile_completion: true, completion_token, prefill: { email, name, avatar } }
+
+POST /auth/social/complete   { completion_token, username, phone, … }
+  → validates the SAME registration.extra_fields_rules + phone rules as the email flow
+  → creates the user, links the social account, issues the real token
+```
+
+No user row is created until `/auth/social/complete` succeeds — an abandoned onboarding leaves nothing behind, exactly like the 3-step email flow. Only `required` fields block; optional ones can be filled later. Existing users (and all users when the flag is off) keep logging in directly.
+
+#### 6. Protect sensitive endpoints with step-up (optional)
+
+```php
+Route::middleware(['auth:sanctum', 'auth.2fa'])->group(function () {
+    Route::delete('billing/subscription', /* … */);
+});
+```
+
+`auth.2fa` issues a fresh 2FA challenge (or password-confirm fallback for users without 2FA). See `docs/middleware.md` for the full middleware reference.
+
+#### Behavior changes to be aware of
+
+| Behavior | v2.5 | v2.6 |
+|---|---|---|
+| Login, 0 enrolled 2FA methods | issues token | **unchanged** |
+| Login, ≥1 enrolled 2FA method | n/a | returns `challenge_token` first |
+| Trusted device w/ fingerprint **+ token** ≥ bypass level | n/a | skips 2FA, issues token |
+| New Google user, `profile_completion` off | creates + logs in from Google profile | **unchanged** |
+| New Google user, `profile_completion` on | n/a | returns `requires_profile_completion`; account created only at `/auth/social/complete` |
+| `UserLoggedIn` event | fires at login | still fires at credential success even when 2FA pending; new `TwoFactorChallengeIssued` + `TwoFactorVerified` events added |
+
+#### Rolling back
+
+```bash
+php artisan migrate:rollback --step=7
+composer require joe-404/laravel-auth:^2.5.1
+```
+
+---
 
 ### Upgrading to v2.5.1 from v2.5.0
 
@@ -173,7 +321,46 @@ If you **throw** package exceptions in your own code (unusual), update the const
 
 ---
 
-## v2.5.1 — Current stable
+## v2.6.0 — Current stable
+
+**Tag:** `v2.6.0` | **Released:** 2026-05-25
+
+Phone capture + verification, full two-factor authentication (TOTP / Email / SMS) with backup codes, and a trusted-device system with time-based trust levels. New `auth.2fa` step-up middleware. **Additive** — users without 2FA enrolled see no flow changes.
+
+### Added
+
+- **Phone number support** at registration (config-driven required/optional), with a pluggable driver system: `log` (dev), `infobip`, `messagecentral`, `twilio`, `firebase`, and custom drivers via `PhoneDriverContract` + `PhoneDriverManager::extend()`. Per-channel (sms/voice/whatsapp) provider selection with optional fallback driver.
+- **Two-factor authentication** — TOTP (`pragmarx/google2fa`, server-rendered QR), Email OTP, and SMS OTP. Multiple methods enrollable in parallel; the user picks any at challenge time.
+- **Backup codes** — 8 single-use codes generated on first 2FA enrollment, HMAC-SHA256 hashed with the app key as pepper, regeneratable.
+- **Login challenge flow** — once 2FA is enrolled, login returns a `challenge_token` instead of a token; `POST /auth/2fa/challenge` completes it. Method switching + resend supported.
+- **Trusted devices** — registration device auto-trusted; time-based progression (`low`/`medium`/`high`); three assignment modes; revocation matrix. **2FA bypass requires both the device fingerprint and a server-issued `X-Trusted-Device-Token`** — fingerprint alone never bypasses.
+- **`Require2FA` middleware (`auth.2fa`)** — GitHub-style step-up for sensitive endpoints, with `block` / `force_enroll` / `password_confirm` fallbacks.
+- **Social profile completion** — when `social.profile_completion.enabled` is true, a brand-new OAuth user missing the host's required fields gets a `requires_profile_completion` step (`POST /auth/social/complete`) instead of being created immediately, enforcing the same `extra_fields_rules` + phone rules as the email flow. No user row until completion.
+- **Password sudo mode** — `POST /auth/password/confirm` grants a short step-up window for the `password_confirm` middleware path.
+- **`Request::authContext()`** — read-only snapshot of `2fa_enabled`, `2fa_verified`, `trust_level`, `phone_verified`, `sudo_active`.
+- **`auth:install --upgrade`** — runs only the new v2.6 migrations and prints a feature summary.
+- **8 new events** — `PhoneVerified`, `TwoFactorEnrolled`, `TwoFactorDisabled`, `TwoFactorVerified`, `TwoFactorChallengeIssued`, `TwoFactorChallengeFailed`, `TrustedDeviceAdded`, `TrustedDeviceRevoked`.
+
+### New tables
+
+`auth_two_factor_methods`, `auth_two_factor_backup_codes`, `auth_two_factor_challenges`, `auth_trusted_devices`, `auth_phone_otp_codes`. New `users` columns: `phone`, `phone_verified_at`, `two_factor_required`.
+
+### New dependencies
+
+`pragmarx/google2fa: ^8.0`, `bacon/bacon-qr-code: ^3.0`.
+
+### Changed
+
+- `UserLoggedIn` still fires at credential success even when a 2FA challenge is pending (preserves v2.5 listener semantics). `TwoFactorChallengeIssued` fires when the challenge is created; `TwoFactorVerified` fires on completion.
+- Default `trusted_devices.bypass_2fa_min_level` is `high` (the strongest trust signal) — override with `AUTH_TRUST_BYPASS_MIN=medium` for looser UX.
+
+### Who must upgrade
+
+Anyone who wants phone verification, 2FA, or trusted devices. Pure additive — safe for existing v2.5 deployments. See the [Upgrading to v2.6.0 from v2.5.x](#upgrading-to-v260-from-v25x) steps above.
+
+---
+
+## v2.5.1
 
 **Tag:** `v2.5.1` | **Released:** 2026-05-22
 

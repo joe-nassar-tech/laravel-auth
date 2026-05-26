@@ -17,7 +17,8 @@ Everything you can override in `joe-404/laravel-auth` without touching the packa
 9. [Custom Response Messages](#9-custom-response-messages)
 10. [Multi-language Support](#10-multi-language-support)
 11. [Custom Referral Code Generator](#11-custom-referral-code-generator)
-12. [All Six Contracts (quick reference)](#12-all-six-contracts)
+12. [Custom Phone Driver (v2.6)](#12-custom-phone-driver-v26)
+13. [All Contracts (quick reference)](#13-all-contracts)
 
 ---
 
@@ -28,6 +29,8 @@ Add any field to the registration form — no controller changes required.
 ### How it works
 
 Fields declared in `extra_fields_rules` are validated on `POST /auth/register`. Their validated values are held in cache and written to `User::create()` during `POST /auth/register/complete` (step 3).
+
+> **Applies to social sign-in too (v2.6).** The same `extra_fields_rules` drive the OAuth path when `social.profile_completion.enabled` is true: a brand-new Google user is sent to `POST /auth/social/complete`, which validates these exact rules before creating the account. Required fields block; optional fields are validated only if submitted. So you declare your fields once and both registration paths enforce them. See `docs/configuration.md` → `social` and the v2.6 section of `docs/upgrading.md`.
 
 ### Simple example
 
@@ -661,7 +664,109 @@ The package binds the generator to the container and resolves it via `app()->mak
 
 ---
 
-## 12. All Six Contracts (quick reference)
+## 12. Custom Phone Driver (v2.6)
+
+The phone verification + SMS-2FA system delivers codes through a **driver** chosen per channel (`sms`, `voice`, `whatsapp`). Built-in drivers: `log` (dev), `infobip`, `messagecentral`, `twilio`, `firebase`. To use any other provider (Vonage, Plivo, AWS SNS, an on-prem SMS gateway…), write a driver and register it.
+
+### Step 1 — Implement the contract
+
+```php
+<?php
+
+namespace App\Phone;
+
+use Joe404\LaravelAuth\Contracts\PhoneDriverContract;
+use Joe404\LaravelAuth\Exceptions\PhoneVerificationException;
+use Illuminate\Support\Facades\Http;
+
+class VonageDriver implements PhoneDriverContract
+{
+    /** @param array<string,mixed> $config  The provider's config block. */
+    public function __construct(private readonly array $config) {}
+
+    public function send(string $phone, string $code, string $channel, array $context = []): void
+    {
+        $response = Http::asForm()->post('https://rest.nexmo.com/sms/json', [
+            'api_key'    => $this->config['api_key'] ?? '',
+            'api_secret' => $this->config['api_secret'] ?? '',
+            'to'         => ltrim($phone, '+'),
+            'from'       => $this->config['from'] ?? 'MyApp',
+            'text'       => "Your verification code is: {$code}",
+        ]);
+
+        // Throw PhoneVerificationException on failure so the channel's
+        // fallback provider (if configured) takes over.
+        if (! $response->successful()) {
+            throw new PhoneVerificationException(
+                "Vonage send failed: HTTP {$response->status()}",
+                'phone_send_failed',
+            );
+        }
+    }
+
+    /** Channels this driver can deliver. A channel not listed here triggers a config error. */
+    public function supports(): array
+    {
+        return ['sms'];   // add 'voice' / 'whatsapp' only if you implement them
+    }
+
+    public function name(): string
+    {
+        return 'vonage';
+    }
+}
+```
+
+### Step 2 — Register the provider in config
+
+```php
+// config/auth_system.php → phone.providers
+'vonage' => [
+    'driver'     => \App\Phone\VonageDriver::class,
+    'api_key'    => env('VONAGE_API_KEY'),
+    'api_secret' => env('VONAGE_API_SECRET'),
+    'from'       => env('VONAGE_FROM', 'MyApp'),
+],
+```
+
+The whole provider block is passed to your driver's constructor as `$config`, so any keys you add are available as `$this->config['…']`.
+
+### Step 3 — Point a channel at it
+
+```php
+// config/auth_system.php → phone.channels
+'sms' => ['provider' => 'vonage', 'fallback' => 'log'],
+```
+
+That's it — no service-provider code needed. The package's `PhoneDriverManager` resolves the driver class from the container (so you can type-hint dependencies in the constructor alongside `$config`).
+
+### Alternative — register a closure at runtime
+
+If you need to build the driver yourself (custom client, secrets manager, etc.), call `PhoneDriverManager::extend()` in your `AppServiceProvider::boot()`:
+
+```php
+use Joe404\LaravelAuth\Phone\PhoneDriverManager;
+
+public function boot(): void
+{
+    $this->app->make(PhoneDriverManager::class)
+        ->extend('vonage', function ($app, array $config) {
+            return new \App\Phone\VonageDriver($config);
+        });
+}
+```
+
+A closure registered this way wins over the `driver` class in config for that provider key.
+
+### How fallback works
+
+When a channel declares a `fallback`, and the primary provider throws a `PhoneVerificationException`, the manager logs a warning and retries on the fallback provider. If the fallback also throws (or none is configured), the exception propagates and the send fails. A provider that does not list the requested channel in `supports()` triggers a `phone_channel_unsupported` error rather than a silent no-op.
+
+> **Production note:** the default `log` driver writes plaintext codes to the Laravel log. The package emits a boot-time warning if `log` is active on `production`. Always point production channels at a real provider.
+
+---
+
+## 13. All Contracts (quick reference)
 
 | Contract | Config key | What it overrides |
 |---|---|---|
@@ -671,6 +776,8 @@ The package binds the generator to the container and resolves it via `app()->mak
 | `ExtraFieldTransformerContract` | `registration.extra_fields_transformers` | Derive/normalise fields after validation |
 | `ReferralCodeGeneratorContract` | `referral_code.generator` | How referral codes are generated |
 | `DeviceResolverContract` | (container binding) | How device name / browser / OS are resolved from the request |
+| `PhoneDriverContract` *(v2.6)* | `phone.providers.<key>.driver` | How phone OTP codes are sent (SMS/voice/WhatsApp) |
+| `TwoFactorMethodContract` *(v2.6)* | (internal) | Interface implemented by the built-in 2FA methods |
 
 All contracts live under the `Joe404\LaravelAuth\Contracts\` namespace.
 

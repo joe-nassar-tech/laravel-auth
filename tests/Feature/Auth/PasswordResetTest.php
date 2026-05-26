@@ -52,12 +52,20 @@ it('forgot password returns identical 200 envelope for unknown emails (no enumer
         ]);
 });
 
-it('otp reset with the correct raw OTP updates the password', function (): void {
+it('two-step otp reset (verify-otp → confirm) updates the password', function (): void {
     seedResetOtp('reset@example.com', '424242');
 
-    $this->postJson('/auth/password/reset/otp', [
-        'email'                 => 'reset@example.com',
-        'otp'                   => '424242',
+    // Step 1 — exchange the OTP for a reset_token.
+    $resetToken = $this->postJson('/auth/password/reset/verify-otp', [
+        'email' => 'reset@example.com',
+        'otp'   => '424242',
+    ])->assertOk()->json('data.reset_token');
+
+    expect($resetToken)->toBeString();
+
+    // Step 2 — set the new password with the reset_token.
+    $this->postJson('/auth/password/reset/confirm', [
+        'reset_token'           => $resetToken,
         'password'              => 'NewPassword1!',
         'password_confirmation' => 'NewPassword1!',
     ])->assertStatus(200);
@@ -66,7 +74,7 @@ it('otp reset with the correct raw OTP updates the password', function (): void 
     expect(Hash::check('NewPassword1!', $this->user->password))->toBeTrue();
 });
 
-it('otp reset with expired OTP returns 422', function (): void {
+it('verify-otp with an expired OTP returns 422', function (): void {
     AuthOtpCode::create([
         'email'      => 'reset@example.com',
         'type'       => 'password_reset',
@@ -75,15 +83,13 @@ it('otp reset with expired OTP returns 422', function (): void {
         'expires_at' => now()->subMinutes(5),
     ]);
 
-    $this->postJson('/auth/password/reset/otp', [
-        'email'                 => 'reset@example.com',
-        'otp'                   => '111111',
-        'password'              => 'NewPassword1!',
-        'password_confirmation' => 'NewPassword1!',
+    $this->postJson('/auth/password/reset/verify-otp', [
+        'email' => 'reset@example.com',
+        'otp'   => '111111',
     ])->assertStatus(422);
 });
 
-it('otp reset with already-used OTP returns 422', function (): void {
+it('verify-otp with an already-used OTP returns 422', function (): void {
     AuthOtpCode::create([
         'email'      => 'reset@example.com',
         'type'       => 'password_reset',
@@ -93,11 +99,9 @@ it('otp reset with already-used OTP returns 422', function (): void {
         'used_at'    => now(),
     ]);
 
-    $this->postJson('/auth/password/reset/otp', [
-        'email'                 => 'reset@example.com',
-        'otp'                   => '222222',
-        'password'              => 'NewPassword1!',
-        'password_confirmation' => 'NewPassword1!',
+    $this->postJson('/auth/password/reset/verify-otp', [
+        'email' => 'reset@example.com',
+        'otp'   => '222222',
     ])->assertStatus(422);
 });
 
@@ -152,20 +156,27 @@ it('reset/confirm with an unknown reset_token returns 422', function (): void {
     ])->assertStatus(422);
 });
 
-it('successful otp reset revokes all of the user other Sanctum tokens', function (): void {
-    $this->user->createToken('a');
-    $this->user->createToken('b');
+it('reset confirm with logout_all revokes the user prior Sanctum tokens', function (): void {
+    $t1 = $this->user->createToken('a')->accessToken->id;
+    $t2 = $this->user->createToken('b')->accessToken->id;
 
     expect($this->user->tokens()->count())->toBe(2);
 
     seedResetOtp('reset@example.com', '999999');
 
-    $this->postJson('/auth/password/reset/otp', [
-        'email'                 => 'reset@example.com',
-        'otp'                   => '999999',
+    $resetToken = $this->postJson('/auth/password/reset/verify-otp', [
+        'email' => 'reset@example.com',
+        'otp'   => '999999',
+    ])->assertOk()->json('data.reset_token');
+
+    $this->postJson('/auth/password/reset/confirm', [
+        'reset_token'           => $resetToken,
         'password'              => 'NewPassword1!',
         'password_confirmation' => 'NewPassword1!',
+        'logout_all'            => true,
     ])->assertStatus(200);
 
-    expect($this->user->fresh()->tokens()->count())->toBe(0);
+    // Both prior tokens are revoked. (A fresh token is issued by the
+    // auto-login that follows a successful reset, so the user is not at 0.)
+    expect(\Laravel\Sanctum\PersonalAccessToken::whereIn('id', [$t1, $t2])->count())->toBe(0);
 });

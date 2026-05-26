@@ -19,6 +19,11 @@ use Joe404\LaravelAuth\Http\Controllers\SessionController;
 use Joe404\LaravelAuth\Http\Controllers\UserDeviceController;
 use Joe404\LaravelAuth\Http\Controllers\EmailVerificationController;
 use Joe404\LaravelAuth\Http\Controllers\SocialAuthController;
+use Joe404\LaravelAuth\Http\Controllers\PasswordConfirmController;
+use Joe404\LaravelAuth\Http\Controllers\PhoneVerificationController;
+use Joe404\LaravelAuth\Http\Controllers\TrustedDeviceController;
+use Joe404\LaravelAuth\Http\Controllers\TwoFactorChallengeController;
+use Joe404\LaravelAuth\Http\Controllers\TwoFactorController;
 
 /*
 |--------------------------------------------------------------------------
@@ -52,6 +57,14 @@ Route::middleware(['auth.device', 'throttle:api'])->group(function (): void {
     Route::post('token/refresh', [TokenRefreshController::class, 'refresh'])
         ->middleware('auth.ratelimit:login');
 
+    // v2.6: Public 2FA challenge endpoints — accessed after login returns
+    // requires_2fa: true. No auth guard yet; the challenge_token IS the proof.
+    Route::post('2fa/challenge', [TwoFactorChallengeController::class, 'verify'])
+        ->middleware('auth.ratelimit:otp_verify');
+    Route::post('2fa/challenge/switch', [TwoFactorChallengeController::class, 'switch']);
+    Route::post('2fa/challenge/resend', [TwoFactorChallengeController::class, 'resend'])
+        ->middleware('auth.ratelimit:otp_send');
+
     // M6: Email re-verification (resend OTP / magic link)
     Route::post('email/resend-verification', [EmailVerificationController::class, 'resend'])
         ->middleware('auth.ratelimit:otp_send');
@@ -75,6 +88,12 @@ Route::middleware(['auth.device', 'throttle:api'])->group(function (): void {
     // M5: Social auth (Google OAuth)
     Route::get('social/google/redirect', [SocialAuthController::class, 'redirect']);
     Route::get('social/google/callback', [SocialAuthController::class, 'callback']);
+
+    // v2.6: Finalize a brand-new social sign-up by submitting the host's
+    // required registration fields. Gated by social.profile_completion.enabled
+    // (controller returns 404 when disabled). Rate-limited like registration.
+    Route::post('social/complete', [SocialAuthController::class, 'complete'])
+        ->middleware('auth.ratelimit:register');
 
     // Click-through confirmation when a social provider's email matches an
     // existing local account but no link record exists yet. Signed URL ensures
@@ -103,6 +122,49 @@ Route::middleware(['auth:sanctum', 'auth.no-refresh', 'auth.verified', 'auth.dev
 
     // M4: Password change
     Route::post('password/change', [PasswordChangeController::class, 'change']);
+
+    // v2.6: Phone verification — send + verify codes for the authenticated user.
+    // Feature-gated via the phone.enabled config flag; routes are present at
+    // boot but controllers return 404 when disabled.
+    Route::post('phone/send-otp', [PhoneVerificationController::class, 'send'])
+        ->middleware('auth.ratelimit:otp_send');
+    Route::post('phone/verify', [PhoneVerificationController::class, 'verify'])
+        ->middleware('auth.ratelimit:otp_verify');
+
+    // v2.6: Two-Factor management (authenticated user). Feature-gated by
+    // auth_system.two_factor.enabled — controller returns 404 when disabled.
+    Route::prefix('2fa')->group(function (): void {
+        Route::get('methods', [TwoFactorController::class, 'index']);
+        Route::post('enroll/{method}/start', [TwoFactorController::class, 'startEnroll'])
+            ->middleware('auth.ratelimit:otp_send')
+            ->whereIn('method', ['totp', 'email', 'sms']);
+        Route::post('enroll/{method}/verify', [TwoFactorController::class, 'verifyEnroll'])
+            ->middleware('auth.ratelimit:otp_verify')
+            ->whereIn('method', ['totp', 'email', 'sms']);
+        Route::delete('methods/{id}', [TwoFactorController::class, 'destroy'])
+            ->whereNumber('id');
+        Route::post('methods/{id}/default', [TwoFactorController::class, 'setDefault'])
+            ->whereNumber('id');
+        Route::get('backup-codes', [TwoFactorController::class, 'backupCodesSummary']);
+        Route::post('backup-codes/regenerate', [TwoFactorController::class, 'regenerateBackupCodes']);
+    });
+
+    // v2.6: Password "sudo" confirmation — issues a short-lived confirm
+    // window the Require2FA middleware accepts in lieu of a 2FA challenge
+    // when middleware_behavior=password_confirm and the user has no 2FA.
+    Route::post('password/confirm', [PasswordConfirmController::class, 'confirm']);
+
+    // v2.6: Trusted devices. All revocation routes go through Require2FA
+    // middleware so users with 2FA enrolled must step up before nuking a
+    // device. Users without 2FA fall through password_confirm.
+    Route::prefix('trusted-devices')->group(function (): void {
+        Route::get('/', [TrustedDeviceController::class, 'index']);
+        Route::delete('/', [TrustedDeviceController::class, 'destroyAll'])
+            ->middleware('auth.2fa');
+        Route::delete('{id}', [TrustedDeviceController::class, 'destroy'])
+            ->middleware('auth.2fa')
+            ->whereNumber('id');
+    });
 
     // v2.4: Self-service account deletion. Grace-period auto-restore is handled
     // by the login flow — no explicit restore endpoint needed.

@@ -14,6 +14,8 @@ use Joe404\LaravelAuth\Events\EmailVerified;
 use Joe404\LaravelAuth\Events\PasswordChanged;
 use Joe404\LaravelAuth\Events\RegistrationEmailVerified;
 use Joe404\LaravelAuth\Events\SuspiciousLoginDetected;
+use Joe404\LaravelAuth\Events\TwoFactorChallengeIssued;
+use Joe404\LaravelAuth\Events\TwoFactorVerified;
 use Joe404\LaravelAuth\Events\UserLoggedIn;
 use Joe404\LaravelAuth\Events\UserLoggedOut;
 use Joe404\LaravelAuth\Exceptions\AccountInactiveException;
@@ -38,6 +40,9 @@ class AuthService
         private readonly AccountStatusService $accountStatusService,
         private readonly AccountDeletionService $accountDeletionService,
         private readonly ReferralService $referralService,
+        private readonly TwoFactorService $twoFactorService,
+        private readonly TwoFactorChallengeService $twoFactorChallengeService,
+        private readonly TrustedDeviceService $trustedDeviceService,
     ) {}
 
     public function initiateRegistration(string $email, array $extraFields = []): array
@@ -336,11 +341,23 @@ class AuthService
             $this->sessionService->create($user, $request, null);
         }
 
+        // v2.6 — auto-trust the device used to complete registration
+        // so the user does not face a 2FA challenge on their first real login.
+        // The transient `plain_secret` attribute is forwarded to the client
+        // exactly once — they must echo it back as X-Trusted-Device-Token on
+        // future logins to bypass 2FA.
+        $trustedDevice    = $this->trustedDeviceService->autoTrustRegistrationDevice($user, $request);
+        $trustDeviceToken = $trustedDevice?->getAttribute('plain_secret');
+
         $result = [
             'user'          => $user,
             'token'         => $tokenData['plain_text_token'] ?? null,
             'refresh_token' => $tokenData['plain_refresh_token'] ?? null,
         ];
+
+        if ($trustDeviceToken !== null) {
+            $result['trusted_device_token'] = $trustDeviceToken;
+        }
 
         if ($referralError !== null) {
             $result['referral_error'] = $referralError;
@@ -447,11 +464,48 @@ class AuthService
 
         $isNewDevice = $this->isNewDevice($user, $request);
 
+        $clientType = $this->resolveClientType($request);
+
+        // v2.6 — 2FA gate. If the user has at least one verified 2FA method
+        // and the current device is NOT a trusted device at the bypass level,
+        // we short-circuit before issuing any real session/token: return a
+        // challenge_token instead and let the client call /auth/2fa/challenge.
+        $twoFactorEnabled = (bool) config('auth_system.two_factor.enabled', true);
+
+        if ($twoFactorEnabled
+            && $this->twoFactorService->hasAnyVerifiedMethod($user)
+            && ! $this->trustedDeviceService->shouldBypass2fa($user, $request)
+        ) {
+            // Credential success still updates last_login_at and dispatches the
+            // pre-v2.6 UserLoggedIn event — listeners that audit "user passed
+            // the password check" continue to fire even when the user does
+            // not complete 2FA. TwoFactorVerified is dispatched separately
+            // by completeTwoFactorChallenge() on the second leg.
+            $user->update(['last_login_at' => now()]);
+            UserLoggedIn::dispatch($user, $request);
+
+            $challenge = $this->twoFactorChallengeService->createForUser($user, $clientType, $request);
+
+            TwoFactorChallengeIssued::dispatch(
+                $user,
+                (string) $challenge['challenge_token'],
+                (string) $challenge['method'],
+                (bool) ($challenge['reused'] ?? false),
+            );
+
+            return [
+                'requires_2fa'      => true,
+                'challenge_token'   => $challenge['challenge_token'],
+                'method'            => $challenge['method'],
+                'available_methods' => $challenge['available_methods'],
+                'masked_target'     => $challenge['masked_target'],
+                'expires_in'        => $challenge['expires_in'],
+            ];
+        }
+
         $user->update(['last_login_at' => now()]);
 
         UserLoggedIn::dispatch($user, $request);
-
-        $clientType = $this->resolveClientType($request);
 
         if ($clientType !== null) {
             $tokenData = $this->tokenService->issue($user, $clientType);
@@ -484,6 +538,98 @@ class AuthService
             'token'         => null,
             'refresh_token' => null,
         ];
+    }
+
+    /**
+     * Complete a 2FA challenge and finish login. Mirrors the post-credential
+     * branch of login() so the response shape matches.
+     */
+    public function completeTwoFactorChallenge(
+        string $challengeToken,
+        string $code,
+        ?string $methodHint,
+        bool $trustDevice,
+        Request $request,
+    ): array {
+        $user = $this->twoFactorChallengeService->verify($challengeToken, $code, $methodHint);
+
+        // NOTE: last_login_at and UserLoggedIn already fired at credential
+        // success inside login() (the gate that issued this challenge). This
+        // leg only confirms the second factor — re-dispatching UserLoggedIn
+        // here would double-fire every login listener. We dispatch
+        // TwoFactorVerified instead, and surface the new-device alert that
+        // the gate deferred (the device is "new" until this session row
+        // exists, which we create below).
+        $clientType  = $this->resolveClientType($request);
+        $isNewDevice = $this->isNewDevice($user, $request);
+
+        $trustDeviceToken = null;
+        if ($trustDevice) {
+            $trustedDeviceRecord = $this->trustedDeviceService->trustCurrent($user, $request);
+            $trustDeviceToken    = $trustedDeviceRecord?->getAttribute('plain_secret');
+        } else {
+            $this->trustedDeviceService->touch($user, $request);
+        }
+
+        TwoFactorVerified::dispatch($user, (string) ($methodHint ?? 'unknown'));
+
+        if ($clientType !== null) {
+            $tokenData = $this->tokenService->issue($user, $clientType);
+
+            $sanctumTokenId = $tokenData['token']->id;
+            $this->sessionService->create($user, $request, $sanctumTokenId);
+
+            $this->stamp2faVerified((int) $user->getKey(), $sanctumTokenId);
+
+            if ($isNewDevice) {
+                $this->dispatchSuspiciousLogin($user, $request);
+            }
+
+            $result = [
+                'user'          => $user->toArray(),
+                'token'         => $tokenData['plain_text_token'],
+                'refresh_token' => $tokenData['plain_refresh_token'],
+            ];
+
+            if ($trustDeviceToken !== null) {
+                $result['trusted_device_token'] = $trustDeviceToken;
+            }
+
+            return $result;
+        }
+
+        Auth::login($user);
+        $request->session()->regenerate();
+        $this->sessionService->create($user, $request, null);
+
+        $this->stamp2faVerified((int) $user->getKey(), $request->session()->getId());
+
+        if ($isNewDevice) {
+            $this->dispatchSuspiciousLogin($user, $request);
+        }
+
+        $result = [
+            'user'          => $user->toArray(),
+            'token'         => null,
+            'refresh_token' => null,
+        ];
+
+        if ($trustDeviceToken !== null) {
+            $result['trusted_device_token'] = $trustDeviceToken;
+        }
+
+        return $result;
+    }
+
+    private function stamp2faVerified(int $userId, int|string|null $sessionOrTokenId): void
+    {
+        $ttl = max(1, (int) config('auth_system.two_factor.sudo_ttl_minutes', 15));
+
+        Cache::put(
+            "auth:2fa:stamp:{$userId}:" . (string) $sessionOrTokenId,
+            now()->toIso8601String(),
+            now()->addMinutes($ttl),
+        );
     }
 
     public function refreshToken(string $rawRefreshToken, Request $request): array

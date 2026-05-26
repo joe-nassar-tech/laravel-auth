@@ -28,6 +28,16 @@ class RegisterRequest extends FormRequest
             'referral_code' => ['nullable', 'string', 'max:64'],
         ];
 
+        // v2.6 Phone — opt-in via config. When phone.enabled is false the
+        // field is ignored regardless of payload. When phone.required is true
+        // submission must include a valid phone.
+        if ((bool) config('auth_system.phone.enabled', false)) {
+            $rule = (bool) config('auth_system.phone.required', false) ? 'required' : 'nullable';
+            // Accept formatted input (spaces, dashes, parens) — PhoneVerificationService
+            // strips non-digits via normalizePhone() before storage.
+            $base['phone'] = [$rule, 'string', 'max:32', 'regex:/^\+?[0-9 \-().]{6,32}$/'];
+        }
+
         /** @var array<string, mixed> $extra */
         $extra = config('auth_system.registration.extra_fields_rules', []);
 

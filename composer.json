@@ -48,7 +48,9 @@
     "laravel/sanctum": "^4.0",
     "laravel/socialite": "^5.0",
     "spatie/laravel-permission": "^6.0",
-    "jenssegers/agent": "^2.6"
+    "jenssegers/agent": "^2.6",
+    "pragmarx/google2fa": "^8.0",
+    "bacon/bacon-qr-code": "^3.0"
   },
   "require-dev": {
     "orchestra/testbench": "^10.0",
