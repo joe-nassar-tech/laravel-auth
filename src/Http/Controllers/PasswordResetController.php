@@ -78,8 +78,11 @@ class PasswordResetController extends Controller
         $frontendUrl = (string) config('auth_system.verification.frontend_reset_url', '');
 
         if ($frontendUrl !== '' && ! $request->wantsJson()) {
+            // Token in the URL fragment (#), not the query string — keeps it
+            // out of server/proxy logs and the Referer header. The SPA reads
+            // it from window.location.hash.
             return redirect()->away(
-                rtrim($frontendUrl, '/') . '?reset_token=' . urlencode($resetToken),
+                rtrim($frontendUrl, '/') . '#reset_token=' . urlencode($resetToken),
             );
         }
 
@@ -113,6 +116,15 @@ class PasswordResetController extends Controller
             );
         } catch (AuthException $e) {
             return $this->failure($this->err($e), [], 422);
+        }
+
+        // #7 — if the account has 2FA enabled, the reset succeeds but no token
+        // is issued until the user passes the 2FA challenge.
+        if (($data['requires_2fa'] ?? false) === true) {
+            return $this->success(
+                $this->msg('two_factor_challenge_required', 'Password reset. Complete 2FA to finish signing in.'),
+                $data,
+            );
         }
 
         return $this->success($this->msg('password_reset_success', 'Password reset successfully. You are now logged in.'), $data);

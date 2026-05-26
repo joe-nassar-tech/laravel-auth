@@ -20,6 +20,7 @@ Every HTTP middleware the package registers, what it does, where to apply it, wh
   - [`auth.active` — RequireActiveAccount](#authactive--requireactiveaccount)
 - [Step-up / sensitive actions](#step-up--sensitive-actions)
   - [`auth.2fa` — Require2FA](#auth2fa--require2fa)
+  - [`auth.step-up` — RequireStepUp](#authstep-up--requirestepup)
 - [Feature & mode gating](#feature--mode-gating)
   - [`auth.feature` — FeatureFlag](#authfeature--featureflag)
   - [`auth.mode` — AuthMode](#authmode--authmode)
@@ -43,6 +44,7 @@ Every HTTP middleware the package registers, what it does, where to apply it, wh
 | `auth.verified`       | `RequireEmailVerified` | Rejects users whose email is unverified                                 | Yes                            |
 | `auth.active`         | `RequireActiveAccount` | Rejects disabled/suspended accounts mid-session                         | Yes                            |
 | `auth.2fa`            | `Require2FA`           | Step-up: forces a fresh 2FA challenge / password confirm                | Yes                            |
+| `auth.step-up`        | `RequireStepUp`        | Config-driven step-up (password-confirm or 2FA) for sensitive actions   | Yes                            |
 | `auth.feature`        | `FeatureFlag`          | 404s a route group unless `auth_system.<feature>.enabled` is true       | No                             |
 | `auth.mode`           | `AuthMode`             | 403s a route unless `auth_system.mode` is in an allow-list              | No                             |
 | `auth.ratelimit`      | `RateLimitAuth`        | Per-IP + per-email throttle keyed on a config entry                     | No                             |
@@ -254,6 +256,27 @@ The package itself applies it to `DELETE /auth/trusted-devices` and `DELETE /aut
 **Failure responses (all `403`).** `step_up: two_factor` (with `challenge_token`, `method`, `available_methods`, `expires_in`), `step_up: enroll_2fa`, or `step_up: password_confirm`. A missing user returns `401 "Unauthenticated."`.
 
 **Security note.** Trusted-device 2FA _bypass at login_ requires both the device fingerprint **and** a server-issued `X-Trusted-Device-Token` — fingerprint alone never bypasses. `auth.2fa` step-up is independent of trusted-device status: it always demands a fresh proof regardless of how the session was created.
+
+---
+
+### `auth.step-up` — RequireStepUp
+
+**Class:** `Joe404\LaravelAuth\Http\Middleware\RequireStepUp` *(v2.6.1)*
+
+**What it does.** Config-driven step-up gate for sensitive but non-login actions. Behavior follows `auth_system.two_factor.step_up_mode`:
+
+- `password_confirm` *(default)* — the user must have a fresh sudo window from `POST /auth/password/confirm` (valid for `sudo_ttl_minutes`). Works for users with or without 2FA.
+- `two_factor` — the user must pass a fresh 2FA challenge; falls back to `password_confirm` if they have no 2FA method enrolled.
+
+A recent login/step-up 2FA stamp satisfies the gate in either mode, so a user who just completed 2FA isn't asked again within the TTL.
+
+**Parameters.** None (mode comes from config).
+
+**Where it's applied by the package.** Remove a 2FA method (`DELETE /auth/2fa/methods/{id}`), regenerate backup codes, and the phone send/verify endpoints. Admin status changes use it too when `account.status.require_step_up=true` (opt-in). Apply it to your own sensitive actions the same way.
+
+**Failure responses (all `403`).** `step_up: password_confirm`, or `step_up: two_factor` with a `challenge_token` + `method` + `available_methods`.
+
+**`auth.step-up` vs `auth.2fa`.** `auth.2fa` always demands a fresh **2FA** proof (with a `password_confirm`/`force_enroll` fallback only for users with *no* 2FA). `auth.step-up` lets the host choose, via config, whether a password re-entry is sufficient — lighter friction for actions that don't warrant a full second-factor each time.
 
 ---
 

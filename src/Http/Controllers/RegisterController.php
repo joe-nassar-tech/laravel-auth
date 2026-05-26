@@ -87,13 +87,16 @@ class RegisterController extends Controller
         }
 
         // Browser hits get a 302 to the frontend with the completion_token in
-        // the query string. JSON clients (or hosts without a configured
-        // frontend URL) get the JSON envelope as before.
+        // the URL FRAGMENT (#), not the query string. Fragments are never sent
+        // to the server, so they don't land in access logs, proxy logs, or the
+        // Referer header. The SPA reads it from window.location.hash. JSON
+        // clients (or hosts without a configured frontend URL) get the JSON
+        // envelope as before.
         $frontendUrl = (string) config('auth_system.verification.frontend_verify_url', '');
 
         if ($frontendUrl !== '' && ! $request->wantsJson()) {
             return redirect()->away(
-                rtrim($frontendUrl, '/') . '?completion_token=' . urlencode($result['completion_token']),
+                rtrim($frontendUrl, '/') . '#completion_token=' . urlencode($result['completion_token']),
             );
         }
 

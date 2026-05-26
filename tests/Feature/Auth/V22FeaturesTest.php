@@ -23,7 +23,7 @@ function seedOtpV22(string $email, string $rawOtp = '123456'): AuthOtpCode
     return AuthOtpCode::create([
         'email'      => $email,
         'type'       => 'email_verify',
-        'token'      => hash('sha256', $rawOtp),
+        'token'      => authOtpHash($rawOtp),
         'temp_token' => Str::uuid()->toString(),
         'expires_at' => now()->addMinutes(10),
     ]);

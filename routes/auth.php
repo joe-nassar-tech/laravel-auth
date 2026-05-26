@@ -103,7 +103,11 @@ Route::middleware(['auth.device', 'throttle:api'])->group(function (): void {
 });
 
 // Authenticated routes
-Route::middleware(['auth:sanctum', 'auth.no-refresh', 'auth.verified', 'auth.device'])->group(function (): void {
+// `auth.active` enforces account status (suspended/disabled/deactivated) on
+// every request, so a mid-session ban takes effect immediately instead of
+// only at the next login or token expiry. It no-ops when the status feature
+// is disabled (auth_system.account.status.enabled=false).
+Route::middleware(['auth:sanctum', 'auth.no-refresh', 'auth.verified', 'auth.active', 'auth.device'])->group(function (): void {
 
     // M1: Core authenticated endpoints
     Route::get('me', [LoginController::class, 'me']);
@@ -126,10 +130,12 @@ Route::middleware(['auth:sanctum', 'auth.no-refresh', 'auth.verified', 'auth.dev
     // v2.6: Phone verification — send + verify codes for the authenticated user.
     // Feature-gated via the phone.enabled config flag; routes are present at
     // boot but controllers return 404 when disabled.
+    // #8 — changing the phone on file repoints SMS-2FA, so both legs require
+    // a fresh step-up (sudo password or 2FA per step_up_mode).
     Route::post('phone/send-otp', [PhoneVerificationController::class, 'send'])
-        ->middleware('auth.ratelimit:otp_send');
+        ->middleware(['auth.step-up', 'auth.ratelimit:otp_send']);
     Route::post('phone/verify', [PhoneVerificationController::class, 'verify'])
-        ->middleware('auth.ratelimit:otp_verify');
+        ->middleware(['auth.step-up', 'auth.ratelimit:otp_verify']);
 
     // v2.6: Two-Factor management (authenticated user). Feature-gated by
     // auth_system.two_factor.enabled — controller returns 404 when disabled.
@@ -141,12 +147,17 @@ Route::middleware(['auth:sanctum', 'auth.no-refresh', 'auth.verified', 'auth.dev
         Route::post('enroll/{method}/verify', [TwoFactorController::class, 'verifyEnroll'])
             ->middleware('auth.ratelimit:otp_verify')
             ->whereIn('method', ['totp', 'email', 'sms']);
+        // #3 — destructive 2FA actions require a fresh step-up (sudo password
+        // or 2FA per step_up_mode) so a hijacked session can't quietly remove
+        // a factor or rotate the recovery codes.
         Route::delete('methods/{id}', [TwoFactorController::class, 'destroy'])
+            ->middleware('auth.step-up')
             ->whereNumber('id');
         Route::post('methods/{id}/default', [TwoFactorController::class, 'setDefault'])
             ->whereNumber('id');
         Route::get('backup-codes', [TwoFactorController::class, 'backupCodesSummary']);
-        Route::post('backup-codes/regenerate', [TwoFactorController::class, 'regenerateBackupCodes']);
+        Route::post('backup-codes/regenerate', [TwoFactorController::class, 'regenerateBackupCodes'])
+            ->middleware('auth.step-up');
     });
 
     // v2.6: Password "sudo" confirmation — issues a short-lived confirm
@@ -198,6 +209,7 @@ Route::middleware([
     'auth:sanctum',
     'auth.no-refresh',
     'auth.verified',
+    'auth.active',
     'role:super-admin|admin',
     'auth.feature:api_tokens',
 ])->prefix('admin')->group(function (): void {
@@ -215,10 +227,19 @@ Route::middleware([
     'auth:sanctum',
     'auth.no-refresh',
     'auth.verified',
+    'auth.active',
     'role:' . (string) config('auth_system.account.status.admin_ability', 'super-admin|admin'),
 ])->prefix('admin')->group(function (): void {
     Route::get('users/{id}/status', [UserStatusController::class, 'show']);
-    Route::post('users/{id}/status', [UserStatusController::class, 'update']);
+
+    // #12 — destructive status changes can require a fresh step-up (sudo
+    // password or 2FA per two_factor.step_up_mode) on top of the role gate.
+    // Opt-in (account.status.require_step_up) so it doesn't break existing
+    // admin clients on a patch upgrade.
+    $statusUpdate = Route::post('users/{id}/status', [UserStatusController::class, 'update']);
+    if ((bool) config('auth_system.account.status.require_step_up', false)) {
+        $statusUpdate->middleware('auth.step-up');
+    }
 
     // v2.4 audit log — paginated status history + free-form admin notes.
     Route::get('users/{id}/status/history', [UserAuditController::class, 'history']);
@@ -231,6 +252,7 @@ Route::middleware([
     'auth:sanctum',
     'auth.no-refresh',
     'auth.verified',
+    'auth.active',
     'role:' . (string) config('auth_system.account.status.admin_ability', 'super-admin|admin'),
     'auth.feature:referral_code',
 ])->prefix('admin')->group(function (): void {

@@ -27,7 +27,7 @@ function seedOtp(string $email, string $rawOtp = '123456', string $type = 'email
     return AuthOtpCode::create([
         'email'      => $email,
         'type'       => $type,
-        'token'      => hash('sha256', $rawOtp),
+        'token'      => authOtpHash($rawOtp),
         'temp_token' => Str::uuid()->toString(),
         'expires_at' => now()->addMinutes(10),
     ]);
@@ -146,7 +146,7 @@ it('rejects an expired OTP', function (): void {
     AuthOtpCode::create([
         'email'      => $email,
         'type'       => 'email_verify',
-        'token'      => hash('sha256', '424242'),
+        'token'      => authOtpHash('424242'),
         'temp_token' => Str::uuid()->toString(),
         'expires_at' => now()->subMinutes(5),
     ]);
@@ -165,7 +165,7 @@ it('cannot reuse an already-used OTP', function (): void {
     AuthOtpCode::create([
         'email'      => $email,
         'type'       => 'email_verify',
-        'token'      => hash('sha256', '555555'),
+        'token'      => authOtpHash('555555'),
         'temp_token' => Str::uuid()->toString(),
         'expires_at' => now()->addMinutes(10),
         'used_at'    => now(),

@@ -37,7 +37,7 @@ it('throws OtpInvalidException for a wrong OTP code', function (): void {
     AuthOtpCode::create([
         'email'      => $email,
         'type'       => 'email_verify',
-        'token'      => hash('sha256', '111111'),
+        'token'      => authOtpHash('111111'),
         'temp_token' => \Illuminate\Support\Str::uuid()->toString(),
         'expires_at' => now()->addMinutes(10),
     ]);
@@ -55,7 +55,7 @@ it('throws OtpExpiredException for an expired OTP', function (): void {
     AuthOtpCode::create([
         'email'      => $email,
         'type'       => 'email_verify',
-        'token'      => hash('sha256', '222222'),
+        'token'      => authOtpHash('222222'),
         'temp_token' => \Illuminate\Support\Str::uuid()->toString(),
         'expires_at' => now()->subMinutes(1), // expired
     ]);

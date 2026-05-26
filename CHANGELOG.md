@@ -6,6 +6,80 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and 
 
 ---
 
+## [2.6.1] — 2026-05-27
+
+Security hardening pass over the v2.6.0 surface. Closes several 2FA-bypass
+paths and tightens defaults. **Mostly backward-compatible**; see the two
+behavior-change notes below.
+
+### Security — fixed
+
+- **Social login no longer bypasses 2FA.** A user with a verified 2FA method
+  who signs in via Google now gets a `challenge_token` (and must complete
+  `/auth/2fa/challenge`) exactly like password login, instead of being issued
+  a token directly.
+- **Social login now runs the full account-status gate.** Social sign-in
+  enforces the same `assertCanLogin()` checks as password login (suspended /
+  disabled are rejected; self-deactivated accounts auto-reactivate), not just
+  the `is_active` flag.
+- **Password-reset auto-login no longer bypasses 2FA.** After a reset, a 2FA
+  user receives a `challenge_token`; the real token is issued only after the
+  second factor is verified.
+- **Email OTP / magic-link tokens are now stored as keyed HMAC-SHA256**
+  (app-key pepper) instead of plain SHA-256, so a leaked database can't be
+  used to reverse low-entropy numeric codes offline. Aligns with the v2.6.0
+  phone-OTP hashing.
+- **Auth tokens are no longer placed in redirect query strings.** The
+  email-verify, password-reset, and social-link frontend redirects now carry
+  `completion_token` / `reset_token` / access+refresh tokens in the URL
+  **fragment** (`#…`), which is never sent to servers, logs, or `Referer`.
+- **`auth.active` is now applied to the default authenticated + admin route
+  groups**, so a mid-session suspension/disable takes effect on the very next
+  request instead of at token expiry.
+- **Step-up protection** (new `auth.step-up` middleware) on destructive 2FA
+  actions (remove a method, regenerate backup codes) and phone change. Mode is
+  config-driven via `two_factor.step_up_mode` (`password_confirm` default |
+  `two_factor`). Admin status-change step-up is available too but **opt-in**
+  via `account.status.require_step_up` (default off, to avoid breaking
+  existing admin clients).
+- **Responses defensively strip `password` / `remember_token`** from the
+  serialized user even if the host model omits them from `$hidden`.
+
+### Changed (behavior)
+
+- **Default `password.min_length` raised 8 → 15** (NIST SP 800-63B-4
+  single-factor posture; composition rules remain off). Only affects *new*
+  passwords; existing hashes are untouched. Override with `AUTH_PASSWORD_MIN`
+  (hard floor 8, enforced at boot).
+- **`UserLoggedIn` semantics unchanged from 2.6.0** — still fires once at
+  credential success.
+
+### Added
+
+- `two_factor.step_up_mode` config + `auth.step-up` middleware.
+- `account.status.require_step_up` config (opt-in admin step-up).
+- Boot-time validation: `password.min_length` must be ≥ 8.
+
+### Notes / unchanged by design
+
+- The Sanctum **session** access token keeps `['*']` abilities (a user's own
+  session acts as the user; ability scoping is for the separate API-token
+  feature). Documented, not changed.
+- Auth tables intentionally omit DB **foreign keys** to `users` for
+  portability across host PK types (UUID, custom table names, engines).
+
+### Upgrade
+
+```bash
+composer update joe-404/laravel-auth   # no new migrations in 2.6.1
+```
+
+If you relied on the old 8-char password default, set `AUTH_PASSWORD_MIN=8`.
+SPA clients must read post-redirect tokens from `window.location.hash`
+(fragment) instead of the query string.
+
+---
+
 ## [2.6.0] — 2026-05-23
 
 Adds phone capture + verification, full Two-Factor Authentication (TOTP /

@@ -33,7 +33,7 @@ class OtpService
             'user_id'    => null,
             'email'      => $email,
             'type'       => $type,
-            'token'      => hash('sha256', $otp),
+            'token'      => $this->hashToken($otp),
             'temp_token' => $tempToken,
             'expires_at' => now()->addMinutes($expiryMinutes),
         ]);
@@ -60,7 +60,7 @@ class OtpService
             'user_id'    => null,
             'email'      => $email,
             'type'       => $type,
-            'token'      => hash('sha256', $uuid),
+            'token'      => $this->hashToken($uuid),
             'temp_token' => $tempToken,
             'expires_at' => now()->addMinutes($magicExpiry),
         ]);
@@ -91,7 +91,7 @@ class OtpService
             'user_id'    => null,
             'email'      => $email,
             'type'       => $otpType,
-            'token'      => hash('sha256', $otp),
+            'token'      => $this->hashToken($otp),
             'temp_token' => $tempToken,
             'expires_at' => now()->addMinutes($expiryMinutes),
         ]);
@@ -100,7 +100,7 @@ class OtpService
             'user_id'    => null,
             'email'      => $email,
             'type'       => $magicType,
-            'token'      => hash('sha256', $uuid),
+            'token'      => $this->hashToken($uuid),
             'temp_token' => $tempToken,
             'expires_at' => now()->addMinutes($magicExpiry),
         ]);
@@ -142,7 +142,7 @@ class OtpService
             throw new OtpExpiredException();
         }
 
-        if (! hash_equals((string) $active->token, hash('sha256', $code))) {
+        if (! hash_equals((string) $active->token, $this->hashToken($code))) {
             // Atomic increment so concurrent guesses cannot race past the limit.
             AuthOtpCode::where('id', $active->getKey())->increment('failed_attempts');
 
@@ -160,7 +160,7 @@ class OtpService
 
     public function validateMagicLink(string $token, string $type): AuthOtpCode
     {
-        $record = AuthOtpCode::where('token', hash('sha256', $token))
+        $record = AuthOtpCode::where('token', $this->hashToken($token))
             ->where('type', $type)
             ->whereNull('used_at')
             ->latest('id')
@@ -192,6 +192,28 @@ class OtpService
         return AuthOtpCode::where('expires_at', '<', now())
             ->whereNull('used_at')
             ->delete();
+    }
+
+    /**
+     * Keyed hash for OTP codes and magic-link UUIDs stored in auth_otp_codes.
+     *
+     * HMAC-SHA256 with the app key as pepper — a leaked database cannot be
+     * used to brute-force the low-entropy numeric OTP space offline (plain
+     * SHA-256 of a 6-digit code is reversible in milliseconds). Deterministic,
+     * so the existing store-then-lookup-by-hash flow is unchanged. Mirrors
+     * BackupCodeService's hashing. Note: any OTPs minted before deploying
+     * this change will no longer validate (they hash differently) — they are
+     * short-lived, so affected users simply request a new code.
+     */
+    private function hashToken(string $value): string
+    {
+        $key = (string) config('app.key', '');
+
+        if (str_starts_with($key, 'base64:')) {
+            $key = base64_decode(substr($key, 7), true) ?: $key;
+        }
+
+        return hash_hmac('sha256', $value, $key);
     }
 
     /** @return array{string, int} [code, expiryMinutes] */
