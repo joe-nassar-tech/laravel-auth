@@ -329,7 +329,21 @@ class TwoFactorService
             return false;
         }
 
-        return $this->totp->verify($secret, trim($code));
+        $afterTimestep = $method->last_totp_timestep !== null
+            ? (int) $method->last_totp_timestep
+            : null;
+
+        $timestep = $this->totp->verifyReturningTimestep($secret, trim($code), $afterTimestep);
+
+        if ($timestep === false) {
+            return false;
+        }
+
+        // Replay protection (RFC 6238 §5.2): record the matched time-step so
+        // the same code — or any earlier one — cannot be presented again.
+        $method->forceFill(['last_totp_timestep' => $timestep])->save();
+
+        return true;
     }
 
     private function verifyEmailCode(User $user, string $code): bool

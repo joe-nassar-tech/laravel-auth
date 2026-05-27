@@ -95,14 +95,15 @@ class TrustedDeviceService
         }
 
         $plain = $this->generateSecret();
+        $level = $this->registrationDeviceLevel();
 
         $device->update([
-            'level'       => AuthTrustedDevice::LEVEL_HIGH,
+            'level'       => $level,
             'trusted_at'  => now(),
             'secret_hash' => $this->hashSecret($plain),
         ]);
 
-        TrustedDeviceAdded::dispatch($user, $device->id, AuthTrustedDevice::LEVEL_HIGH);
+        TrustedDeviceAdded::dispatch($user, $device->id, $level);
 
         $device = $device->refresh();
         $device->setAttribute('plain_secret', $plain);
@@ -297,6 +298,23 @@ class TrustedDeviceService
         }
 
         return $this->resolver->resolve($actor) !== AuthTrustedDevice::LEVEL_UNTRUSTED;
+    }
+
+    /**
+     * Initial level recorded for the registration device. The EFFECTIVE level
+     * that governs 2FA bypass is still recomputed from elapsed time by
+     * TrustLevelResolver — a brand-new device resolves to 'low' regardless of
+     * this stored value (only an admin-granted 'high' short-circuits time), so
+     * a freshly-registered device does not bypass 2FA under the default
+     * bypass_2fa_min_level. This knob sets the stored starting level.
+     */
+    private function registrationDeviceLevel(): string
+    {
+        $level = (string) config('auth_system.trusted_devices.registration_device_level', AuthTrustedDevice::LEVEL_HIGH);
+
+        return in_array($level, AuthTrustedDevice::LEVELS, true)
+            ? $level
+            : AuthTrustedDevice::LEVEL_HIGH;
     }
 
     private function generateSecret(): string

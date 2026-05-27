@@ -31,13 +31,32 @@ class SocialAuthService
             throw new AuthException(ucfirst($provider) . ' authentication is not enabled.', 'social_provider_disabled', ['provider' => ucfirst($provider)]);
         }
 
-        $driver = Socialite::driver($provider);
+        $driver     = Socialite::driver($provider);
+        $clientType = $this->resolveClientType($request);
 
-        if ($this->resolveClientType($request) !== null) {
+        if ($clientType !== null) {
             $driver = $driver->stateless();
         }
 
-        return $driver->redirect()->getTargetUrl();
+        $url = $driver->redirect()->getTargetUrl();
+
+        // Stateless clients disable Socialite's own CSRF `state`. When
+        // social.enforce_state is on (opt-in) we manage a one-time server-side
+        // state so the authorization response can be verified — and cannot be
+        // forged or replayed — on callback. Reuse Socialite's state param when
+        // present, otherwise add our own.
+        if ($clientType !== null && (bool) config('auth_system.social.enforce_state', false)) {
+            $state = $this->extractStateParam($url);
+
+            if ($state === null) {
+                $state = bin2hex(random_bytes(20));
+                $url .= (str_contains($url, '?') ? '&' : '?') . 'state=' . $state;
+            }
+
+            Cache::put($this->stateCacheKey($provider, $state), true, now()->addMinutes(10));
+        }
+
+        return $url;
     }
 
     /**
@@ -53,6 +72,21 @@ class SocialAuthService
     {
         if (! config("auth_system.social.{$provider}.enabled", false)) {
             throw new AuthException(ucfirst($provider) . ' authentication is not enabled.', 'social_provider_disabled', ['provider' => ucfirst($provider)]);
+        }
+
+        // Verify the server-managed one-time `state` for stateless clients when
+        // social.enforce_state is on — before any token exchange. Stops OAuth
+        // login-CSRF / authorization-code injection on the stateless path.
+        if ($this->resolveClientType($request) !== null && (bool) config('auth_system.social.enforce_state', false)) {
+            $state = (string) $request->query('state', '');
+
+            if ($state === '' || Cache::pull($this->stateCacheKey($provider, $state)) === null) {
+                throw new AuthException(
+                    'Invalid or expired authentication state. Please start sign-in again.',
+                    'social_state_invalid',
+                    ['provider' => ucfirst($provider)],
+                );
+            }
         }
 
         try {
@@ -261,7 +295,15 @@ class SocialAuthService
      */
     private function stripPrivilegedFields(array $fields): array
     {
-        foreach (['role', 'roles', 'is_admin', 'admin', 'email_verified_at', 'password', 'password_change_required'] as $key) {
+        $denylist = [
+            'role', 'roles', 'is_admin', 'admin', 'email_verified_at', 'password', 'password_change_required',
+            // v2.7 — mirror AuthService: block the package's own gating columns
+            // from being self-assigned during social profile completion.
+            'account_status', 'status_changed_at', 'status_reason', 'status_expires_at',
+            'phone_verified_at', 'last_login_at', 'two_factor_required', 'remember_token',
+        ];
+
+        foreach ($denylist as $key) {
             unset($fields[$key]);
         }
 
@@ -436,6 +478,25 @@ class SocialAuthService
         // Throws AuthException with a per-status error key for disabled/
         // suspended (and any other configured login_blocked status).
         $this->accountStatusService->assertCanLogin($user);
+    }
+
+    private function stateCacheKey(string $provider, string $state): string
+    {
+        return "auth:social_state:{$provider}:" . hash('sha256', $state);
+    }
+
+    private function extractStateParam(string $url): ?string
+    {
+        $query = parse_url($url, PHP_URL_QUERY);
+
+        if (! is_string($query) || $query === '') {
+            return null;
+        }
+
+        parse_str($query, $params);
+        $state = $params['state'] ?? null;
+
+        return is_string($state) && $state !== '' ? $state : null;
     }
 
     private function resolveClientType(Request $request): ?string

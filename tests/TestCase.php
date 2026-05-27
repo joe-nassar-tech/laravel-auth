@@ -49,13 +49,32 @@ abstract class TestCase extends OrchestraTestCase
         // Encryption key for Crypt::encryptString (used by 2FA TOTP secrets).
         $app['config']->set('app.key', 'base64:' . base64_encode(random_bytes(32)));
 
-        // Use SQLite in-memory for tests
-        $app['config']->set('database.default', 'testing');
-        $app['config']->set('database.connections.testing', [
-            'driver'   => 'sqlite',
-            'database' => ':memory:',
-            'prefix'   => '',
-        ]);
+        // Default to SQLite in-memory. CI can set DB_CONNECTION=mysql to run the
+        // whole suite against a strict MySQL — this is what guards regressions
+        // like the auth_otp_codes.type enum (which only rejected 2FA purposes on
+        // strict engines). Local/default behavior is unchanged.
+        if ((getenv('DB_CONNECTION') ?: 'sqlite') === 'mysql') {
+            $app['config']->set('database.default', 'mysql');
+            $app['config']->set('database.connections.mysql', [
+                'driver'    => 'mysql',
+                'host'      => getenv('DB_HOST') ?: '127.0.0.1',
+                'port'      => getenv('DB_PORT') ?: '3306',
+                'database'  => getenv('DB_DATABASE') ?: 'laravel_auth_test',
+                'username'  => getenv('DB_USERNAME') ?: 'root',
+                'password'  => getenv('DB_PASSWORD') ?: '',
+                'prefix'    => '',
+                'charset'   => 'utf8mb4',
+                'collation' => 'utf8mb4_unicode_ci',
+                'strict'    => true, // surface enum/constraint violations like prod
+            ]);
+        } else {
+            $app['config']->set('database.default', 'testing');
+            $app['config']->set('database.connections.testing', [
+                'driver'   => 'sqlite',
+                'database' => ':memory:',
+                'prefix'   => '',
+            ]);
+        }
 
         // Use array cache for tests
         $app['config']->set('cache.default', 'array');

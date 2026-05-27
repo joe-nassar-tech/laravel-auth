@@ -19,3 +19,25 @@ function authOtpHash(string $value): string
 
     return hash_hmac('sha256', $value, $key);
 }
+
+/**
+ * Enroll a verified TOTP method for a user and return the plaintext secret.
+ *
+ * Defined here (not in an individual test file) so it is available to every
+ * test, including separate worker processes under `pest --parallel`. Mirrors
+ * TwoFactorService enrollment: encrypted secret, verified, default method.
+ */
+function enrollTotp($user): string
+{
+    $secret = (new \Joe404\LaravelAuth\Services\TotpService())->generateSecret();
+
+    \Joe404\LaravelAuth\Models\AuthTwoFactorMethod::create([
+        'user_id'          => $user->getKey(),
+        'type'             => 'totp',
+        'secret_encrypted' => \Illuminate\Support\Facades\Crypt::encryptString($secret),
+        'is_default'       => true,
+        'verified_at'      => now(),
+    ]);
+
+    return $secret;
+}

@@ -70,18 +70,6 @@ it('rejects an invalid TOTP code', function () {
 });
 
 // ---- helpers ----
-
-function enrollTotp($user): string
-{
-    $secret = (new TotpService())->generateSecret();
-
-    AuthTwoFactorMethod::create([
-        'user_id'          => $user->getKey(),
-        'type'             => 'totp',
-        'secret_encrypted' => Crypt::encryptString($secret),
-        'is_default'       => true,
-        'verified_at'      => now(),
-    ]);
-
-    return $secret;
-}
+// enrollTotp() is defined globally in tests/Pest.php so every test file
+// (including parallel worker processes) can use it without relying on
+// cross-file load order.

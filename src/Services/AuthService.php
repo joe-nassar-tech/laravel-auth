@@ -116,7 +116,14 @@ class AuthService
      */
     private function stripPrivilegedFields(array $fields): array
     {
-        $denylist = ['role', 'roles', 'is_admin', 'admin', 'email_verified_at', 'password', 'password_change_required'];
+        $denylist = [
+            'role', 'roles', 'is_admin', 'admin', 'email_verified_at', 'password', 'password_change_required',
+            // v2.7 — never let registration input self-assign the package's own
+            // gating columns (account status, verification + audit timestamps,
+            // 2FA enforcement flag, remember token).
+            'account_status', 'status_changed_at', 'status_reason', 'status_expires_at',
+            'phone_verified_at', 'last_login_at', 'two_factor_required', 'remember_token',
+        ];
 
         foreach ($denylist as $key) {
             unset($fields[$key]);
@@ -370,7 +377,7 @@ class AuthService
     {
         $email = strtolower(trim($email));
 
-        $this->lockoutService->throwIfLockedOut($email);
+        $this->lockoutService->throwIfLockedOut($email, $request->ip());
 
         /** @var class-string<User> $userModel */
         $userModel = config('auth.providers.users.model', \App\Models\User::class);
@@ -387,8 +394,19 @@ class AuthService
         /** @var User|null $user */
         $user = $query->where('email', $email)->first();
 
-        if ($user === null || ! Hash::check($password, $user->password)) {
-            $this->lockoutService->recordFailure($email);
+        // Always run exactly one password-hash check on the same code path —
+        // against the real hash when the user exists, otherwise against a dummy
+        // hash produced by the same configured hasher — so response latency
+        // never reveals whether the email is registered (account enumeration).
+        // Using a single Hash::check (not a short-circuited `||`) guarantees the
+        // missing-user and wrong-password paths do identical work.
+        $passwordValid = Hash::check(
+            $password,
+            (string) ($user?->password ?? $this->dummyPasswordHash()),
+        );
+
+        if ($user === null || ! $passwordValid) {
+            $this->lockoutService->recordFailure($email, $request->ip());
             throw new AuthException('Invalid credentials.', 'invalid_credentials');
         }
 
@@ -412,7 +430,7 @@ class AuthService
                 $user->refresh();
             } else {
                 // Grace expired (or no audit row) — treat as gone.
-                $this->lockoutService->recordFailure($email);
+                $this->lockoutService->recordFailure($email, $request->ip());
                 throw new AuthException('Invalid credentials.', 'invalid_credentials');
             }
         }
@@ -455,7 +473,7 @@ class AuthService
             throw new EmailNotVerifiedException();
         }
 
-        $this->lockoutService->clear($email);
+        $this->lockoutService->clear($email, $request->ip());
 
         // Successful login → clear the rate-limit counter for this IP/email so
         // the user is not locked out by their own legitimate logins.
@@ -488,9 +506,18 @@ class AuthService
         $clientType  = $this->resolveClientType($request);
 
         $twoFactorEnabled = (bool) config('auth_system.two_factor.enabled', true);
+        $hasVerified2fa   = $twoFactorEnabled && $this->twoFactorService->hasAnyVerifiedMethod($user);
+
+        // When 2FA is mandatory but the user has not enrolled, login still
+        // succeeds (so they CAN reach the enrollment endpoints) — but we flag it
+        // so the client routes into enrollment. The auth.require-2fa-enrolled
+        // middleware blocks every other package route until they enroll.
+        $mustEnroll2fa = $twoFactorEnabled
+            && (bool) config('auth_system.two_factor.required', false)
+            && ! $hasVerified2fa;
 
         if ($twoFactorEnabled
-            && $this->twoFactorService->hasAnyVerifiedMethod($user)
+            && $hasVerified2fa
             && ! $this->trustedDeviceService->shouldBypass2fa($user, $request)
         ) {
             // Credential/identity success still updates last_login_at and fires
@@ -531,11 +558,17 @@ class AuthService
                 $this->dispatchSuspiciousLogin($user, $request);
             }
 
-            return [
+            $result = [
                 'user'          => $this->safeUserArray($user),
                 'token'         => $tokenData['plain_text_token'],
                 'refresh_token' => $tokenData['plain_refresh_token'],
             ];
+
+            if ($mustEnroll2fa) {
+                $result['must_enroll_2fa'] = true;
+            }
+
+            return $result;
         }
 
         Auth::login($user);
@@ -546,11 +579,17 @@ class AuthService
             $this->dispatchSuspiciousLogin($user, $request);
         }
 
-        return [
+        $result = [
             'user'          => $this->safeUserArray($user),
             'token'         => null,
             'refresh_token' => null,
         ];
+
+        if ($mustEnroll2fa) {
+            $result['must_enroll_2fa'] = true;
+        }
+
+        return $result;
     }
 
     /**
@@ -592,7 +631,7 @@ class AuthService
             $sanctumTokenId = $tokenData['token']->id;
             $this->sessionService->create($user, $request, $sanctumTokenId);
 
-            $this->stamp2faVerified((int) $user->getKey(), $sanctumTokenId);
+            $this->stamp2faVerified($user->getKey(), $sanctumTokenId);
 
             if ($isNewDevice) {
                 $this->dispatchSuspiciousLogin($user, $request);
@@ -615,7 +654,7 @@ class AuthService
         $request->session()->regenerate();
         $this->sessionService->create($user, $request, null);
 
-        $this->stamp2faVerified((int) $user->getKey(), $request->session()->getId());
+        $this->stamp2faVerified($user->getKey(), $request->session()->getId());
 
         if ($isNewDevice) {
             $this->dispatchSuspiciousLogin($user, $request);
@@ -634,7 +673,7 @@ class AuthService
         return $result;
     }
 
-    private function stamp2faVerified(int $userId, int|string|null $sessionOrTokenId): void
+    private function stamp2faVerified(int|string $userId, int|string|null $sessionOrTokenId): void
     {
         $ttl = max(1, (int) config('auth_system.two_factor.sudo_ttl_minutes', 15));
 
@@ -674,7 +713,7 @@ class AuthService
         }
 
         return [
-            'user'          => $tokenData['user']->toArray(),
+            'user'          => $this->safeUserArray($tokenData['user']),
             'token'         => $tokenData['plain_text_token'],
             'refresh_token' => $tokenData['plain_refresh_token'],
         ];
@@ -838,6 +877,22 @@ class AuthService
      *
      * @return array<string,mixed>
      */
+    /**
+     * A bcrypt hash computed once per process (with the app's configured cost)
+     * used only to equalize timing on the missing-user login branch, so an
+     * attacker cannot enumerate accounts by measuring response latency.
+     */
+    private function dummyPasswordHash(): string
+    {
+        static $hash = null;
+
+        if ($hash === null) {
+            $hash = Hash::make('timing-equalizer:' . Str::random(40));
+        }
+
+        return $hash;
+    }
+
     private function safeUserArray(mixed $user): array
     {
         $array = $user->toArray();

@@ -536,6 +536,10 @@ return [
         'otp_send'       => env('AUTH_RATE_OTP_SEND', '3:1'),
         'otp_verify'     => env('AUTH_RATE_OTP_VERIFY', '10:5'),
         'password_reset' => env('AUTH_RATE_PASSWORD_RESET', '3:1'),
+        // Step-up password confirmation. Throttled per authenticated user (not
+        // by IP) so a hijacked session cannot brute-force the account password
+        // to obtain a sudo window, even from a rotating IP pool.
+        'password_confirm' => env('AUTH_RATE_PASSWORD_CONFIRM', '5:1'),
     ],
 
     /*
@@ -721,6 +725,16 @@ return [
         'frontend_url' => env('AUTH_SOCIAL_FRONTEND_URL', null),
 
         /*
+        | Enforce an OAuth `state` (and PKCE) check even for stateless clients
+        | (mobile / api / spa_token), where Socialite's ->stateless() otherwise
+        | disables CSRF state validation. BREAKING when enabled — defaults off
+        | so existing mobile/SPA clients keep working. When true the package
+        | persists a server-generated state for the flow and verifies it on
+        | callback; the client must round-trip the value. Recommended on.
+        */
+        'enforce_state' => (bool) env('AUTH_SOCIAL_ENFORCE_STATE', false),
+
+        /*
         |----------------------------------------------------------------------
         | Profile completion after social sign-in (v2.6)
         |----------------------------------------------------------------------
@@ -833,6 +847,50 @@ return [
     'api_tokens' => [
         'enabled'           => (bool) env('AUTH_API_TOKENS_ENABLED', false),
         'abilities_default' => ['read'],
+
+        /*
+        | Token purpose. Documents (and, under strict mode, constrains) how the
+        | host treats user-created tokens:
+        |   "customer_auth" → the token authenticates AS the user (it inherits
+        |                     the owner via ApiTokenAuth). Legacy behavior and
+        |                     the default.
+        |   "third_party"   → machine-to-machine tokens (CI, scripts) that should
+        |                     carry only narrow, explicit abilities.
+        */
+        'mode' => env('AUTH_API_TOKENS_MODE', 'customer_auth'),
+
+        /*
+        | Abilities a NON-admin user may request on POST /auth/api-tokens when
+        | strict_abilities=true. The wildcard "*" is never self-grantable — it
+        | is reserved for admin-issued tokens. Add the ability strings your host
+        | routes check for (e.g. 'read', 'read:orders').
+        */
+        'grantable_abilities' => ['read'],
+
+        /*
+        | Strict ability enforcement. BREAKING when enabled — defaults off to
+        | preserve v2.6 behavior. When true, a normal user may only request
+        | abilities listed in grantable_abilities and can never self-grant "*"
+        | or anything outside the list; admin token creation is unaffected.
+        */
+        'strict_abilities' => (bool) env('AUTH_API_TOKENS_STRICT', false),
+
+        /*
+        | Require a fresh step-up (sudo password / 2FA per step_up_mode) before
+        | a logged-in session can mint a long-lived API token. BREAKING when
+        | enabled — defaults off. Recommended on so a hijacked session cannot
+        | silently create a persistent token.
+        */
+        'require_step_up' => (bool) env('AUTH_API_TOKENS_REQUIRE_STEP_UP', false),
+
+        /*
+        | Optional hard cap (days) on a created token's lifetime. null keeps the
+        | current behavior (tokens may be non-expiring). Set e.g. 365 to forbid
+        | never-expiring tokens.
+        */
+        'max_ttl_days' => env('AUTH_API_TOKENS_MAX_TTL_DAYS') !== null
+            ? (int) env('AUTH_API_TOKENS_MAX_TTL_DAYS')
+            : null,
     ],
 
     /*
@@ -1006,6 +1064,29 @@ return [
             'require_step_up'           => (bool) env('AUTH_ACCOUNT_STATUS_REQUIRE_STEP_UP', false),
 
             /*
+            | Admin action guardrails for the status endpoints. BREAKING when
+            | enforce_role_hierarchy is enabled — defaults off to preserve v2.6
+            | behavior (any admin/super-admin could change anyone, including
+            | peers, higher roles, and themselves).
+            |
+            | When enforce_role_hierarchy=true the actor may only change a user
+            | whose highest role rank is strictly BELOW the actor's:
+            |   - allow_self_action=false → cannot change your own status
+            |   - allow_equal_rank=false  → cannot change a same-rank admin
+            | role_ranks maps role name → integer rank (higher = more power);
+            | roles not listed rank as 0.
+            */
+            'admin_actions' => [
+                'enforce_role_hierarchy' => (bool) env('AUTH_ACCOUNT_STATUS_HIERARCHY', false),
+                'allow_self_action'      => (bool) env('AUTH_ACCOUNT_STATUS_ALLOW_SELF', false),
+                'allow_equal_rank'       => (bool) env('AUTH_ACCOUNT_STATUS_ALLOW_EQUAL', false),
+                'role_ranks'             => [
+                    'super-admin' => 100,
+                    'admin'       => 50,
+                ],
+            ],
+
+            /*
             | Timed bans — admins can suspend / disable a user "until X" by
             | passing `expires_at` (ISO 8601) or `duration_minutes` to the
             | status endpoint. When the moment arrives the package flips the
@@ -1137,6 +1218,17 @@ return [
             'enabled'       => (bool) env('AUTH_LOCKOUT_ENABLED', true),
             'max_attempts'  => (int) env('AUTH_LOCKOUT_MAX', 10),
             'decay_minutes' => (int) env('AUTH_LOCKOUT_DECAY', 15),
+
+            // What the failed-attempt counter is keyed on. Defaults to 'email'
+            // (v2.6 behavior). 'email' alone lets an attacker who knows a
+            // victim's address lock them out (targeted DoS); 'email_and_ip'
+            // only locks a given email FROM a given IP; 'ip' keys purely on
+            // source. One of: 'email' | 'ip' | 'email_and_ip'.
+            'scope'         => env('AUTH_LOCKOUT_SCOPE', 'email'),
+
+            // Apply increasing back-off delay as failures accumulate instead of
+            // a single hard lock. Defaults off (hard lock) to match v2.6.
+            'backoff'       => (bool) env('AUTH_LOCKOUT_BACKOFF', false),
         ],
     ],
 
@@ -1362,6 +1454,16 @@ return [
         'enabled'                        => (bool) env('AUTH_TRUSTED_DEVICES_ENABLED', true),
         'level_assignment'               => env('AUTH_TRUST_LEVEL_MODE', 'time'),
         'auto_trust_registration_device' => (bool) env('AUTH_TRUST_REG_DEVICE', true),
+
+        // Initial trust level RECORDED for the device that completes
+        // registration. Note: the EFFECTIVE level that governs 2FA bypass is
+        // recomputed from elapsed time by TrustLevelResolver — a brand-new
+        // device resolves to 'low' and earns higher trust over the
+        // thresholds_days schedule — so under the default bypass_2fa_min_level
+        // of 'high' a freshly-registered device does NOT bypass 2FA regardless
+        // of this value. It sets the stored starting level (relevant to custom
+        // resolvers and the admin-granted path). One of: 'low'|'medium'|'high'.
+        'registration_device_level' => env('AUTH_TRUST_REG_DEVICE_LEVEL', 'high'),
 
         // Devices BELOW this level get a 2FA challenge at every login. Default
         // is `high` so the bypass requires the strongest trust signal the

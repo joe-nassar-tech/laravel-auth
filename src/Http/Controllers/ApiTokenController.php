@@ -34,12 +34,43 @@ class ApiTokenController extends Controller
 
     public function store(ApiTokenRequest $request): JsonResponse
     {
-        $user   = $request->user();
-        $data   = $request->validated();
+        $user = $request->user();
+        $data = $request->validated();
+
+        // Resolve to the EFFECTIVE abilities first: an empty or absent list
+        // falls back to abilities_default (mirroring ApiTokenService::issue).
+        // Doing it here — before the strict check, and passing the resolved list
+        // to issue() — ensures the strict allow-list validates exactly what will
+        // be granted. Otherwise `abilities: []` would pass the check (empty diff)
+        // and then be expanded to abilities_default unchecked.
+        $abilities = $data['abilities'] ?? [];
+        if ($abilities === []) {
+            $abilities = (array) config('auth_system.api_tokens.abilities_default', ['read']);
+        }
+
+        // Strict mode (opt-in via api_tokens.strict_abilities): a normal user
+        // may only self-grant abilities on the configured allow-list, and never
+        // the "*" wildcard — that is reserved for admin-issued tokens. This
+        // closes the privilege-escalation path where any user could mint a
+        // token that passes any auth.api-token:<ability> gate.
+        if ((bool) config('auth_system.api_tokens.strict_abilities', false)) {
+            $requested = array_map('strval', $abilities);
+            $grantable = array_map('strval', (array) config('auth_system.api_tokens.grantable_abilities', ['read']));
+            $invalid   = array_values(array_diff($requested, $grantable));
+
+            if (in_array('*', $requested, true) || $invalid !== []) {
+                return $this->failure(
+                    'One or more requested abilities are not permitted for self-issued tokens.',
+                    ['abilities' => in_array('*', $requested, true) ? ['*'] : $invalid],
+                    422,
+                );
+            }
+        }
+
         $result = $this->apiTokenService->issue(
             $data['name'],
-            $data['abilities'] ?? ['read'],
-            $data['expires_in_days'] ?? null,
+            $abilities,
+            $this->cappedExpiry($data['expires_in_days'] ?? null),
             $user,
         );
 
@@ -48,6 +79,25 @@ class ApiTokenController extends Controller
             ['raw_token' => $result['raw_token'], 'token' => $result['token']],
             201,
         );
+    }
+
+    /**
+     * Apply the optional api_tokens.max_ttl_days hard cap to a user-requested
+     * lifetime. With no cap configured the request is honored as-is; with a cap
+     * a non-expiring request is forced to the cap and an over-cap request is
+     * clamped down. Discourages indefinitely-lived self-issued tokens.
+     */
+    private function cappedExpiry(?int $requestedDays): ?int
+    {
+        $max = config('auth_system.api_tokens.max_ttl_days');
+
+        if ($max === null) {
+            return $requestedDays;
+        }
+
+        $max = (int) $max;
+
+        return $requestedDays === null ? $max : min($requestedDays, $max);
     }
 
     public function destroy(Request $request, int $id): JsonResponse
