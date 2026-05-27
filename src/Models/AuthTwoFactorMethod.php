@@ -19,6 +19,7 @@ class AuthTwoFactorMethod extends Model
         'is_default',
         'verified_at',
         'last_used_at',
+        'last_totp_timestep',
     ];
 
     protected $hidden = [
@@ -26,9 +27,10 @@ class AuthTwoFactorMethod extends Model
     ];
 
     protected $casts = [
-        'is_default'   => 'bool',
-        'verified_at'  => 'datetime',
-        'last_used_at' => 'datetime',
+        'is_default'         => 'bool',
+        'verified_at'        => 'datetime',
+        'last_used_at'       => 'datetime',
+        'last_totp_timestep' => 'integer',
     ];
 
     public function user(): BelongsTo

@@ -6,6 +6,74 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and 
 
 ---
 
+## [2.7.0] — 2026-05-27
+
+Second security-hardening pass (audit-driven). **Safe, non-breaking upgrade**:
+every behavior change is behind a config flag that defaults to the current
+behavior. See [UPGRADING.md](UPGRADING.md) for the flag-by-flag guide and the
+recommended production profile.
+
+### Security — fixed (applied automatically)
+
+- **Email-based 2FA now works on strict databases.** `auth_otp_codes.type` was
+  an `enum` that never included the 2FA purposes (`two_factor_email`,
+  `two_factor_email_enroll`), so storing an email-2FA code was rejected on
+  strict MySQL / PostgreSQL / SQLite — the method was effectively broken. The
+  column is widened to `string(40)`.
+- **Login no longer leaks account existence by timing.** A login for a
+  non-existent email now performs the same bcrypt work as a wrong-password
+  login (mirrors the existing constant-time path in forgot-password).
+- **Token-refresh no longer risks leaking the password hash.** The refresh
+  response now goes through the same `safeUserArray()` net (strips `password`
+  / `remember_token`) as every other endpoint, instead of raw `toArray()`.
+- **TOTP codes cannot be replayed** within their validity window — the verified
+  RFC 6238 time-step is recorded and re-use is rejected.
+- **Step-up cache keys are UUID/string-PK safe.** `Require2FA` cast the user key
+  to `int` while the writer used the raw key, silently breaking step-up for
+  non-integer primary keys; all step-up keys now use the raw key.
+- **`POST /auth/2fa/challenge/switch` is rate-limited** (it delivers a code),
+  and **`POST /auth/password/confirm` is throttled per-user** so a hijacked
+  session can't brute-force the account password for a sudo window.
+- **Registration input can no longer self-assign gating columns**
+  (`account_status`, `status_expires_at`, `phone_verified_at`,
+  `two_factor_required`, …) — the privileged-field denylist was extended.
+- **Boot fails fast when `APP_KEY` is unset** — it is the pepper for OTP /
+  backup-code hashing and the key for 2FA-secret encryption.
+
+### Security — added (opt-in, default off)
+
+- **`two_factor.required` is now enforced** on the package's own authenticated
+  routes via the new `auth.require-2fa-enrolled` middleware, returning a
+  `must_enroll_2fa` envelope while leaving the enroll / login / logout / `me` /
+  `password/confirm` endpoints reachable. Login also surfaces a
+  `must_enroll_2fa` hint.
+- **Strict API-token abilities** (`api_tokens.strict_abilities`): a normal user
+  may only self-grant abilities from `api_tokens.grantable_abilities` and never
+  the `*` wildcard (reserved for admin-issued tokens). New `api_tokens.mode`
+  (`customer_auth` | `third_party`) and `api_tokens.max_ttl_days` cap.
+- **Step-up for API-token creation** (`api_tokens.require_step_up`).
+- **Admin role hierarchy** (`account.status.admin_actions.enforce_role_hierarchy`):
+  an admin may only change a strictly lower-ranked account — not a peer, a
+  higher role, or themselves — and `deleted` can no longer be set via the
+  status endpoint. Configurable `role_ranks`, `allow_self_action`,
+  `allow_equal_rank`.
+- **OAuth state enforcement for stateless clients** (`social.enforce_state`):
+  a one-time server-managed `state` is verified on the mobile/SPA callback,
+  closing login-CSRF / authorization-code injection on the stateless path.
+- **Account-lockout scope** (`security.lockout.scope`: `email` | `ip` |
+  `email_and_ip`) plus optional `backoff`, mitigating the known-email targeted
+  lockout DoS.
+- **Configurable registration-device trust level**
+  (`trusted_devices.registration_device_level`).
+
+### Changed
+
+- Test suite can run against a strict MySQL via `DB_CONNECTION=mysql`; a new
+  GitHub Actions workflow runs the full suite on SQLite (PHP 8.2 / 8.3) and on
+  strict MySQL.
+
+---
+
 ## [2.6.1] — 2026-05-27
 
 Security hardening pass over the v2.6.0 surface. Closes several 2FA-bypass

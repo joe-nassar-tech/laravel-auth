@@ -61,7 +61,8 @@ Route::middleware(['auth.device', 'throttle:api'])->group(function (): void {
     // requires_2fa: true. No auth guard yet; the challenge_token IS the proof.
     Route::post('2fa/challenge', [TwoFactorChallengeController::class, 'verify'])
         ->middleware('auth.ratelimit:otp_verify');
-    Route::post('2fa/challenge/switch', [TwoFactorChallengeController::class, 'switch']);
+    Route::post('2fa/challenge/switch', [TwoFactorChallengeController::class, 'switch'])
+        ->middleware('auth.ratelimit:otp_send');
     Route::post('2fa/challenge/resend', [TwoFactorChallengeController::class, 'resend'])
         ->middleware('auth.ratelimit:otp_send');
 
@@ -107,7 +108,7 @@ Route::middleware(['auth.device', 'throttle:api'])->group(function (): void {
 // every request, so a mid-session ban takes effect immediately instead of
 // only at the next login or token expiry. It no-ops when the status feature
 // is disabled (auth_system.account.status.enabled=false).
-Route::middleware(['auth:sanctum', 'auth.no-refresh', 'auth.verified', 'auth.active', 'auth.device'])->group(function (): void {
+Route::middleware(['auth:sanctum', 'auth.no-refresh', 'auth.verified', 'auth.active', 'auth.require-2fa-enrolled', 'auth.device'])->group(function (): void {
 
     // M1: Core authenticated endpoints
     Route::get('me', [LoginController::class, 'me']);
@@ -190,7 +191,11 @@ Route::middleware(['auth:sanctum', 'auth.no-refresh', 'auth.verified', 'auth.act
     // value at cache time).
     Route::middleware('auth.feature:api_tokens')->group(function (): void {
         Route::get('api-tokens', [ApiTokenController::class, 'index']);
-        Route::post('api-tokens', [ApiTokenController::class, 'store']);
+        // #13 — optionally require a fresh step-up before a logged-in session
+        // can mint a long-lived token (api_tokens.require_step_up; checked at
+        // request time so it's route:cache-safe and defaults off).
+        Route::post('api-tokens', [ApiTokenController::class, 'store'])
+            ->middleware('auth.api-token-stepup');
         Route::delete('api-tokens/{id}', [ApiTokenController::class, 'destroy']);
     });
 

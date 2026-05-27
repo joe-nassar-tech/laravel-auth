@@ -77,7 +77,7 @@ class Require2FA
     private function handlePasswordConfirm(Request $request, Closure $next): mixed
     {
         $user      = $request->user();
-        $cacheKey  = $this->sudoCacheKey((int) $user->getKey(), $request);
+        $cacheKey  = $this->sudoCacheKey($user->getKey(), $request);
         $confirmed = Cache::get($cacheKey);
 
         if ($confirmed === true) {
@@ -91,13 +91,13 @@ class Require2FA
 
     private function hasRecent2faStamp($user, Request $request): bool
     {
-        $key  = $this->twoFactorStampKey((int) $user->getKey(), $request);
+        $key  = $this->twoFactorStampKey($user->getKey(), $request);
         $stamp = Cache::get($key);
 
         return $stamp !== null;
     }
 
-    private function twoFactorStampKey(int $userId, Request $request): string
+    private function twoFactorStampKey(int|string $userId, Request $request): string
     {
         $token = $request->user()?->currentAccessToken();
         $id    = $token instanceof \Laravel\Sanctum\PersonalAccessToken ? $token->id : $request->session()?->getId();
@@ -105,7 +105,7 @@ class Require2FA
         return "auth:2fa:stamp:{$userId}:" . (string) $id;
     }
 
-    private function sudoCacheKey(int $userId, Request $request): string
+    private function sudoCacheKey(int|string $userId, Request $request): string
     {
         $token = $request->user()?->currentAccessToken();
         $id    = $token instanceof \Laravel\Sanctum\PersonalAccessToken ? $token->id : $request->session()?->getId();

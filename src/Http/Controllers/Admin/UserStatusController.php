@@ -54,6 +54,28 @@ class UserStatusController extends Controller
             return $this->failure('User not found.', [], 404);
         }
 
+        // #14 — admin action guardrails (opt-in via
+        // account.status.admin_actions.enforce_role_hierarchy; default off so
+        // existing admin clients are unaffected). When enabled, an actor may
+        // only act on a strictly lower-ranked account (never a peer, a
+        // higher-ranked account, or themselves), and the destructive `deleted`
+        // status must go through the dedicated deletion flow.
+        if ((bool) config('auth_system.account.status.admin_actions.enforce_role_hierarchy', false)) {
+            if ($request->string('status')->toString() === AccountStatus::DELETED) {
+                return $this->failure(
+                    'Use the account deletion flow to delete an account; it cannot be set via the status endpoint.',
+                    [],
+                    422,
+                );
+            }
+
+            $denial = $this->hierarchyDenial($request->user(), $user);
+
+            if ($denial !== null) {
+                return $this->failure($denial, [], 403);
+            }
+        }
+
         try {
             $this->statusService->changeStatus(
                 $user,
@@ -83,6 +105,59 @@ class UserStatusController extends Controller
                     : $expiresAt,
             ],
         );
+    }
+
+    /**
+     * Returns a human-readable denial reason when the actor may not change the
+     * target's status under the role hierarchy, or null when it is permitted.
+     */
+    private function hierarchyDenial(
+        \Illuminate\Foundation\Auth\User $actor,
+        \Illuminate\Foundation\Auth\User $target,
+    ): ?string {
+        $cfg        = (array) config('auth_system.account.status.admin_actions', []);
+        $allowSelf  = (bool) ($cfg['allow_self_action'] ?? false);
+        $allowEqual = (bool) ($cfg['allow_equal_rank'] ?? false);
+        $isSelf     = (string) $actor->getKey() === (string) $target->getKey();
+
+        if ($isSelf) {
+            return $allowSelf ? null : 'You cannot change your own account status.';
+        }
+
+        $actorRank  = $this->rankOf($actor);
+        $targetRank = $this->rankOf($target);
+
+        if ($targetRank > $actorRank) {
+            return 'You cannot change the status of a higher-privileged account.';
+        }
+
+        if ($targetRank === $actorRank && ! $allowEqual) {
+            return 'You cannot change the status of an account at your own privilege level.';
+        }
+
+        return null;
+    }
+
+    /**
+     * Highest configured rank across the user's roles. Roles absent from
+     * account.status.admin_actions.role_ranks count as 0.
+     */
+    private function rankOf(\Illuminate\Foundation\Auth\User $user): int
+    {
+        /** @var array<string,int> $ranks */
+        $ranks = (array) config('auth_system.account.status.admin_actions.role_ranks', []);
+
+        if (! method_exists($user, 'getRoleNames')) {
+            return 0;
+        }
+
+        $max = 0;
+
+        foreach ($user->getRoleNames() as $role) {
+            $max = max($max, (int) ($ranks[$role] ?? 0));
+        }
+
+        return $max;
     }
 
     private function resolveUser(int $id): ?\Illuminate\Foundation\Auth\User

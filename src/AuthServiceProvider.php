@@ -23,6 +23,7 @@ use Joe404\LaravelAuth\Events\UserRegistered;
 use Joe404\LaravelAuth\Http\Formatters\DefaultResponseFormatter;
 use Joe404\LaravelAuth\Http\Middleware\ApiTokenAuth;
 use Joe404\LaravelAuth\Http\Middleware\DeviceFingerprint;
+use Joe404\LaravelAuth\Http\Middleware\EnforceRequired2FA;
 use Joe404\LaravelAuth\Http\Middleware\FeatureFlag;
 use Joe404\LaravelAuth\Http\Middleware\RejectRefreshToken;
 use Joe404\LaravelAuth\Http\Middleware\RateLimitAuth;
@@ -30,6 +31,7 @@ use Joe404\LaravelAuth\Http\Middleware\Require2FA;
 use Joe404\LaravelAuth\Http\Middleware\RequireActiveAccount;
 use Joe404\LaravelAuth\Http\Middleware\RequireEmailVerified;
 use Joe404\LaravelAuth\Http\Middleware\RequireStepUp;
+use Joe404\LaravelAuth\Http\Middleware\RequireStepUpForApiTokenCreation;
 use Joe404\LaravelAuth\Jobs\CleanExpiredApiTokens;
 use Joe404\LaravelAuth\Jobs\CleanExpiredOtpRecords;
 use Joe404\LaravelAuth\Jobs\CleanExpiredRefreshTokens;
@@ -188,6 +190,18 @@ class AuthServiceProvider extends ServiceProvider
             );
         }
 
+        // The OTP and backup-code HMAC pepper (and 2FA secret encryption via
+        // Crypt) derive from APP_KEY. An empty key silently degrades OTP hashing
+        // to an unsalted digest, making the low-entropy numeric code space
+        // brute-forceable from a database leak. APP_KEY is required by Laravel
+        // for encryption anyway, so fail fast with a clear message.
+        if (trim((string) config('app.key', '')) === '') {
+            throw new \InvalidArgumentException(
+                'auth_system: APP_KEY is not set. It is the pepper for OTP / backup-code hashing and '
+                . 'the key for 2FA secret encryption. Run `php artisan key:generate`.',
+            );
+        }
+
         // v2.6 — warn at boot if the log phone driver is wired up anywhere
         // other than local/testing. It writes plain OTP codes to the Laravel
         // log; the driver itself hard-fails at send time outside local/testing
@@ -294,6 +308,8 @@ class AuthServiceProvider extends ServiceProvider
         $router->aliasMiddleware('auth.active', RequireActiveAccount::class);
         $router->aliasMiddleware('auth.2fa', Require2FA::class);
         $router->aliasMiddleware('auth.step-up', RequireStepUp::class);
+        $router->aliasMiddleware('auth.require-2fa-enrolled', EnforceRequired2FA::class);
+        $router->aliasMiddleware('auth.api-token-stepup', RequireStepUpForApiTokenCreation::class);
 
         // Spatie's PermissionServiceProvider stopped auto-registering middleware
         // aliases in Laravel 11. We register them here so package routes
