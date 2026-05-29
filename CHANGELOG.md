@@ -6,6 +6,36 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and 
 
 ---
 
+## [2.7.2] — 2026-05-29
+
+Concurrency-hardening follow-up to v2.7.1. **Fully safe upgrade** — no
+migrations, no new config keys, no behavior changes for sequential use. See
+[UPGRADING.md](UPGRADING.md).
+
+### Security — fixed (applied automatically)
+
+- **Backup codes are atomically single-use.** `BackupCodeService::consume()`
+  switched from read-then-write to a conditional `WHERE used_at IS NULL`
+  update; two concurrent verifies of the same code can never both succeed.
+  (Higher-stakes than regular OTPs — single-use recovery, full 2FA bypass on
+  replay.)
+- **Phone OTP verification is atomically single-use.**
+  `PhoneVerificationService::verifyCode()` now uses the same conditional-
+  update pattern on `consumed_at`. Failed-attempt incrementing was already
+  atomic and is unchanged.
+- **TOTP replay protection is race-safe.** The `last_totp_timestep` write in
+  `TwoFactorService::verifyTotp()` is now a conditional
+  `WHERE last_totp_timestep IS NULL OR < $step` update — only the request
+  that **strictly advances** the step wins under concurrency. Also enforces
+  monotonic step advancement (the column can never regress).
+- **Admin API-token PATCH + DELETE honour `api_tokens.admin_require_step_up`.**
+  In v2.7.1 only `POST` was gated; in v2.7.2 the SAME flag also gates
+  mutation and revocation, closing the asymmetry where a hijacked admin
+  session could sidestep the create gate by editing or deleting an existing
+  token.
+
+---
+
 ## [2.7.1] — 2026-05-28
 
 Audit-driven follow-up to v2.7.0. **Safe, non-breaking upgrade** — every

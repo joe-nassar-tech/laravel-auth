@@ -76,9 +76,16 @@ class BackupCodeService
             return false;
         }
 
-        $record->update(['used_at' => now()]);
+        // Atomic single-use consume: only the request that flips used_at from
+        // NULL wins (UPDATE ... WHERE used_at IS NULL is atomic per row). A
+        // concurrent consume of the same code gets 0 affected rows and is
+        // rejected — a backup code can never be consumed twice even under a
+        // race. Same pattern as OtpService / PhoneVerificationService.
+        $consumed = AuthTwoFactorBackupCode::where('id', $record->getKey())
+            ->whereNull('used_at')
+            ->update(['used_at' => now()]);
 
-        return true;
+        return $consumed === 1;
     }
 
     /**

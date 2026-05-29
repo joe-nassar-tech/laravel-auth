@@ -100,7 +100,17 @@ class PhoneVerificationService
             throw new PhoneVerificationException('Invalid phone code.', 'phone_otp_invalid');
         }
 
-        $record->update(['consumed_at' => now()]);
+        // Atomic single-use consume: only the request that flips consumed_at
+        // from NULL wins (UPDATE ... WHERE consumed_at IS NULL is atomic per
+        // row). A concurrent verify of the same valid code gets 0 affected
+        // rows and is rejected. Same pattern as OtpService / BackupCodeService.
+        $consumed = AuthPhoneOtpCode::where('id', $record->getKey())
+            ->whereNull('consumed_at')
+            ->update(['consumed_at' => now()]);
+
+        if ($consumed === 0) {
+            throw new PhoneVerificationException('Phone code has already been used.', 'phone_otp_invalid');
+        }
 
         return $record;
     }

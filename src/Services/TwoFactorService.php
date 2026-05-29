@@ -339,11 +339,20 @@ class TwoFactorService
             return false;
         }
 
-        // Replay protection (RFC 6238 §5.2): record the matched time-step so
-        // the same code — or any earlier one — cannot be presented again.
-        $method->forceFill(['last_totp_timestep' => $timestep])->save();
+        // Replay protection (RFC 6238 §5.2) under concurrency: only the
+        // request that STRICTLY ADVANCES last_totp_timestep wins. Two
+        // simultaneous verifies of the same in-window code compute the same
+        // matched step → only the first conditional update succeeds, the
+        // second affects 0 rows and is rejected. Also enforces monotonic
+        // step advancement (an older step can never regress the column).
+        $advanced = AuthTwoFactorMethod::where('id', $method->getKey())
+            ->where(function ($q) use ($timestep) {
+                $q->whereNull('last_totp_timestep')
+                  ->orWhere('last_totp_timestep', '<', $timestep);
+            })
+            ->update(['last_totp_timestep' => $timestep]);
 
-        return true;
+        return $advanced === 1;
     }
 
     private function verifyEmailCode(User $user, string $code): bool
