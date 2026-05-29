@@ -1,5 +1,33 @@
 # Upgrading
 
+## 2.7.1 → 2.7.2
+
+Concurrency-hardening follow-up to v2.7.1. **Fully safe**: no migrations, no
+new config keys, no behavior changes for sequential use. The four fixes only
+take effect under genuine race conditions; everything else is unchanged.
+
+### Applied automatically (no action needed)
+
+- **Backup codes are now atomically single-use.** Switched the `consume()`
+  read-then-write to a conditional `WHERE used_at IS NULL` update — two
+  concurrent verifies of the same code can never both succeed.
+- **Phone (SMS / voice / WhatsApp) OTP verification is now atomically
+  single-use.** Same pattern as the OTP path.
+- **TOTP replay protection is race-safe.** The `last_totp_timestep` write is
+  now a conditional `WHERE last_totp_timestep IS NULL OR < $step` update —
+  only the request that **strictly advances** the step wins, even under
+  simultaneous in-window verifies. Also enforces monotonic advancement.
+- **Admin API-token PATCH + DELETE honour `api_tokens.admin_require_step_up`**
+  (only `POST` did in v2.7.1). When the flag is on, mutating or revoking an
+  admin-issued token requires the same fresh step-up as creating one.
+
+### No new flags / migrations
+
+This release adds nothing to your `.env`, your config file, or your schema. If
+v2.7.1 runs for you, v2.7.2 does too.
+
+---
+
 ## 2.7.0 → 2.7.1
 
 This is a small **security-hardening + bug-fix** release. Safe to upgrade —

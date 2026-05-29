@@ -79,6 +79,67 @@ it('admin-created tokens record the creator for audit (created_by_*)', function 
     expect($row->owner_type)->toBeNull();
 });
 
+it('admin_require_step_up: blocks PATCH without a fresh step-up', function (): void {
+    config([
+        'auth_system.api_tokens.admin_require_step_up' => true,
+        'auth_system.two_factor.step_up_mode'          => 'password_confirm',
+    ]);
+
+    [, $token] = adminWithPasswordToken();
+
+    $existing = AuthApiToken::create([
+        'name' => 'x', 'token_hash' => 'fake', 'abilities' => ['read'], 'is_active' => true,
+    ]);
+
+    test()->withToken($token)
+        ->patchJson("/auth/admin/api-tokens/{$existing->id}", ['abilities' => ['*']])
+        ->assertStatus(403)
+        ->assertJsonPath('data.step_up', 'password_confirm');
+});
+
+it('admin_require_step_up: blocks DELETE without a fresh step-up', function (): void {
+    config([
+        'auth_system.api_tokens.admin_require_step_up' => true,
+        'auth_system.two_factor.step_up_mode'          => 'password_confirm',
+    ]);
+
+    [, $token] = adminWithPasswordToken();
+
+    $existing = AuthApiToken::create([
+        'name' => 'x', 'token_hash' => 'fake', 'abilities' => ['read'], 'is_active' => true,
+    ]);
+
+    test()->withToken($token)
+        ->deleteJson("/auth/admin/api-tokens/{$existing->id}")
+        ->assertStatus(403)
+        ->assertJsonPath('data.step_up', 'password_confirm');
+});
+
+it('admin_require_step_up: allows PATCH + DELETE after a password confirm', function (): void {
+    config([
+        'auth_system.api_tokens.admin_require_step_up' => true,
+        'auth_system.two_factor.step_up_mode'          => 'password_confirm',
+    ]);
+
+    [, $token] = adminWithPasswordToken();
+
+    test()->withToken($token)
+        ->postJson('/auth/password/confirm', ['password' => 'Password123!'])
+        ->assertOk();
+
+    $existing = AuthApiToken::create([
+        'name' => 'x', 'token_hash' => 'fake', 'abilities' => ['read'], 'is_active' => true,
+    ]);
+
+    test()->withToken($token)
+        ->patchJson("/auth/admin/api-tokens/{$existing->id}", ['abilities' => ['read', 'write']])
+        ->assertOk();
+
+    test()->withToken($token)
+        ->deleteJson("/auth/admin/api-tokens/{$existing->id}")
+        ->assertOk();
+});
+
 it('user-issued tokens record the user as both owner and creator', function (): void {
     $user = test()->createUser(['email' => 'u_' . uniqid() . '@example.com']);
     $user->assignRole('user');

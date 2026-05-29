@@ -223,8 +223,14 @@ Route::middleware([
     // user-side require_step_up. Read at request time, route:cache-safe.
     Route::post('api-tokens', [ApiTokenController::class, 'adminStore'])
         ->middleware('auth.api-token-stepup:auth_system.api_tokens.admin_require_step_up');
-    Route::patch('api-tokens/{id}', [ApiTokenController::class, 'adminUpdate']);
-    Route::delete('api-tokens/{id}', [ApiTokenController::class, 'adminDestroy']);
+    // PATCH/DELETE on admin tokens are equally destructive as create (ability
+    // bump, TTL extension, peer-token revoke) — gate them with the SAME flag
+    // for symmetry, so a hijacked admin session can't sidestep the create gate
+    // by mutating an existing token.
+    Route::patch('api-tokens/{id}', [ApiTokenController::class, 'adminUpdate'])
+        ->middleware('auth.api-token-stepup:auth_system.api_tokens.admin_require_step_up');
+    Route::delete('api-tokens/{id}', [ApiTokenController::class, 'adminDestroy'])
+        ->middleware('auth.api-token-stepup:auth_system.api_tokens.admin_require_step_up');
 });
 
 // v2.4: Admin account status management. Gated by the role declared in
