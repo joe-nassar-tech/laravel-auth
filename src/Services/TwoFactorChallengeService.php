@@ -51,9 +51,17 @@ class TwoFactorChallengeService
 
         $reused = $challenge !== null;
 
+        // The challenge_token returned to the client is plaintext (a UUID); the
+        // DB only ever stores its HMAC. On reuse we ROTATE the token (we don't
+        // retain the original plaintext anywhere) but keep the same row — same
+        // anti-spam guarantee, no row proliferation. The OTP/SMS/email code
+        // already sent at row creation is still valid and is NOT re-sent here.
+        $plainToken  = Str::uuid()->toString();
+        $hashedToken = $this->hashChallengeToken($plainToken);
+
         if ($challenge === null) {
             $challenge = AuthTwoFactorChallenge::create([
-                'challenge_token'  => Str::uuid()->toString(),
+                'challenge_token'  => $hashedToken,
                 'user_id'          => $user->getKey(),
                 'method'           => $method->type,
                 'attempts'         => 0,
@@ -65,10 +73,12 @@ class TwoFactorChallengeService
             ]);
 
             $this->twoFactor->issueChallengeCode($method);
+        } else {
+            $challenge->update(['challenge_token' => $hashedToken]);
         }
 
         return [
-            'challenge_token'   => $challenge->challenge_token,
+            'challenge_token'   => $plainToken,
             'method'            => $challenge->method ?: $method->type,
             'expires_in'        => max(0, (int) now()->diffInSeconds($challenge->expires_at, false)),
             'available_methods' => $this->twoFactor->enrolledMethodTypes($user),
@@ -180,7 +190,7 @@ class TwoFactorChallengeService
         $this->twoFactor->issueChallengeCode($method);
 
         return [
-            'challenge_token' => $challenge->challenge_token,
+            'challenge_token' => $challengeToken,
             'method'          => $newMethod,
             'expires_in'      => max(0, now()->diffInSeconds($challenge->expires_at, false)),
             'masked_target'   => $this->maskTarget($method, $user),
@@ -210,7 +220,7 @@ class TwoFactorChallengeService
         $this->twoFactor->issueChallengeCode($method);
 
         return [
-            'challenge_token' => $challenge->challenge_token,
+            'challenge_token' => $challengeToken,
             'method'          => $method->type,
             'expires_in'      => max(0, now()->diffInSeconds($challenge->expires_at, false)),
             'masked_target'   => $this->maskTarget($method, $user),
@@ -219,7 +229,7 @@ class TwoFactorChallengeService
 
     private function loadUsable(string $challengeToken): AuthTwoFactorChallenge
     {
-        $challenge = AuthTwoFactorChallenge::where('challenge_token', $challengeToken)->first();
+        $challenge = AuthTwoFactorChallenge::where('challenge_token', $this->hashChallengeToken($challengeToken))->first();
 
         if ($challenge === null || $challenge->isConsumed()) {
             throw new TwoFactorChallengeInvalidException('Invalid challenge.');
@@ -230,6 +240,23 @@ class TwoFactorChallengeService
         }
 
         return $challenge;
+    }
+
+    /**
+     * HMAC-SHA256 of a challenge_token using the app key as pepper. Mirrors
+     * OtpService / BackupCodeService / TrustedDeviceService — the DB only ever
+     * sees the digest; the plaintext lives only in the response returned to the
+     * client at creation time.
+     */
+    private function hashChallengeToken(string $token): string
+    {
+        $key = (string) config('app.key', '');
+
+        if (str_starts_with($key, 'base64:')) {
+            $key = base64_decode(substr($key, 7), true) ?: $key;
+        }
+
+        return hash_hmac('sha256', $token, $key);
     }
 
     private function maskTarget(AuthTwoFactorMethod $method, User $user): ?string

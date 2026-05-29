@@ -22,10 +22,15 @@ it('reuses an existing unconsumed challenge instead of creating new rows', funct
     $second = $this->postJson('/auth/login', ['email' => 'reuse@example.com', 'password' => 'password']);
     $third  = $this->postJson('/auth/login', ['email' => 'reuse@example.com', 'password' => 'password']);
 
-    $tokens = collect([$first, $second, $third])->map(fn ($r) => $r->json('data.challenge_token'));
+    foreach ([$first, $second, $third] as $r) {
+        expect($r->json('data.challenge_token'))->not->toBeNull();
+    }
 
-    expect($tokens->unique()->count())->toBe(1)
-        ->and(AuthTwoFactorChallenge::where('user_id', $user->getKey())->count())->toBe(1);
+    // The anti-spam guarantee is "no row proliferation" — the row is reused.
+    // Since v2.7.1 stores only the HMAC of the token, each call rotates the
+    // plaintext (we cannot re-emit a stored hash), so the LATEST call's token
+    // is the active one. The count below is the property that matters.
+    expect(AuthTwoFactorChallenge::where('user_id', $user->getKey())->count())->toBe(1);
 });
 
 it('invalidates the challenge after max_attempts wrong codes', function () {
@@ -56,8 +61,9 @@ it('invalidates the challenge after max_attempts wrong codes', function () {
     $response->assertStatus(401)
         ->assertJsonPath('message', 'Too many failed attempts. Please log in again.');
 
-    // Challenge row should now be consumed.
-    $challenge = AuthTwoFactorChallenge::where('challenge_token', $login['challenge_token'])->first();
+    // Challenge row should now be consumed. The DB stores the HMAC, not the
+    // plaintext, so look up via the same hashing the service uses.
+    $challenge = AuthTwoFactorChallenge::where('challenge_token', authOtpHash($login['challenge_token']))->first();
     expect($challenge->consumed_at)->not->toBeNull();
 });
 

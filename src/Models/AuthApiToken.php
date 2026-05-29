@@ -19,6 +19,8 @@ class AuthApiToken extends Model
         'abilities',
         'owner_type',
         'owner_id',
+        'created_by_type',
+        'created_by_id',
         'last_used_at',
         'expires_at',
         'is_active',

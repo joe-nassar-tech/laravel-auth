@@ -130,6 +130,8 @@ class ApiTokenController extends Controller
             $data['name'],
             $data['abilities'] ?? ['read'],
             $data['expires_in_days'] ?? null,
+            null,             // owner — admin-issued tokens are intentionally unowned
+            $request->user(), // createdBy — bind the admin actor for audit
         );
 
         return $this->success(
