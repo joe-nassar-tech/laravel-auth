@@ -118,6 +118,16 @@ class PasswordResetController extends Controller
             return $this->failure($this->err($e), [], 422);
         }
 
+        // When auto-login is disabled (password_reset.auto_login=false), the
+        // password is changed and all sessions revoked, but no token/challenge
+        // is issued — the user logs in again with the new password.
+        if (($data['auto_login'] ?? true) === false) {
+            return $this->success(
+                $this->msg('password_reset_success_no_login', 'Password reset successfully. Please log in with your new password.'),
+                $data,
+            );
+        }
+
         // #7 — if the account has 2FA enabled, the reset succeeds but no token
         // is issued until the user passes the 2FA challenge.
         if (($data['requires_2fa'] ?? false) === true) {

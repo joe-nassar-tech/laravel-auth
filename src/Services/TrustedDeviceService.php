@@ -324,7 +324,17 @@ class TrustedDeviceService
 
     private function hashSecret(string $plain): string
     {
-        return hash('sha256', $plain);
+        // HMAC-SHA256 with the app key as pepper — consistent with how the
+        // package hashes OTP / backup / refresh / API-token secrets. The device
+        // token is already 256-bit random, so this is defense-in-depth for a
+        // DB-only breach. Output stays 64 hex chars (same column width).
+        $key = (string) config('app.key', '');
+
+        if (str_starts_with($key, 'base64:')) {
+            $key = base64_decode(substr($key, 7), true) ?: $key;
+        }
+
+        return hash_hmac('sha256', $plain, $key);
     }
 
     private function fingerprint(Request $request): ?string

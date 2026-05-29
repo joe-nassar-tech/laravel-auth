@@ -448,6 +448,14 @@ return [
     */
     'password_reset' => [
         'method' => env('AUTH_PASSWORD_RESET_METHOD', null),
+
+        // After a successful reset, automatically log the user in (issuing a
+        // token / starting a session — still behind the 2FA gate). Default true
+        // = current behavior. Set false for a high-security posture: the
+        // password is changed and all sessions revoked, but the user must log
+        // in again, reducing an attacker's leverage if the reset channel (email
+        // inbox) was briefly compromised.
+        'auto_login' => (bool) env('AUTH_PASSWORD_RESET_AUTO_LOGIN', true),
     ],
 
     /*
@@ -891,6 +899,21 @@ return [
         'max_ttl_days' => env('AUTH_API_TOKENS_MAX_TTL_DAYS') !== null
             ? (int) env('AUTH_API_TOKENS_MAX_TTL_DAYS')
             : null,
+
+        /*
+        | Require a fresh step-up before an ADMIN can mint a token via the admin
+        | endpoint (separate from the per-user require_step_up above). Default
+        | off to preserve current behavior.
+        */
+        'admin_require_step_up' => (bool) env('AUTH_API_TOKENS_ADMIN_REQUIRE_STEP_UP', false),
+
+        /*
+        | Middleware gate for the admin API-token routes. null keeps the default
+        | role:super-admin|admin. Set a role/permission expression (e.g.
+        | 'role_or_permission:super-admin|api-tokens.manage') or any middleware
+        | string to fit your host's authorization model — developer's choice.
+        */
+        'admin_middleware' => env('AUTH_API_TOKENS_ADMIN_MIDDLEWARE', null),
     ],
 
     /*
@@ -944,6 +967,12 @@ return [
     */
     'response' => [
         'formatter' => env('AUTH_RESPONSE_FORMATTER', null),
+
+        // Fields always stripped from the serialized user in every response,
+        // even if the host's User model forgot to declare them in $hidden.
+        // Defaults to the credential fields; extend it with any sensitive
+        // custom columns (e.g. 'two_factor_secret') without losing the net.
+        'hidden_user_fields' => ['password', 'remember_token'],
     ],
 
     /*
@@ -1055,6 +1084,14 @@ return [
             'login_auto_restorable'     => ['deactivated'],
             'revoke_sessions_on_change' => (bool) env('AUTH_ACCOUNT_STATUS_REVOKE_ON_CHANGE', true),
             'admin_ability'             => env('AUTH_ACCOUNT_STATUS_ABILITY', 'super-admin|admin'),
+
+            // Middleware gate for the admin status routes. null keeps the
+            // default role:<admin_ability>. NOTE: admin_ability is matched with
+            // role: middleware (ROLES, not permissions). To gate by permission —
+            // or a mix — set this to a full middleware string, e.g.
+            // 'role_or_permission:super-admin|users.manage-status'. Overrides
+            // admin_ability when set. Developer's choice.
+            'admin_middleware'          => env('AUTH_ACCOUNT_STATUS_ADMIN_MIDDLEWARE', null),
 
             // When true, the admin "change status" endpoint also requires a
             // fresh step-up (sudo password or 2FA per two_factor.step_up_mode)
@@ -1213,6 +1250,18 @@ return [
     ],
 
     'security' => [
+        /*
+        | Security PROFILE preset (opt-in). One of: null | 'relaxed' | 'balanced'
+        | | 'high'. null (default) applies no preset — every setting is exactly
+        | what you configured. When set, the package fills a curated set of
+        | secure defaults at boot, but ONLY for keys you have NOT explicitly set
+        | (via env or a published config), so your own values always win. 'high'
+        | turns on the hardened flags (strict API-token abilities, admin
+        | step-ups, OAuth state enforcement, email_and_ip lockout, reset
+        | auto-login off, force-enroll 2FA, …). See docs for the full mapping.
+        */
+        'profile' => env('AUTH_SECURITY_PROFILE', null),
+
         'notify_new_device_login' => (bool) env('AUTH_NOTIFY_NEW_DEVICE', true),
         'lockout' => [
             'enabled'       => (bool) env('AUTH_LOCKOUT_ENABLED', true),

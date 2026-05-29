@@ -6,6 +6,59 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and 
 
 ---
 
+## [2.7.1] — 2026-05-28
+
+Audit-driven follow-up to v2.7.0. **Safe, non-breaking upgrade** — every
+behavior change is behind a config flag defaulting to today's behavior.
+See [UPGRADING.md](UPGRADING.md).
+
+> Note on the v2.7.0 release: the published `v2.7.0` tag was placed on the
+> v2.6.1 commit before the v2.7 work was merged, so `composer require
+> joe-404/laravel-auth:^2.7.0` resolves to the v2.6.1 code. Upgrading to
+> **`v2.7.1`** delivers the **real** v2.7 security pass **plus** the v2.7.1
+> items below in one step.
+
+### Security — fixed (applied automatically)
+
+- **OTP + magic-link consumption is atomic.** Replaced the read-then-write
+  consume with a conditional `UPDATE … WHERE used_at IS NULL` so two
+  concurrent requests with the same valid code can never both succeed
+  (security-review #1).
+- **2FA challenge tokens are stored as HMAC at rest.** The DB only ever sees
+  the digest; the plaintext is returned to the client exactly once at
+  creation (security-review #5). Reuse semantics: the row is still de-
+  duplicated, but the token is rotated on reuse (the latest call's token is
+  the active one).
+- **Trusted-device secret is HMAC-peppered** (security-review #6). Currently
+  trusted devices are re-challenged once on upgrade.
+- **API tokens record their creator** in new `created_by_*` columns — user-
+  issued tokens self-attribute, admin-issued (unowned) tokens carry the
+  admin's id (security-review #8 audit half).
+
+### Security — added (opt-in, defaults preserve today's behavior)
+
+- **`password_reset.auto_login`** — set `false` to force a fresh login after a
+  reset; revokes every session and issues no token (security-review #4).
+- **`api_tokens.admin_require_step_up`** — admin token creation can require a
+  fresh sudo / 2FA step-up, mirroring the user-side flag.
+- **`AdminGate` middleware** replaces the hard-coded `role:` on package admin
+  route groups. Configurable via `account.status.admin_middleware` and
+  `api_tokens.admin_middleware` — accepts any pipe-separated list of roles
+  and/or Spatie permissions (security-review #7).
+- **`response.hidden_user_fields`** — the always-stripped serialization list
+  is now config, so hosts can add custom sensitive columns without losing
+  the defensive net.
+- **`security.profile`** preset (`relaxed` | `balanced` | `high`) — fills in
+  safe defaults at boot, but only for keys whose env var is unset, so any
+  explicit `.env` value still wins. `high` flips on every hardening flag the
+  library exposes.
+
+### Changed
+
+- CI workflow now runs `composer audit` as a release-gate check.
+
+---
+
 ## [2.7.0] — 2026-05-27
 
 Second security-hardening pass (audit-driven). **Safe, non-breaking upgrade**:

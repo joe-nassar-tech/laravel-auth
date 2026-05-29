@@ -21,6 +21,7 @@ use Joe404\LaravelAuth\Contracts\ResponseFormatterContract;
 use Joe404\LaravelAuth\Events\SuspiciousLoginDetected;
 use Joe404\LaravelAuth\Events\UserRegistered;
 use Joe404\LaravelAuth\Http\Formatters\DefaultResponseFormatter;
+use Joe404\LaravelAuth\Http\Middleware\AdminGate;
 use Joe404\LaravelAuth\Http\Middleware\ApiTokenAuth;
 use Joe404\LaravelAuth\Http\Middleware\DeviceFingerprint;
 use Joe404\LaravelAuth\Http\Middleware\EnforceRequired2FA;
@@ -123,6 +124,7 @@ class AuthServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        $this->applySecurityProfile();
         $this->validateConfig();
         $this->ensureApiRateLimiter();
         $this->publishAssets();
@@ -221,6 +223,69 @@ class AuthServiceProvider extends ServiceProvider
         }
     }
 
+    /**
+     * Apply the opt-in security PROFILE (security.profile = relaxed|balanced|
+     * high). The profile fills curated secure defaults — but ONLY for keys
+     * whose associated env var is unset, so any explicit `.env` value the
+     * developer set always wins. "developer freedom" preserved.
+     *
+     * Caveat (documented in UPGRADING): if the host published the package
+     * config and hardcoded a value WITHOUT going through env, the profile
+     * cannot see that override and may set its own value. Use env for
+     * profile-controlled keys (or set security.profile=null and configure
+     * every flag explicitly).
+     */
+    private function applySecurityProfile(): void
+    {
+        $profile = (string) config('auth_system.security.profile', '');
+        $map     = $this->securityProfileMap($profile);
+
+        if ($map === []) {
+            return;
+        }
+
+        foreach ($map as $configKey => $spec) {
+            if (env($spec['env']) === null) {
+                config(["auth_system.{$configKey}" => $spec['value']]);
+            }
+        }
+    }
+
+    /**
+     * Mapping of preset → list of [config-key => [env, value]]. 'relaxed' is
+     * effectively the v2.7 defaults (no overrides). 'balanced' enables the
+     * obvious anti-DoS / anti-CSRF flags. 'high' enables everything the
+     * library exposes as a hardening flag.
+     *
+     * @return array<string, array{env: string, value: mixed}>
+     */
+    private function securityProfileMap(string $profile): array
+    {
+        return match ($profile) {
+            'high' => [
+                'api_tokens.strict_abilities'                          => ['env' => 'AUTH_API_TOKENS_STRICT',                 'value' => true],
+                'api_tokens.require_step_up'                           => ['env' => 'AUTH_API_TOKENS_REQUIRE_STEP_UP',        'value' => true],
+                'api_tokens.admin_require_step_up'                     => ['env' => 'AUTH_API_TOKENS_ADMIN_REQUIRE_STEP_UP',  'value' => true],
+                'social.enforce_state'                                 => ['env' => 'AUTH_SOCIAL_ENFORCE_STATE',              'value' => true],
+                'security.lockout.scope'                               => ['env' => 'AUTH_LOCKOUT_SCOPE',                     'value' => 'email_and_ip'],
+                'password_reset.auto_login'                            => ['env' => 'AUTH_PASSWORD_RESET_AUTO_LOGIN',         'value' => false],
+                'account.status.admin_actions.enforce_role_hierarchy'  => ['env' => 'AUTH_ACCOUNT_STATUS_HIERARCHY',          'value' => true],
+                'account.status.require_step_up'                       => ['env' => 'AUTH_ACCOUNT_STATUS_REQUIRE_STEP_UP',    'value' => true],
+                'trusted_devices.registration_device_level'            => ['env' => 'AUTH_TRUST_REG_DEVICE_LEVEL',            'value' => 'medium'],
+                'two_factor.required'                                  => ['env' => 'AUTH_2FA_REQUIRED',                      'value' => true],
+            ],
+            'balanced' => [
+                'api_tokens.strict_abilities' => ['env' => 'AUTH_API_TOKENS_STRICT',    'value' => true],
+                'social.enforce_state'        => ['env' => 'AUTH_SOCIAL_ENFORCE_STATE', 'value' => true],
+                'security.lockout.scope'      => ['env' => 'AUTH_LOCKOUT_SCOPE',        'value' => 'email_and_ip'],
+            ],
+            'relaxed' => [
+                // 'relaxed' = the v2.7 defaults; nothing to override.
+            ],
+            default => [], // unknown profile name → no-op (developer's config wins)
+        };
+    }
+
     private function publishAssets(): void
     {
         if ($this->app->runningInConsole()) {
@@ -310,6 +375,7 @@ class AuthServiceProvider extends ServiceProvider
         $router->aliasMiddleware('auth.step-up', RequireStepUp::class);
         $router->aliasMiddleware('auth.require-2fa-enrolled', EnforceRequired2FA::class);
         $router->aliasMiddleware('auth.api-token-stepup', RequireStepUpForApiTokenCreation::class);
+        $router->aliasMiddleware('auth.admin-gate', AdminGate::class);
 
         // Spatie's PermissionServiceProvider stopped auto-registering middleware
         // aliases in Laravel 11. We register them here so package routes

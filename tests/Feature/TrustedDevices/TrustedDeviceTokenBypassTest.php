@@ -33,7 +33,7 @@ it('does NOT bypass 2FA when only the fingerprint matches a trusted device', fun
     AuthTrustedDevice::create([
         'user_id'          => $user->getKey(),
         'fingerprint_hash' => $fingerprint,
-        'secret_hash'      => hash('sha256', $plainSecret),
+        'secret_hash'      => authOtpHash($plainSecret),
         'level'            => 'high',
         'first_seen_at'    => now()->subDays(30),
         'last_seen_at'     => now(),
@@ -61,7 +61,7 @@ it('bypasses 2FA when BOTH fingerprint and trusted_device_token are presented', 
     AuthTrustedDevice::create([
         'user_id'          => $user->getKey(),
         'fingerprint_hash' => $fingerprint,
-        'secret_hash'      => hash('sha256', $plainSecret),
+        'secret_hash'      => authOtpHash($plainSecret),
         'level'            => 'high',
         'first_seen_at'    => now()->subDays(30),
         'last_seen_at'     => now(),
@@ -108,7 +108,7 @@ it('issues a fresh trusted_device_token when user opts into trust during 2FA cha
 
     // The stored row's secret_hash should match SHA-256 of the returned token.
     $device = AuthTrustedDevice::where('user_id', $user->getKey())->first();
-    expect($device->secret_hash)->toBe(hash('sha256', $token));
+    expect($device->secret_hash)->toBe(authOtpHash($token));
 });
 
 it('does NOT issue or expose trusted_device_token when trust_device is omitted', function () {

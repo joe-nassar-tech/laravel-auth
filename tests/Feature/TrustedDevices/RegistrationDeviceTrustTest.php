@@ -44,7 +44,7 @@ it('a freshly-registered device does NOT bypass 2FA on the next login under defa
     AuthTrustedDevice::create([
         'user_id'          => $user->getKey(),
         'fingerprint_hash' => $fingerprint,
-        'secret_hash'      => hash('sha256', $plainSecret),
+        'secret_hash'      => authOtpHash($plainSecret),
         'level'            => 'high',  // stored high…
         'first_seen_at'    => now(),
         'last_seen_at'     => now(),

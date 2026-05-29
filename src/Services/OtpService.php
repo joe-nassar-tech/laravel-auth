@@ -153,7 +153,17 @@ class OtpService
             throw new OtpInvalidException();
         }
 
-        AuthOtpCode::where('id', $active->getKey())->update(['used_at' => now()]);
+        // Atomic single-use consume: only the request that flips used_at from
+        // NULL wins (UPDATE ... WHERE used_at IS NULL is atomic per row). A
+        // concurrent request that also passed the hash check gets 0 affected
+        // rows and is rejected, so a valid OTP can never be consumed twice.
+        $consumed = AuthOtpCode::where('id', $active->getKey())
+            ->whereNull('used_at')
+            ->update(['used_at' => now()]);
+
+        if ($consumed === 0) {
+            throw new OtpInvalidException();
+        }
 
         return $active->fresh();
     }
@@ -174,7 +184,15 @@ class OtpService
             throw new OtpExpiredException();
         }
 
-        $record->update(['used_at' => now()]);
+        // Atomic single-use consume (see validateOtp): conditional update so a
+        // concurrent magic-link click cannot consume the same token twice.
+        $consumed = AuthOtpCode::where('id', $record->getKey())
+            ->whereNull('used_at')
+            ->update(['used_at' => now()]);
+
+        if ($consumed === 0) {
+            throw new OtpInvalidException();
+        }
 
         return $record->fresh();
     }

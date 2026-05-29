@@ -17,18 +17,26 @@ class ApiTokenService
         array  $abilities = ['read'],
         ?int   $expiresInDays = null,
         mixed  $owner = null,
+        mixed  $createdBy = null,
     ): array {
         $raw    = Str::random(64);
         $hash   = $this->hash($raw);
         $bearer = 'auth_at_' . base64_encode($raw);
 
+        // Default the creator to the owner: user-issued tokens have the same
+        // actor on both sides. Admin-issued (unowned) tokens pass createdBy
+        // explicitly so the unowned row is still attributable.
+        $creator = $createdBy ?? $owner;
+
         $token = AuthApiToken::create([
-            'name'       => $name,
-            'token_hash' => $hash,
-            'abilities'  => $abilities ?: config('auth_system.api_tokens.abilities_default', ['read']),
-            'owner_type' => $owner !== null ? get_class($owner) : null,
-            'owner_id'   => $owner !== null && method_exists($owner, 'getKey') ? $owner->getKey() : null,
-            'expires_at' => $expiresInDays !== null ? now()->addDays($expiresInDays) : null,
+            'name'            => $name,
+            'token_hash'      => $hash,
+            'abilities'       => $abilities ?: config('auth_system.api_tokens.abilities_default', ['read']),
+            'owner_type'      => $owner !== null ? get_class($owner) : null,
+            'owner_id'        => $owner !== null && method_exists($owner, 'getKey') ? $owner->getKey() : null,
+            'created_by_type' => $creator !== null ? get_class($creator) : null,
+            'created_by_id'   => $creator !== null && method_exists($creator, 'getKey') ? $creator->getKey() : null,
+            'expires_at'      => $expiresInDays !== null ? now()->addDays($expiresInDays) : null,
         ]);
 
         return ['raw_token' => $bearer, 'token' => $token];

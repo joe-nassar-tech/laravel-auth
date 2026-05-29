@@ -897,7 +897,15 @@ class AuthService
     {
         $array = $user->toArray();
 
-        unset($array['password'], $array['remember_token']);
+        // Always strip the configured sensitive fields, even if the host's User
+        // model omits them from $hidden. Configurable so hosts can add custom
+        // columns (e.g. 'two_factor_secret') without losing the defensive net.
+        /** @var array<int,string> $hidden */
+        $hidden = (array) config('auth_system.response.hidden_user_fields', ['password', 'remember_token']);
+
+        foreach ($hidden as $field) {
+            unset($array[(string) $field]);
+        }
 
         return $array;
     }
@@ -987,12 +995,29 @@ class AuthService
 
         $user->update(['password' => Hash::make($newPassword)]);
 
-        if ($logoutAll) {
+        $autoLogin = (bool) config('auth_system.password_reset.auto_login', true);
+
+        // When auto-login is OFF (high-security), always revoke every existing
+        // session/token so the reset forces a fresh login everywhere. When ON,
+        // honor the caller's logout_all choice.
+        if (! $autoLogin || $logoutAll) {
             $this->tokenService->revokeAll($user);
             $this->sessionService->deleteAll($user);
         }
 
         PasswordChanged::dispatch($user);
+
+        if (! $autoLogin) {
+            // No token / no challenge — the user must log in again with the new
+            // password. Reduces attacker leverage if the reset channel (email
+            // inbox) was briefly compromised.
+            return [
+                'auto_login'    => false,
+                'user'          => $this->safeUserArray($user),
+                'token'         => null,
+                'refresh_token' => null,
+            ];
+        }
 
         // #7 — auto-login after reset goes through the SAME 2FA gate as a
         // normal login. A user with 2FA enabled gets a challenge_token instead

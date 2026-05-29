@@ -1,5 +1,56 @@
 # Upgrading
 
+## 2.7.0 → 2.7.1
+
+This is a small **security-hardening + bug-fix** release. Safe to upgrade —
+every behavior change is behind a config flag defaulting to today's behavior.
+
+> **Important — read this if you are on `2.7.0`:** the published `v2.7.0` tag
+> was placed on the commit *before* the v2.7 work was merged, so installing
+> `joe-404/laravel-auth:v2.7.0` actually gives you the v2.6.1 code. Upgrading
+> to **`v2.7.1`** brings you the **real** v2.7 security pass **plus** the
+> v2.7.1 items below in one step.
+
+### 1. Run the new migrations
+
+```bash
+php artisan migrate
+```
+
+| Migration | What it does |
+|-----------|--------------|
+| `widen_auth_two_factor_challenges_challenge_token` | Widens the column to `string(64)` so 2FA challenge tokens can be stored as their HMAC digest (not the raw UUID). |
+| `add_creator_to_auth_api_tokens` | Adds nullable `created_by_id` / `created_by_type` so API tokens are attributable to the actor who issued them. |
+
+### 2. Applied automatically (no action needed)
+
+- **OTP + magic-link consumption is atomic.** A conditional `WHERE used_at IS NULL` update closes the race where two concurrent requests with the same valid code could both succeed.
+- **2FA challenge tokens are stored as HMAC** (peppered with `APP_KEY`), matching how the package hashes every other bearer-style secret. The plaintext is returned to the client exactly once at creation. *Heads-up:* when the same user logs in repeatedly within the TTL the package still re-uses the row (no spam) but rotates the token — the latest call's token is the active one.
+- **Trusted-device secret is HMAC-peppered.** Same consistency win. *Heads-up:* every currently-trusted device is re-challenged once after upgrade (the stored hash changes); users opt back into trust at the next 2FA prompt.
+- **`AdminGate` middleware** replaces the hard-coded `role:` on the package's admin route groups, so admin gates can be config-swapped between roles and permissions without code changes. No-op for role-based hosts.
+- **API tokens record their creator.** User-issued tokens: `created_by` = user; admin-issued unowned tokens: `created_by` = admin.
+
+### 3. Opt-in flags (defaults preserve today's behavior)
+
+| Env / config | Default | Turn it on to… |
+|--------------|---------|----------------|
+| `AUTH_PASSWORD_RESET_AUTO_LOGIN=false` (`password_reset.auto_login`) | `true` | After a reset: change the password, revoke every session, **don't** issue a token — the user logs in again. Best when the reset channel (email) might be briefly compromised. |
+| `AUTH_API_TOKENS_ADMIN_REQUIRE_STEP_UP=true` (`api_tokens.admin_require_step_up`) | `false` | Require a fresh step-up before an admin can mint a token via the admin endpoint (mirrors the user-side flag). |
+| `AUTH_ACCOUNT_STATUS_ADMIN_MIDDLEWARE=...` (`account.status.admin_middleware`) | `null` | Replace `role:<admin_ability>` with any role/permission spec, e.g. `'super-admin\|users.manage-status'`. Same for `AUTH_API_TOKENS_ADMIN_MIDDLEWARE` on the admin api-token routes. |
+| `auth_system.response.hidden_user_fields` | `['password','remember_token']` | Add custom sensitive columns (e.g. `'two_factor_secret'`) to the always-stripped list — the defensive net stays in effect even if your User model omits `$hidden`. |
+
+### 4. Security profile (new — opt in)
+
+```dotenv
+AUTH_SECURITY_PROFILE=high     # | balanced | relaxed | (unset)
+```
+
+A single env flips on a curated bundle of secure defaults. When set, the package fills in safe values for the profileable flags at boot — **but only when the corresponding env var is unset**, so any explicit `.env` value you set always wins. The **`high`** profile turns on: strict API-token abilities, user + admin token step-up, OAuth state enforcement, `email_and_ip` lockout scope, reset auto-login off, admin role hierarchy, admin status step-up, registration-device trust = `medium`, and required 2FA. **`balanced`** turns on the obvious anti-DoS / anti-CSRF flags. **`relaxed`** is a no-op (matches v2.7 defaults).
+
+> Caveat: the env-aware gate cannot detect hardcoded values in a **published** config file. For profile-controlled keys, prefer env, or set `AUTH_SECURITY_PROFILE=` (unset) and configure each flag yourself.
+
+---
+
 ## 2.6.x → 2.7.0
 
 This is a **security-hardening** release. It is designed to be a **safe,

@@ -68,3 +68,23 @@ jobs:
           DB_USERNAME: root
           DB_PASSWORD: root
         run: vendor/bin/pest
+
+  audit:
+    runs-on: ubuntu-latest
+    name: composer audit
+    # Release-gate check (v2.7.1): fails the build if any installed dependency
+    # has a known advisory on Packagist. Mirrors the security-review checklist.
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, bcmath, intl
+          coverage: none
+
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-interaction --no-progress
+
+      - name: composer audit
+        run: composer audit

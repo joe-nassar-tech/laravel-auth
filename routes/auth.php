@@ -215,11 +215,14 @@ Route::middleware([
     'auth.no-refresh',
     'auth.verified',
     'auth.active',
-    'role:super-admin|admin',
+    'auth.admin-gate:api_tokens',
     'auth.feature:api_tokens',
 ])->prefix('admin')->group(function (): void {
     Route::get('api-tokens', [ApiTokenController::class, 'adminIndex']);
-    Route::post('api-tokens', [ApiTokenController::class, 'adminStore']);
+    // #25 — optional step-up gate for admin token creation, mirroring the
+    // user-side require_step_up. Read at request time, route:cache-safe.
+    Route::post('api-tokens', [ApiTokenController::class, 'adminStore'])
+        ->middleware('auth.api-token-stepup:auth_system.api_tokens.admin_require_step_up');
     Route::patch('api-tokens/{id}', [ApiTokenController::class, 'adminUpdate']);
     Route::delete('api-tokens/{id}', [ApiTokenController::class, 'adminDestroy']);
 });
@@ -233,7 +236,7 @@ Route::middleware([
     'auth.no-refresh',
     'auth.verified',
     'auth.active',
-    'role:' . (string) config('auth_system.account.status.admin_ability', 'super-admin|admin'),
+    'auth.admin-gate:account.status',
 ])->prefix('admin')->group(function (): void {
     Route::get('users/{id}/status', [UserStatusController::class, 'show']);
 

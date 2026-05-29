@@ -21,9 +21,12 @@ class RequireStepUpForApiTokenCreation
 {
     public function __construct(private readonly RequireStepUp $stepUp) {}
 
-    public function handle(Request $request, Closure $next): mixed
-    {
-        if (! (bool) config('auth_system.api_tokens.require_step_up', false)) {
+    public function handle(
+        Request $request,
+        Closure $next,
+        string $configKey = 'auth_system.api_tokens.require_step_up',
+    ): mixed {
+        if (! (bool) config($configKey, false)) {
             return $next($request);
         }
 
