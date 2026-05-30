@@ -264,8 +264,9 @@ class AuthServiceProvider extends ServiceProvider
         return match ($profile) {
             'high' => [
                 'api_tokens.strict_abilities'                          => ['env' => 'AUTH_API_TOKENS_STRICT',                 'value' => true],
-                'api_tokens.require_step_up'                           => ['env' => 'AUTH_API_TOKENS_REQUIRE_STEP_UP',        'value' => true],
-                'api_tokens.admin_require_step_up'                     => ['env' => 'AUTH_API_TOKENS_ADMIN_REQUIRE_STEP_UP',  'value' => true],
+                'api_tokens.require_step_up'                           => ['env' => 'AUTH_API_TOKENS_REQUIRE_STEP_UP',           'value' => true],
+                'api_tokens.require_step_up_for_revoke'                => ['env' => 'AUTH_API_TOKENS_REQUIRE_STEP_UP_FOR_REVOKE', 'value' => true],
+                'api_tokens.admin_require_step_up'                     => ['env' => 'AUTH_API_TOKENS_ADMIN_REQUIRE_STEP_UP',     'value' => true],
                 'social.enforce_state'                                 => ['env' => 'AUTH_SOCIAL_ENFORCE_STATE',              'value' => true],
                 'security.lockout.scope'                               => ['env' => 'AUTH_LOCKOUT_SCOPE',                     'value' => 'email_and_ip'],
                 'password_reset.auto_login'                            => ['env' => 'AUTH_PASSWORD_RESET_AUTO_LOGIN',         'value' => false],

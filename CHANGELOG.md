@@ -6,6 +6,44 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and 
 
 ---
 
+## [2.7.3] — 2026-05-30
+
+Hardening + privacy follow-up to v2.7.2. **Safe, non-breaking upgrade** — no
+migrations, defaults preserve today's behavior. See
+[UPGRADING.md](UPGRADING.md).
+
+### Security — fixed (applied automatically)
+
+- **2FA challenge consumption is atomic across factors.** The challenge ROW's
+  final `consumed_at` write in `TwoFactorChallengeService::verify()` is now a
+  conditional `WHERE consumed_at IS NULL` update. Two concurrent verifies with
+  valid codes for two *different* enrolled factors can never both produce a
+  login success — the row is single-use even under concurrency.
+- **Admin referral routes now use the configurable `AdminGate`** (matching
+  v2.7.1's admin status / api-token groups). The remaining hard-coded `role:`
+  on `GET/PATCH /auth/admin/referrals` was replaced with
+  `auth.admin-gate:referral_code`. Default resolves to `super-admin|admin` —
+  behavior unchanged for existing hosts.
+- **Deleted-account snapshot strips sensitive fields.**
+  `AccountDeletionService` no longer stores `$user->toArray()` raw in
+  `deleted_accounts.snapshot` — the password hash, `remember_token`, and any
+  configured custom fields are removed before persistence. Closes a privacy
+  gap where a host User without `$hidden` could leave credential material in
+  the permanent deletion audit row.
+
+### Security — added (opt-in, defaults preserve today's behavior)
+
+- **`api_tokens.require_step_up_for_revoke`** — gate `DELETE /auth/api-tokens/
+  {id}` behind a fresh step-up. Mirrors the create-side flag. The `high`
+  security profile now flips this on automatically.
+- **`referral_code.admin_middleware` / `referral_code.admin_ability`** —
+  configurable admin gate for the referral admin routes, matching the
+  account.status / api_tokens pattern.
+- **`account.deletion.snapshot_strip_fields`** — explicit per-deletion strip
+  list; defaults to `null` (falls back to `response.hidden_user_fields`).
+
+---
+
 ## [2.7.2] — 2026-05-29
 
 Concurrency-hardening follow-up to v2.7.1. **Fully safe upgrade** — no

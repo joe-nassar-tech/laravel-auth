@@ -245,6 +245,17 @@ return [
         // The package never computes this — see docs/referral-codes.md for
         // the JS snippet to drop into your frontend.
         'browser_fingerprint_header' => env('AUTH_REFERRAL_FP_HEADER', 'X-Browser-Fingerprint'),
+
+        /*
+        | Admin gate for the referral-admin routes (GET /auth/admin/referrals,
+        | PATCH /auth/admin/referrals/{id}). Same pattern as account.status /
+        | api_tokens: admin_middleware (full middleware-style spec) overrides
+        | admin_ability (role-only fallback). Default uses 'super-admin|admin',
+        | matching v2.7.2 behavior. Set admin_middleware to e.g.
+        | 'super-admin|referrals.manage' to gate by role OR Spatie permission.
+        */
+        'admin_ability'    => env('AUTH_REFERRAL_ADMIN_ABILITY', 'super-admin|admin'),
+        'admin_middleware' => env('AUTH_REFERRAL_ADMIN_MIDDLEWARE', null),
     ],
 
     /*
@@ -892,6 +903,15 @@ return [
         'require_step_up' => (bool) env('AUTH_API_TOKENS_REQUIRE_STEP_UP', false),
 
         /*
+        | Require a fresh step-up before a user can REVOKE their own API token
+        | via DELETE /auth/api-tokens/{id}. Default off (back-compat). Mostly
+        | useful in high-security mode so a hijacked session cannot quietly
+        | revoke the legitimate user's other tokens. The 'high' security
+        | profile flips this on automatically.
+        */
+        'require_step_up_for_revoke' => (bool) env('AUTH_API_TOKENS_REQUIRE_STEP_UP_FOR_REVOKE', false),
+
+        /*
         | Optional hard cap (days) on a created token's lifetime. null keeps the
         | current behavior (tokens may be non-expiring). Set e.g. 365 to forbid
         | never-expiring tokens.
@@ -1172,6 +1192,13 @@ return [
             'move_to_deleted_table'    => (bool) env('AUTH_ACCOUNT_AUDIT_TABLE', true),
             'unique_columns'           => env('AUTH_ACCOUNT_UNIQUE_COLUMNS', 'auto'),
             'unique_exclude'           => ['id'],
+
+            // Fields stripped from the user snapshot stored in deleted_accounts.
+            // null (default) uses response.hidden_user_fields as the source of
+            // truth — so password / remember_token never survive deletion even
+            // if the host's User model omits them from $hidden. Pass an array
+            // here to override that list per deletion.
+            'snapshot_strip_fields'    => null,
         ],
 
         /*
