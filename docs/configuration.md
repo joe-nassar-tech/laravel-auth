@@ -10,6 +10,98 @@ php artisan vendor:publish --tag=auth-config
 
 ---
 
+## v2.7+ additions (quick reference)
+
+This page below documents the v2.6 config surface. The keys added across v2.6.1 → v2.7.3 are not yet integrated into the per-section deep-dives — they are listed here as a quick reference with the `.env` variable and default. Full descriptions live in the inline comments of `config/auth_system.php` and in the root [`UPGRADING.md`](../UPGRADING.md) / [`CHANGELOG.md`](../CHANGELOG.md).
+
+### `api_tokens`
+
+| Key | Env | Default | Since |
+|-----|-----|---------|-------|
+| `mode` | `AUTH_API_TOKENS_MODE` | `customer_auth` | v2.7.1 |
+| `grantable_abilities` | — | `['read']` | v2.7.1 |
+| `strict_abilities` | `AUTH_API_TOKENS_STRICT` | `false` | v2.7.1 |
+| `require_step_up` | `AUTH_API_TOKENS_REQUIRE_STEP_UP` | `false` | v2.7.1 |
+| `require_step_up_for_revoke` | `AUTH_API_TOKENS_REQUIRE_STEP_UP_FOR_REVOKE` | `false` | v2.7.3 |
+| `admin_require_step_up` | `AUTH_API_TOKENS_ADMIN_REQUIRE_STEP_UP` | `false` | v2.7.1 (POST) / v2.7.2 (PATCH+DELETE) |
+| `admin_middleware` | `AUTH_API_TOKENS_ADMIN_MIDDLEWARE` | `null` | v2.7.1 |
+| `max_ttl_days` | `AUTH_API_TOKENS_MAX_TTL_DAYS` | `null` | v2.7.1 |
+
+### `account.status`
+
+| Key | Env | Default | Since |
+|-----|-----|---------|-------|
+| `admin_middleware` | `AUTH_ACCOUNT_STATUS_ADMIN_MIDDLEWARE` | `null` | v2.7.1 |
+| `admin_actions.enforce_role_hierarchy` | `AUTH_ACCOUNT_STATUS_HIERARCHY` | `false` | v2.7.1 |
+| `admin_actions.allow_self_action` | `AUTH_ACCOUNT_STATUS_ALLOW_SELF` | `false` | v2.7.1 |
+| `admin_actions.allow_equal_rank` | `AUTH_ACCOUNT_STATUS_ALLOW_EQUAL` | `false` | v2.7.1 |
+| `admin_actions.role_ranks` | — | `['super-admin'=>100,'admin'=>50]` | v2.7.1 |
+
+### `account.deletion`
+
+| Key | Default | Since |
+|-----|---------|-------|
+| `snapshot_strip_fields` | `null` (uses `response.hidden_user_fields`) | v2.7.3 |
+
+### `password_reset`
+
+| Key | Env | Default | Since |
+|-----|-----|---------|-------|
+| `auto_login` | `AUTH_PASSWORD_RESET_AUTO_LOGIN` | `true` | v2.7.1 |
+
+### `social`
+
+| Key | Env | Default | Since |
+|-----|-----|---------|-------|
+| `enforce_state` | `AUTH_SOCIAL_ENFORCE_STATE` | `false` | v2.7.1 |
+
+### `security`
+
+| Key | Env | Default | Since |
+|-----|-----|---------|-------|
+| `profile` | `AUTH_SECURITY_PROFILE` | `null` (`relaxed`\|`balanced`\|`high`) | v2.7.1 |
+| `lockout.scope` | `AUTH_LOCKOUT_SCOPE` | `email` (`ip`\|`email_and_ip`) | v2.7.1 |
+| `lockout.backoff` | `AUTH_LOCKOUT_BACKOFF` | `false` | v2.7.1 |
+
+### `trusted_devices`
+
+| Key | Env | Default | Since |
+|-----|-----|---------|-------|
+| `registration_device_level` | `AUTH_TRUST_REG_DEVICE_LEVEL` | `high` | v2.7.1 |
+
+### `response`
+
+| Key | Default | Since |
+|-----|---------|-------|
+| `hidden_user_fields` | `['password','remember_token']` | v2.7.1 |
+
+### `referral_code`
+
+| Key | Env | Default | Since |
+|-----|-----|---------|-------|
+| `admin_ability` | `AUTH_REFERRAL_ADMIN_ABILITY` | `'super-admin\|admin'` | v2.7.3 |
+| `admin_middleware` | `AUTH_REFERRAL_ADMIN_MIDDLEWARE` | `null` | v2.7.3 |
+
+### Security profile mapping
+
+`AUTH_SECURITY_PROFILE=high` flips on every hardening flag the library exposes (unless the corresponding env var is already set, in which case the env value always wins):
+
+- `api_tokens.strict_abilities = true`
+- `api_tokens.require_step_up = true`
+- `api_tokens.require_step_up_for_revoke = true` (v2.7.3)
+- `api_tokens.admin_require_step_up = true`
+- `social.enforce_state = true`
+- `security.lockout.scope = email_and_ip`
+- `password_reset.auto_login = false`
+- `account.status.admin_actions.enforce_role_hierarchy = true`
+- `account.status.require_step_up = true`
+- `trusted_devices.registration_device_level = medium`
+- `two_factor.required = true`
+
+`AUTH_SECURITY_PROFILE=balanced` enables only `strict_abilities`, `enforce_state`, and `lockout.scope=email_and_ip`. `relaxed` (or unset) is a no-op.
+
+---
+
 ## Table of Contents
 
 1. [mode](#1-mode)

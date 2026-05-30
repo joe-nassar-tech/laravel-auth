@@ -2,6 +2,10 @@
 
 Added in v2.4. A configurable status workflow for every user. Changing a status takes effect immediately — no waiting for tokens to expire.
 
+> **v2.7.1+ additions** (not yet integrated into the sections below):
+> - **Admin role hierarchy** (`account.status.admin_actions.enforce_role_hierarchy`) — an opt-in guard that prevents an admin from changing a peer / higher-privileged / self account status. Configurable via `role_ranks`, `allow_self_action`, `allow_equal_rank`.
+> - **Configurable admin gate** (`account.status.admin_middleware`) — replaces the hard-coded `role:` middleware on the admin status routes. Accepts any pipe-separated list of roles **or** Spatie permissions, e.g. `'super-admin|users.manage-status'`. See [`docs/middleware.md`](middleware.md#v27-additions-quick-reference) for the `auth.admin-gate` middleware, and [`docs/configuration.md`](configuration.md#v27-additions-quick-reference) for the full key list.
+
 ---
 
 ## Table of Contents

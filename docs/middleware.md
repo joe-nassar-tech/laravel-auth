@@ -6,6 +6,20 @@ Every HTTP middleware the package registers, what it does, where to apply it, wh
 
 ---
 
+## v2.7+ additions (quick reference)
+
+Three new middleware aliases were registered in v2.7.1. The alias cheat-sheet and per-middleware sections below do not yet list them. Quick reference:
+
+| Alias | Class | What it does | Since |
+|-------|-------|--------------|-------|
+| `auth.require-2fa-enrolled` | `EnforceRequired2FA` | When `two_factor.required=true`, blocks the package's authenticated routes for users who haven't enrolled a 2FA method, returning `data.must_enroll_2fa: true`. Exempts `/me`, `/logout` (+ `/logout/all`), `/password/confirm`, `/session/clear`, and the entire `/2fa/*` enrollment surface so users can still enroll or log out. No-op when `two_factor.required=false` (default). | v2.7.1 |
+| `auth.api-token-stepup` | `RequireStepUpForApiTokenCreation` | Gates API-token routes behind a fresh sudo / 2FA step-up when the matching config flag is on. Takes the flag's config path as a parameter so the same class drives multiple gates: `auth.api-token-stepup` (user POST, reads `api_tokens.require_step_up`), `auth.api-token-stepup:auth_system.api_tokens.require_step_up_for_revoke` (user DELETE — v2.7.3), `auth.api-token-stepup:auth_system.api_tokens.admin_require_step_up` (admin POST/PATCH/DELETE — v2.7.1 POST / v2.7.2 PATCH+DELETE). The flag is read at request time, so `route:cache` and per-environment config both behave. | v2.7.1 |
+| `auth.admin-gate` | `AdminGate` | Replaces the hard-coded `role:` middleware on the package's admin route groups. Takes a config section as a parameter (`auth.admin-gate:account.status`, `auth.admin-gate:api_tokens`, `auth.admin-gate:referral_code`) and reads `auth_system.<section>.admin_middleware` (override) or `admin_ability` (fallback) at request time. Each pipe-separated token is treated as **a role OR a Spatie permission** — passes on the first match. Lets you gate by role (`super-admin\|admin`), by permission (`users.manage-status`), or any mix. | v2.7.1 (account.status, api_tokens) / v2.7.3 (referral_code) |
+
+The classes live at `src/Http/Middleware/EnforceRequired2FA.php`, `src/Http/Middleware/RequireStepUpForApiTokenCreation.php`, and `src/Http/Middleware/AdminGate.php`. Full per-flag behavior is documented in the root [`UPGRADING.md`](../UPGRADING.md).
+
+---
+
 ## Table of Contents
 
 - [Alias cheat-sheet](#alias-cheat-sheet)

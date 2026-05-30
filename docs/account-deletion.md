@@ -2,6 +2,8 @@
 
 Added in v2.4. A self-service soft-delete flow with a configurable grace period during which a normal login transparently restores the account. After the grace window elapses, a scheduled worker permanently anonymises the row.
 
+> **v2.7.3 addition:** the `deleted_accounts.snapshot` column now strips sensitive fields before persistence (the password hash, `remember_token`, and anything else listed in `auth_system.response.hidden_user_fields` or — if set — `auth_system.account.deletion.snapshot_strip_fields`). Closes a privacy gap where a host User model without `$hidden` could otherwise retain credential material in the permanent deletion audit row.
+
 ---
 
 ## Table of Contents

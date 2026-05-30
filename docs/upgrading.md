@@ -6,6 +6,22 @@ Version history for `joe-404/laravel-auth`. Every release is documented — what
 
 ---
 
+> ### v2.6.1 → v2.7.3 — see root docs for full notes
+>
+> This file's per-version sections currently stop at **v2.6.0**. For full per-version notes on **v2.6.1, v2.7.0, v2.7.1, v2.7.2, and v2.7.3**, see the canonical [`UPGRADING.md`](../UPGRADING.md) and [`CHANGELOG.md`](../CHANGELOG.md) at the repo root.
+>
+> Quick summary of what's new since v2.6.0:
+>
+> - **v2.6.1** — security hardening: social/reset 2FA gates, `auth.step-up` middleware, HMAC OTP, fragment tokens, `auth.active` on admin groups, password floor 15.
+> - **v2.7.0** — ⚠ **mis-tagged** on the v2.6.1 commit by mistake; `composer require :2.7.0` actually installs v2.6.1 code. **Do not pin to it — use v2.7.3.**
+> - **v2.7.1** — the real v2.7 security pass: email-2FA strict-DB fix, timing-safe login, refresh hash strip, UUID-safe step-up cache keys, TOTP replay protection, switch + password-confirm rate limits, `APP_KEY` boot guard, denylist hardening, `required` 2FA enforcement on package routes, opt-in strict API-token abilities, admin role hierarchy, OAuth `state` for stateless clients, configurable trusted-device level, `security.profile` preset (`relaxed`/`balanced`/`high`).
+> - **v2.7.2** — concurrency hardening: atomic single-use for backup codes, phone OTP, and TOTP replay; admin API-token PATCH/DELETE step-up symmetry.
+> - **v2.7.3** — atomic 2FA challenge consumption across factors; admin referral routes through `AdminGate`; deleted-account snapshot strips sensitive fields; optional user-side revoke step-up.
+>
+> The per-version sections below will be migrated into this file in a dedicated docs sprint.
+
+---
+
 ## Table of Contents
 
 - [v2.6.0 — Current stable](#v260----current-stable)
