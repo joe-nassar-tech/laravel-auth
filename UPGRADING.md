@@ -1,5 +1,45 @@
 # Upgrading
 
+## 2.7.2 → 2.7.3
+
+Hardening + privacy follow-up to v2.7.2. **Safe, non-breaking upgrade** — no
+migrations, one new config section (referral admin gate), one new opt-in flag.
+
+### Applied automatically (no action needed)
+
+- **2FA challenge consumption is atomic across factors.** The challenge ROW's
+  final `consumed_at` write is now a conditional `WHERE consumed_at IS NULL`
+  update — two concurrent verifies with valid codes for two *different*
+  enrolled factors can never both produce a login success.
+- **Admin referral routes now go through `AdminGate`.** The remaining hard-
+  coded `role:` middleware on `GET/PATCH /auth/admin/referrals` was replaced
+  with `auth.admin-gate:referral_code`, matching the other admin groups. The
+  default still resolves to `super-admin|admin`, so behavior is unchanged for
+  existing role-based hosts.
+- **Deleted-account snapshot strips sensitive fields.** The `snapshot` column
+  in `deleted_accounts` previously stored `$user->toArray()` raw — so a host
+  User without `$hidden` retained the password hash forever. The snapshot now
+  uses `response.hidden_user_fields` (or the new
+  `account.deletion.snapshot_strip_fields` if set) to drop `password` /
+  `remember_token` / any custom sensitive columns before storage.
+
+### Opt-in flags / config (defaults preserve today's behavior)
+
+| Env / config | Default | What it does |
+|--------------|---------|--------------|
+| `AUTH_API_TOKENS_REQUIRE_STEP_UP_FOR_REVOKE=true` (`api_tokens.require_step_up_for_revoke`) | `false` | Require a fresh step-up before a user can revoke their own API token via `DELETE /auth/api-tokens/{id}`. Mirrors the create-side flag. **The `high` security profile flips this on automatically.** |
+| `AUTH_REFERRAL_ADMIN_MIDDLEWARE=…` (`referral_code.admin_middleware`) | `null` | Replace `role:<referral_code.admin_ability>` on the referral admin routes with any role/permission spec, e.g. `'super-admin\|referrals.manage'`. |
+| `AUTH_REFERRAL_ADMIN_ABILITY=…` (`referral_code.admin_ability`) | `'super-admin\|admin'` | Roles allowed by the default referral admin gate (used when `admin_middleware` is null). |
+| `account.deletion.snapshot_strip_fields` | `null` (use `response.hidden_user_fields`) | Explicit per-deletion strip list. Set to override the default. |
+
+### Security profile
+
+The `high` profile now also sets `api_tokens.require_step_up_for_revoke = true`
+(unless `AUTH_API_TOKENS_REQUIRE_STEP_UP_FOR_REVOKE` is set in env). No action
+needed if you already use `AUTH_SECURITY_PROFILE=high`.
+
+---
+
 ## 2.7.1 → 2.7.2
 
 Concurrency-hardening follow-up to v2.7.1. **Fully safe**: no migrations, no

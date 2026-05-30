@@ -52,7 +52,7 @@ class AccountDeletionService
                     'email'              => $user->email ?? null,
                     'username'           => $user->username ?? null,
                     'delete_reason'      => $reason,
-                    'snapshot'           => $user->toArray(),
+                    'snapshot'           => $this->snapshotForDeletion($user),
                     'deleted_at'         => now(),
                     'scheduled_purge_at' => $purgeAt,
                 ]);
@@ -221,6 +221,34 @@ class AccountDeletionService
         }
 
         return ['nulled' => $nulled, 'hard_deleted' => $hardDelete];
+    }
+
+    /**
+     * Build the audit snapshot stored in deleted_accounts, stripping the
+     * configured sensitive fields. Uses account.deletion.snapshot_strip_fields
+     * when set; otherwise falls back to response.hidden_user_fields, so the
+     * password hash / remember_token never survive deletion even when the
+     * host's User model omits them from $hidden.
+     *
+     * @return array<string,mixed>
+     */
+    private function snapshotForDeletion(User $user): array
+    {
+        $array = $user->toArray();
+
+        /** @var array<int,string>|null $custom */
+        $custom = config('auth_system.account.deletion.snapshot_strip_fields');
+
+        /** @var array<int,string> $strip */
+        $strip = is_array($custom) && $custom !== []
+            ? $custom
+            : (array) config('auth_system.response.hidden_user_fields', ['password', 'remember_token']);
+
+        foreach ($strip as $field) {
+            unset($array[(string) $field]);
+        }
+
+        return $array;
     }
 
     private function usesSoftDeletes(User $user): bool

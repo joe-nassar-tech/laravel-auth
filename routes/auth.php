@@ -196,7 +196,8 @@ Route::middleware(['auth:sanctum', 'auth.no-refresh', 'auth.verified', 'auth.act
         // request time so it's route:cache-safe and defaults off).
         Route::post('api-tokens', [ApiTokenController::class, 'store'])
             ->middleware('auth.api-token-stepup');
-        Route::delete('api-tokens/{id}', [ApiTokenController::class, 'destroy']);
+        Route::delete('api-tokens/{id}', [ApiTokenController::class, 'destroy'])
+            ->middleware('auth.api-token-stepup:auth_system.api_tokens.require_step_up_for_revoke');
     });
 
     // Referral codes — gated on auth_system.referral_code.enabled. The
@@ -267,7 +268,7 @@ Route::middleware([
     'auth.no-refresh',
     'auth.verified',
     'auth.active',
-    'role:' . (string) config('auth_system.account.status.admin_ability', 'super-admin|admin'),
+    'auth.admin-gate:referral_code',
     'auth.feature:referral_code',
 ])->prefix('admin')->group(function (): void {
     Route::get('referrals', [AdminReferralController::class, 'index']);

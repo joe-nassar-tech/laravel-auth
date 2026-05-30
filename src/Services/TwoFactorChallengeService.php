@@ -157,10 +157,20 @@ class TwoFactorChallengeService
             throw new TwoFactorChallengeInvalidException('Invalid 2FA code.');
         }
 
-        $challenge->update([
-            'consumed_at' => now(),
-            'method'      => $type,
-        ]);
+        // Atomic single-use of the challenge ROW itself: even if two requests
+        // arrive concurrently with valid codes for two different enrolled
+        // factors, only the first to flip consumed_at from NULL wins. The
+        // loser sees 0 affected rows and is rejected — the second factor's
+        // code was already consumed (each code path is single-use too), but
+        // the challenge itself can never produce two "login successes". Same
+        // pattern as OtpService / BackupCodeService / PhoneVerificationService.
+        $consumed = AuthTwoFactorChallenge::where('id', $challenge->getKey())
+            ->whereNull('consumed_at')
+            ->update(['consumed_at' => now(), 'method' => $type]);
+
+        if ($consumed === 0) {
+            throw new TwoFactorChallengeInvalidException('Challenge already consumed.');
+        }
 
         return $user;
     }
